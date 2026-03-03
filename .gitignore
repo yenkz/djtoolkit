@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Poetry
+# poetry.lock is intentionally tracked (reproducible installs)
+
+# djtoolkit runtime files
+djtoolkit.db
+djtoolkit.db-shm
+djtoolkit.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Config (may contain API keys — copy from djtoolkit.toml.example)
+djtoolkit.toml
+
+# Exported CSVs
+*.csv
+djtoolkit_candidates.csv
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test/coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Logs
+*.log

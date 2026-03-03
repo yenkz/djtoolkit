@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>djtoolkit</title>
+  <style>
+    :root {
+      --bg: #0f0f0f;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --accent: #7c3aed;
+      --accent-hover: #6d28d9;
+      --text: #e5e5e5;
+      --muted: #6b7280;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --blue: #3b82f6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+    header span { color: var(--muted); font-size: 12px; }
+
+    .layout { display: flex; height: calc(100vh - 49px); }
+
+    nav {
+      width: 200px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 16px 0;
+      flex-shrink: 0;
+    }
+
+    nav button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 20px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      transition: color .15s, background .15s;
+    }
+
+    nav button:hover { color: var(--text); background: var(--border); }
+    nav button.active { color: var(--text); background: rgba(124,58,237,.15); border-right: 2px solid var(--accent); }
+
+    main { flex: 1; overflow-y: auto; padding: 24px; }
+
+    .section { display: none; }
+    .section.active { display: block; }
+
+    h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+
+    /* Stats grid */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .stat-card .count { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
+    .stat-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+
+    .status-download_candidate .count { color: var(--blue); }
+    .status-downloaded .count { color: var(--green); }
+    .status-download_fail .count { color: var(--red); }
+    .status-duplicated .count { color: var(--yellow); }
+    .status-metadata_applied .count { color: var(--green); }
+    .status-imported .count { color: var(--blue); }
+    .status-downloading .count { color: var(--yellow); }
+
+    /* Pipeline buttons */
+    .pipeline { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: var(--border); color: var(--text); }
+    .btn-secondary:hover { background: #333; }
+    .btn-danger { background: #450a0a; color: var(--red); border: 1px solid var(--red); }
+    .btn-danger:hover { background: #7f1d1d; }
+
+    /* Track table */
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    tr:hover td { background: var(--surface); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+
+    .badge-download_candidate { background: #1e3a5f; color: var(--blue); }
+    .badge-downloading        { background: #3f2e00; color: var(--yellow); }
+    .badge-downloaded         { background: #052e16; color: var(--green); }
+    .badge-download_fail      { background: #450a0a; color: var(--red); }
+    .badge-duplicated         { background: #3f2e00; color: var(--yellow); }
+    .badge-metadata_applied   { background: #14532d; color: var(--green); }
+    .badge-imported           { background: #1e3a5f; color: var(--blue); }
+
+    /* Filter bar */
+    .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+
+    .filter-bar select, .filter-bar input {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .filter-bar select:focus, .filter-bar input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* Pagination */
+    .pagination { display: flex; gap: 8px; margin-top: 16px; align-items: center; color: var(--muted); font-size: 12px; }
+
+    .pagination button {
+      padding: 4px 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-size: 13px;
+      opacity: 0;
+      transition: opacity .3s;
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    #toast.show { opacity: 1; }
+
+    /* Log output */
+    #log-output {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px;
+      font-family: monospace;
+      font-size: 12px;
+      height: 300px;
+      overflow-y: auto;
+      color: #a3e635;
+    }
+
+    .log-line { margin-bottom: 2px; }
+    .log-error { color: var(--red); }
+    .log-warn  { color: var(--yellow); }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>djtoolkit</h1>
+  <span id="db-path">loading…</span>
+</header>
+
+<div class="layout">
+  <nav>
+    <button class="active" data-section="dashboard">Dashboard</button>
+    <button data-section="tracks">Tracks</button>
+    <button data-section="pipeline">Pipeline</button>
+  </nav>
+
+  <main>
+
+    <!-- DASHBOARD -->
+    <section id="dashboard" class="section active">
+      <h2>Library Overview</h2>
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card"><div class="count">—</div><div class="label">Loading…</div></div>
+      </div>
+
+      <h2>Quick Actions</h2>
+      <div class="pipeline">
+        <button class="btn btn-primary" onclick="triggerPipeline('download')">▶ Download</button>
+        <button class="btn btn-primary" onclick="triggerPipeline('fingerprint')">▶ Fingerprint</button>
+        <button class="btn btn-primary" onclick="triggerPipeline('metadata')">▶ Apply Metadata</button>
+        <button class="btn btn-secondary" onclick="resetFailed()">↺ Reset Failed</button>
+        <button class="btn btn-secondary" onclick="checkDb()">Check DB</button>
+      </div>
+    </section>
+
+    <!-- TRACKS -->
+    <section id="tracks" class="section">
+      <h2>Tracks</h2>
+      <div class="filter-bar">
+        <select id="status-filter" onchange="loadTracks(0)">
+          <option value="">All statuses</option>
+          <option value="download_candidate">download_candidate</option>
+          <option value="downloading">downloading</option>
+          <option value="downloaded">downloaded</option>
+          <option value="download_fail">download_fail</option>
+          <option value="duplicated">duplicated</option>
+          <option value="metadata_applied">metadata_applied</option>
+          <option value="imported">imported</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Title</th>
+              <th>Artist</th>
+              <th>Album</th>
+              <th>Year</th>
+              <th>Duration</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="tracks-body"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <button id="prev-btn" onclick="changePage(-1)" disabled>← Prev</button>
+        <span id="page-info">—</span>
+        <button id="next-btn" onclick="changePage(1)">Next →</button>
+      </div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section id="pipeline" class="section">
+      <h2>slskd Status</h2>
+      <div id="slskd-status" style="margin-bottom:16px;padding:10px 14px;border-radius:6px;background:var(--surface);border:1px solid var(--border);font-size:13px;">
+        Checking…
+      </div>
+
+      <h2>Pipeline</h2>
+      <div class="pipeline">
+        <button class="btn btn-primary" onclick="triggerPipeline('download')">▶ Run Download</button>
+        <button class="btn btn-primary" onclick="triggerPipeline('poll-downloads')">⟳ Check Downloads</button>
+        <button class="btn btn-primary" onclick="triggerPipeline('fingerprint')">▶ Run Fingerprint</button>
+        <button class="btn btn-primary" onclick="triggerPipeline('metadata')">▶ Apply Metadata</button>
+        <button class="btn btn-secondary" onclick="resetFailed()">↺ Reset Failed</button>
+        <button class="btn btn-secondary" onclick="checkDb()">Check DB Integrity</button>
+        <button class="btn btn-secondary" onclick="clearLog()">Clear Log</button>
+      </div>
+
+      <h2>Log <span style="font-size:11px;color:var(--muted);font-weight:400">(live — auto-refreshes)</span></h2>
+      <div id="log-output"></div>
+    </section>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const API = '/api';
+  let currentPage = 0;
+  const PAGE_SIZE = 50;
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+
+  document.querySelectorAll('nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.section).classList.add('active');
+    });
+  });
+
+  // ── Toast ───────────────────────────────────────────────────────────────────
+
+  function toast(msg, ms = 3000) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), ms);
+  }
+
+  // ── Log ─────────────────────────────────────────────────────────────────────
+
+  function log(msg, type = '') {
+    const out = document.getElementById('log-output');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (type ? ` log-${type}` : '');
+    const ts = new Date().toLocaleTimeString();
+    line.textContent = `[${ts}] ${msg}`;
+    out.appendChild(line);
+    out.scrollTop = out.scrollHeight;
+  }
+
+  // ── Stats ───────────────────────────────────────────────────────────────────
+
+  async function loadStats() {
+    try {
+      const res = await fetch(`${API}/tracks/stats`);
+      const data = await res.json();
+      const grid = document.getElementById('stats-grid');
+      grid.innerHTML = '';
+      let total = 0;
+      data.by_acquisition_status.forEach(row => {
+        total += row.n;
+        const card = document.createElement('div');
+        card.className = `stat-card status-${row.acquisition_status}`;
+        card.innerHTML = `<div class="count">${row.n}</div><div class="label">${row.acquisition_status.replace(/_/g, ' ')}</div>`;
+        grid.appendChild(card);
+      });
+      // Total card
+      const totalCard = document.createElement('div');
+      totalCard.className = 'stat-card';
+      totalCard.innerHTML = `<div class="count">${total}</div><div class="label">total</div>`;
+      grid.prepend(totalCard);
+    } catch (e) {
+      document.getElementById('stats-grid').innerHTML = '<div class="stat-card"><div class="count" style="color:var(--red)">✗</div><div class="label">API not reachable</div></div>';
+    }
+  }
+
+  // ── Tracks ──────────────────────────────────────────────────────────────────
+
+  async function loadTracks(page = 0) {
+    currentPage = page;
+    const status = document.getElementById('status-filter').value;
+    const offset = page * PAGE_SIZE;
+    let url = `${API}/tracks?limit=${PAGE_SIZE}&offset=${offset}`;
+    if (status) url += `&status=${encodeURIComponent(status)}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const tbody = document.getElementById('tracks-body');
+    tbody.innerHTML = '';
+
+    data.items.forEach(t => {
+      const tr = document.createElement('tr');
+      const dur = t.duration_ms ? Math.round(t.duration_ms / 1000) + 's' : '—';
+      tr.innerHTML = `
+        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+        <td title="${t.title || ''}">${t.title || '—'}</td>
+        <td title="${t.artist || ''}">${t.artist || '—'}</td>
+        <td title="${t.album || ''}">${t.album || '—'}</td>
+        <td>${t.year || '—'}</td>
+        <td>${dur}</td>
+        <td>${t.source || '—'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    const totalPages = Math.ceil(data.total / PAGE_SIZE);
+    document.getElementById('page-info').textContent = `${page + 1} / ${Math.max(totalPages, 1)} (${data.total} tracks)`;
+    document.getElementById('prev-btn').disabled = page === 0;
+    document.getElementById('next-btn').disabled = page >= totalPages - 1;
+  }
+
+  function changePage(delta) {
+    loadTracks(currentPage + delta);
+  }
+
+  // ── Pipeline ─────────────────────────────────────────────────────────────────
+
+  async function triggerPipeline(action) {
+    log(`Starting ${action}…`);
+    try {
+      const res = await fetch(`${API}/pipeline/${action}`, { method: 'POST' });
+      const data = await res.json();
+      log(data.message);
+      toast(data.message);
+      setTimeout(loadStats, 1000);
+    } catch (e) {
+      log(`Error: ${e.message}`, 'error');
+    }
+  }
+
+  async function checkDb() {
+    log('Running DB integrity check…');
+    const res = await fetch(`${API}/db/check`);
+    const data = await res.json();
+    if (data.ok) {
+      log('DB integrity: OK');
+      toast('DB integrity OK ✓');
+    } else {
+      data.issues.forEach(i => log(i, 'error'));
+      toast('DB issues found — see log', 4000);
+    }
+  }
+
+  async function resetFailed() {
+    const res = await fetch(`${API}/tracks/reset-failed`, { method: 'POST' });
+    const data = await res.json();
+    toast(data.message);
+    log(data.message);
+    setTimeout(loadStats, 300);
+  }
+
+  function clearLog() {
+    document.getElementById('log-output').innerHTML = '';
+    _logSince = 0;
+  }
+
+  // ── slskd health ─────────────────────────────────────────────────────────────
+
+  async function checkSlskdHealth() {
+    const el = document.getElementById('slskd-status');
+    if (!el) return;
+    try {
+      const res = await fetch(`${API}/slskd/health`);
+      const data = await res.json();
+      if (data.ok) {
+        el.style.borderColor = 'var(--green)';
+        el.innerHTML = `<span style="color:var(--green)">● Connected</span> — ${data.message} <span style="color:var(--muted)">(${data.host})</span>`;
+      } else {
+        el.style.borderColor = 'var(--red)';
+        el.innerHTML = `<span style="color:var(--red)">● Unreachable</span> — ${data.message}`;
+      }
+    } catch (e) {
+      el.style.borderColor = 'var(--red)';
+      el.innerHTML = `<span style="color:var(--red)">● Error</span> — ${e.message}`;
+    }
+  }
+
+  // ── Server log polling ────────────────────────────────────────────────────────
+
+  let _logSince = 0;
+  let _logPoller = null;
+
+  async function pollServerLogs() {
+    try {
+      const res = await fetch(`${API}/logs?since=${_logSince}`);
+      const data = await res.json();
+      if (data.lines.length > 0) {
+        data.lines.forEach(entry => {
+          const type = entry.level === 'ERROR' ? 'error' : entry.level === 'WARNING' ? 'warn' : '';
+          log(entry.msg, type);
+        });
+        _logSince = data.total;
+        setTimeout(loadStats, 500); // refresh stats after new log lines
+      }
+    } catch (_) { /* API not up yet */ }
+  }
+
+  function startLogPolling() {
+    if (_logPoller) clearInterval(_logPoller);
+    _logPoller = setInterval(pollServerLogs, 3000);
+  }
+
+  // Activate log polling when Pipeline tab is opened
+  document.querySelectorAll('nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.section === 'pipeline') {
+        checkSlskdHealth();
+        startLogPolling();
+        pollServerLogs();
+      } else {
+        if (_logPoller) { clearInterval(_logPoller); _logPoller = null; }
+      }
+    });
+  });
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+
+  loadStats();
+  loadTracks(0);
+</script>
+
+</body>
+</html>

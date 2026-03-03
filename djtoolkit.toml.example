@@ -1,0 +1,54 @@
+# djtoolkit configuration
+# Copy this file to djtoolkit.toml and adjust paths.
+# djtoolkit.toml is gitignored — commit only this example file.
+#
+# Secrets (API keys) go in .env, not here.
+# See .env.example for the two secret keys.
+
+[db]
+path = "djtoolkit.db"
+
+[paths]
+downloads_dir         = "~/Soulseek/downloads/complete"
+inbox_dir             = "~/Music/DJ/inbox"
+library_dir           = "~/Music/DJ/library"
+beets_config          = "~/.config/beets/config.yaml"
+scan_dir              = ""                            # used by import-folder
+candidates_csv_export = "djtoolkit_candidates.csv"
+
+[slskd]
+host              = "http://localhost:5030"
+url_base          = "/api/v0"
+# api_key is loaded from SLSKD_API_KEY in .env — omit here
+search_timeout_ms = 15000
+response_limit    = 100
+file_limit        = 10000
+
+[matching]
+min_score             = 0.86     # combined artist+title fuzzy score threshold
+min_score_title       = 0.78
+duration_tolerance_ms = 2000     # ±2 seconds
+
+[fingerprint]
+# acoustid_api_key is loaded from ACOUSTID_API_KEY in .env — omit here
+fpcalc_path            = ""      # leave empty to auto-detect fpcalc on PATH
+duration_tolerance_sec = 5.0
+enabled                = true
+
+[loudnorm]
+target_lufs = "-9"
+target_tp   = "-1.0"
+target_lra  = "9"
+
+[cover_art]
+force      = false
+skip_embed = false
+
+[audio_analysis]
+models_dir           = "~/.djtoolkit/models"
+musicnn_model        = ""   # path to msd-musicnn-1.pb (optional, requires essentia-tensorflow)
+discogs_genre_model  = ""   # path to genre_discogs400-discogs-musicnn-1.pb
+discogs_genre_labels = ""   # path to genre_discogs400-discogs-musicnn-1-labels.json
+instrumental_model   = ""   # path to voice_instrumental-audioset-musicnn-1.pb
+genre_top_n          = 3
+genre_threshold      = 0.1
