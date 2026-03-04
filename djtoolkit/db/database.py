@@ -40,6 +40,9 @@ def migrate(db_path: str | Path) -> None:
         ("metadata_written",   "INTEGER NOT NULL DEFAULT 0"),
         ("normalized",         "INTEGER NOT NULL DEFAULT 0"),
         ("in_library",         "INTEGER NOT NULL DEFAULT 0"),
+        ("metadata_source",    "TEXT"),
+        ("cover_art_written",     "INTEGER NOT NULL DEFAULT 0"),
+        ("cover_art_embedded_at", "DATETIME"),
     ]
     with connect(db_path) as conn:
         existing = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}

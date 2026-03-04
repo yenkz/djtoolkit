@@ -24,6 +24,7 @@ uvicorn    = { extras = ["standard"], version = "^0.30" }
 spotipy    = "^2.24"
 librosa    = "^0.10"
 pyloudnorm = "^0.1"
+Pillow     = "^10.0"
 # essentia-tensorflow: optional TF genre/instrumental models (Linux/macOS x86_64, Python ≤3.11 only)
 # Install manually: pip install essentia-tensorflow
 

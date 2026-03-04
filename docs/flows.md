@@ -58,8 +58,9 @@ Requires `fpcalc` installed (`brew install chromaprint`).
 make apply-metadata
 ```
 
-For each `available AND metadata_written=0 AND source='exportify'` track:
-- Writes tags (title, artist, album, year, genre) to the audio file using mutagen
+For each `available AND metadata_written=0` track:
+
+- Writes tags (title, artist, album, year, genre, BPM, key) to the audio file using mutagen
 - Renames the file to `Artist - Title.ext` format
 - Updates `local_path` and sets `metadata_written=1`
 
@@ -69,7 +70,7 @@ For each `available AND metadata_written=0 AND source='exportify'` track:
 make move-to-library
 ```
 
-For each `available AND metadata_written=1 AND in_library=0` track:
+For each `available AND metadata_written=1 AND in_library=0` track (the `metadata_applied` default mode):
 - Moves the file from its download location to `library_dir` (configured in `djtoolkit.toml`)
 - Updates `local_path` to the final path
 - Sets `in_library=1`
@@ -101,39 +102,68 @@ make import-folder DIR=~/Downloads/vinyl_rips/
 ```
 
 Scans the directory recursively for audio files (`.mp3`, `.flac`, `.m4a`, `.aac`, `.ogg`, `.wav`):
+
 - Reads existing tags (title, artist, album)
 - Optionally runs `fpcalc` immediately if fingerprinting is enabled
 - Inserts each track with `acquisition_status = 'available'`
 - Skips files whose fingerprint already exists in the DB
 
-#### 2. Enrich metadata (optional)
+#### 2. Apply metadata from a source
 
-From an Exportify CSV (fills NULL metadata from matched tracks):
+This is where you tell djtoolkit *where* the metadata values should come from. Pick the approach that fits your situation.
+
+##### Option A — Spotify/Exportify (recommended if you have a matching playlist CSV)
+
+Does two things in one command: enriches the DB from the CSV, then writes tags to the matched files.
 
 ```bash
-make enrich ARGS='--spotify ~/Downloads/playlist.csv'
+djtoolkit metadata apply --source spotify --csv ~/Downloads/playlist.csv
 ```
 
-From audio analysis (BPM, key, loudness via librosa; genre/instrumental if essentia-tensorflow models configured):
+- Matches tracks by fuzzy artist + title (or `spotify_uri` if already set)
+- Writes title, artist, album, year, genre, BPM, key to the audio file
+- Renames to `Artist - Title.ext`
+- Records `metadata_source = 'spotify'` in the DB
+- **Idempotent** — re-running the same command with the same CSV skips already-tagged files
+
+##### Option B — Audio analysis (BPM, key, loudness via librosa)
 
 ```bash
-make enrich ARGS='--audio-analysis'
+djtoolkit metadata apply --source audio-analysis
 ```
 
-Both can be combined:
+Analyzes each file with librosa and writes BPM + key tags. Can be layered on top of Option A (last source applied wins for overlapping fields like tempo and key).
+
+##### Option C — Two-step (enrich DB first, write tags separately)
+
+If you prefer to inspect DB values before writing to files:
 
 ```bash
-make enrich ARGS='--spotify ~/Downloads/playlist.csv --audio-analysis'
+make enrich ARGS='--spotify ~/Downloads/playlist.csv'   # DB only
+make apply-metadata                                      # write tags (no specific source recorded)
 ```
 
-#### 3. Apply metadata & move to library
+#### 3. Move to library
 
 ```bash
-make apply-metadata
 make move-to-library
 ```
 
-Same as Flow 1 steps 5–6.
+Moves tagged files (those with `metadata_written=1`) into `library_dir`. If you used Option C above and did not run `apply-metadata`, or if you want to move files that still carry their original tags, use:
+
+```bash
+make move-to-library MODE=imported
+```
+
+This selects all `available AND in_library=0` tracks regardless of `metadata_written`.
+
+### Full Flow 2 command sequence (recommended)
+
+```bash
+make import-folder DIR=~/Downloads/my_music/
+djtoolkit metadata apply --source spotify --csv ~/Downloads/playlist.csv
+make move-to-library
+```
 
 ---
 

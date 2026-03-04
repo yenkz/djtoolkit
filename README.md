@@ -68,10 +68,10 @@ See [docs/flows.md](docs/flows.md#flow-1) for a full step-by-step walkthrough.
 
 ### Flow 2 — Folder → Enriched + Organized
 
-Scan a local folder of already-downloaded audio files, fingerprint them, optionally enrich metadata from an Exportify CSV or librosa audio analysis, then move to the library.
+Scan a local folder of already-downloaded audio files, enrich metadata from an Exportify CSV or audio analysis, write tags, and move to the library.
 
 ```
-import-folder → enrich → fingerprint → apply-metadata → move-to-library
+import-folder → metadata apply --source → move-to-library
 ```
 
 See [docs/flows.md](docs/flows.md#flow-2) for details.
@@ -95,11 +95,13 @@ make import-csv CSV=path/to.csv     # import Exportify playlist
 make download                        # download via slskd
 make fingerprint                     # deduplicate with Chromaprint
 make apply-metadata                  # write tags + normalize filenames
-make move-to-library                 # move tagged files into library_dir
+make move-to-library                 # move tagged files into library_dir (requires metadata_written=1)
+make move-to-library MODE=imported   # move all available tracks (skips metadata_written check)
 
 make import-folder DIR=path/         # scan existing folder (Flow 2)
-make enrich ARGS='--spotify x.csv'   # enrich metadata from Exportify CSV
-make enrich ARGS='--audio-analysis'  # BPM / key / loudness via librosa
+djtoolkit metadata apply --source spotify --csv path/to.csv  # enrich DB + write tags in one step
+djtoolkit metadata apply --source audio-analysis             # BPM / key / loudness via librosa
+make enrich ARGS='--spotify x.csv'   # enrich DB only (no file writes)
 
 make check-db                        # integrity check
 make migrate-db                      # apply schema migrations to existing DB

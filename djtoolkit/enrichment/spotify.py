@@ -9,7 +9,7 @@ from thefuzz import fuzz
 from djtoolkit.config import Config
 from djtoolkit.db.database import connect
 
-# Exportify CSV column → DB column (only written when DB value is NULL)
+# Exportify CSV column → DB column
 _CSV_TO_DB = {
     "Track URI":          "spotify_uri",
     "Album Name":         "album",
@@ -47,13 +47,16 @@ def _year_from_release_date(release_date: str) -> int | None:
     return None
 
 
-def run(csv_path: Path, cfg: Config) -> dict:
+def run(csv_path: Path, cfg: Config, force: bool = False) -> dict:
     """
-    Match imported tracks against an Exportify CSV and fill in NULL metadata.
+    Match imported tracks against an Exportify CSV and fill in metadata.
 
-    Returns {"matched": N, "unmatched": N}.
+    When force=True, overwrites existing DB values for all matched fields
+    (used by `metadata apply --source spotify` to make Spotify the authoritative source).
+
+    Returns {"matched": N, "unmatched": N, "matched_ids": [...]}.
     """
-    stats = {"matched": 0, "unmatched": 0}
+    stats: dict = {"matched": 0, "unmatched": 0, "matched_ids": []}
 
     # Load CSV
     with open(csv_path, newline="", encoding="utf-8-sig") as f:
@@ -74,11 +77,12 @@ def run(csv_path: Path, cfg: Config) -> dict:
         title_norm = _normalize(row.get("Track Name") or "")
         fuzzy_list.append((artist_norm, title_norm, row))
 
-    # Fetch all available tracks not yet spotify-enriched
+    # When forcing, re-process already-enriched tracks too
     with connect(cfg.db_path) as conn:
-        tracks = conn.execute(
-            "SELECT * FROM tracks WHERE acquisition_status = 'available' AND enriched_spotify = 0"
-        ).fetchall()
+        query = "SELECT * FROM tracks WHERE acquisition_status = 'available'"
+        if not force:
+            query += " AND enriched_spotify = 0"
+        tracks = conn.execute(query).fetchall()
 
     for track in tracks:
         track = dict(track)
@@ -108,10 +112,17 @@ def run(csv_path: Path, cfg: Config) -> dict:
             stats["unmatched"] += 1
             continue
 
-        # Build UPDATE — only fill NULL columns
+        # Build UPDATE — fill NULL columns (or all columns when forcing).
+        # spotify_uri is an identity field with a UNIQUE constraint:
+        #   - normal mode: set only when NULL
+        #   - force mode: skip entirely (fuzzy-matched tracks could steal a URI already owned by
+        #     another row, causing a UNIQUE constraint violation)
         updates: dict[str, object] = {}
         for csv_col, db_col in _CSV_TO_DB.items():
-            if track.get(db_col) is not None:
+            if db_col == "spotify_uri":
+                if track.get(db_col) is not None or force:
+                    continue
+            elif not force and track.get(db_col) is not None:
                 continue  # already set — don't overwrite
             raw = (matched_row.get(csv_col) or "").strip()
             if not raw:
@@ -134,8 +145,8 @@ def run(csv_path: Path, cfg: Config) -> dict:
             else:
                 updates[db_col] = raw
 
-        # Derive year from release_date if year is still NULL
-        if track.get("year") is None and "release_date" in updates:
+        # Derive year from release_date if year is NULL (or forcing)
+        if (force or track.get("year") is None) and "release_date" in updates:
             yr = _year_from_release_date(str(updates["release_date"]))
             if yr:
                 updates["year"] = yr
@@ -151,5 +162,6 @@ def run(csv_path: Path, cfg: Config) -> dict:
             conn.commit()
 
         stats["matched"] += 1
+        stats["matched_ids"].append(track["id"])
 
     return stats

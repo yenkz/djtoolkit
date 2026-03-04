@@ -1,5 +1,5 @@
 .PHONY: init install setup import-csv download fingerprint apply-metadata move-to-library \
-        import-folder enrich migrate-db check-db wipe-db normalize playlist ui dev \
+        import-folder enrich fetch-cover-art migrate-db check-db wipe-db normalize playlist ui dev \
         test lint \
         install-docker slskd-up slskd-down slskd-logs slskd-status
 
@@ -47,7 +47,7 @@ apply-metadata:
 	$(DJ) metadata apply --config $(CONFIG)
 
 move-to-library:
-	$(DJ) move-to-library --config $(CONFIG)
+	$(DJ) move-to-library --mode $(MODE) --config $(CONFIG)
 
 # ── Flow 2: Folder → DB ───────────────────────────────────────────────────────
 
@@ -56,9 +56,13 @@ import-folder:
 	$(DJ) import folder $(DIR) --config $(CONFIG)
 
 ARGS    ?=
+MODE    ?= metadata_applied
 
 enrich:
 	$(DJ) enrich --config $(CONFIG) $(ARGS)
+
+fetch-cover-art:
+	$(DJ) coverart fetch --config $(CONFIG)
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 

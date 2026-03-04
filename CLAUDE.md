@@ -21,12 +21,18 @@ make import-csv CSV=path/to.csv   # import Exportify CSV → DB (acquisition_sta
 make download                     # send candidate tracks to slskd, poll until done
 make fingerprint                  # run Chromaprint on available files, mark duplicates
 make apply-metadata               # write DB metadata to audio files, normalize filenames
-make move-to-library              # move tagged files into library_dir (final step)
+make move-to-library              # move tagged files into library_dir (requires metadata_written=1)
+make move-to-library MODE=imported  # move all available tracks, skip metadata_written requirement
 
 # Flow 2 — Folder → DB
 make import-folder DIR=path/      # scan folder, fingerprint, skip dupes, insert as 'available'
-make enrich ARGS='--spotify path/to.csv'   # enrich from Exportify CSV
-make enrich ARGS='--audio-analysis'        # run BPM/key/loudness analysis (librosa)
+djtoolkit metadata apply --source spotify --csv path/to.csv  # enrich DB + write tags in one step
+djtoolkit metadata apply --source audio-analysis             # BPM/key/loudness via librosa
+make enrich ARGS='--spotify path/to.csv'   # enrich DB only (no file writes)
+make enrich ARGS='--audio-analysis'        # run BPM/key/loudness analysis (DB only)
+
+# Cover art
+make fetch-cover-art              # fetch + embed cover art for tracks missing artwork
 
 # Utilities
 make check-db                     # DB integrity check
@@ -65,6 +71,8 @@ djtoolkit/
 │   ├── enrichment/
 │   │   ├── spotify.py          # enrich from Exportify CSV (fills NULL metadata)
 │   │   └── audio_analysis.py   # librosa BPM/key/loudness + optional essentia-tensorflow genre
+│   ├── coverart/
+│   │   └── art.py              # cover art fetcher (CoverArtArchive, iTunes, Deezer, Spotify, Last.fm) + mutagen embedder
 │   ├── library/
 │   │   └── mover.py            # move tagged files to library_dir, set in_library=1
 │   ├── utils/
@@ -122,8 +130,19 @@ target_tp   = "-1.0"
 target_lra  = "9"
 
 [cover_art]
-force      = false
-skip_embed = false
+force          = false
+skip_embed     = false
+sources        = "coverart itunes deezer"
+                 # Available sources (space-separated, tried in order):
+                 #   coverart — Cover Art Archive (MusicBrainz), free, no auth
+                 #   itunes   — iTunes Search API, free, no auth (album-based)
+                 #   deezer   — Deezer Search API, free, no auth (track-title-based, good for singles)
+                 #   spotify  — direct lookup via spotify_uri, requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env
+                 #   lastfm   — Last.fm album art, requires LASTFM_API_KEY in .env or below
+lastfm_api_key = ""      # or set LASTFM_API_KEY in .env
+minwidth       = 800     # reject images narrower than this (px)
+maxwidth       = 2000    # resize images wider than this (px, requires Pillow)
+quality        = 90      # JPEG quality when re-encoding after resize
 
 [audio_analysis]
 models_dir           = "~/.djtoolkit/models"
@@ -165,7 +184,10 @@ Key columns:
 | enriched_spotify | INTEGER 0/1 | set by `enrichment/spotify.py` |
 | enriched_audio | INTEGER 0/1 | set by `enrichment/audio_analysis.py` |
 | metadata_written | INTEGER 0/1 | set by `metadata/writer.py` |
+| metadata_source | TEXT | last source written to file: `spotify` or `audio-analysis` |
 | normalized | INTEGER 0/1 | reserved for loudness normalization |
+| cover_art_written | INTEGER 0/1 | set by `coverart/art.py` — art embedded into file |
+| cover_art_embedded_at | DATETIME | set only when art is *newly* embedded (NULL = pre-existing art or not yet processed) |
 | in_library | INTEGER 0/1 | set by `library/mover.py` — file moved to `library_dir` |
 
 ### `fingerprints` — Chromaprint data
@@ -208,14 +230,19 @@ Processing flags are **independent** — each is set to 1 when that pipeline ste
 | `enriched_audio` | `enrichment/audio_analysis.py` | BPM/key/loudness analyzed |
 | `metadata_written` | `metadata/writer.py` | tags written to file |
 | `normalized` | (future) | loudness normalization applied |
+| `cover_art_written` | `coverart/art.py` | cover art embedded into file |
 | `in_library` | `library/mover.py` | file moved to `library_dir` |
 
 **Query pattern** — each module reads only what it needs to process:
 
 - `chromaprint.py`: `WHERE acquisition_status = 'available' AND fingerprinted = 0`
-- `writer.py`: `WHERE acquisition_status = 'available' AND metadata_written = 0 AND source = 'exportify'`
-- `spotify.py`: `WHERE acquisition_status = 'available' AND enriched_spotify = 0`
+- `writer.py` (no `--source`): `WHERE acquisition_status = 'available' AND metadata_written = 0 AND local_path IS NOT NULL`
+- `writer.py` (`--source spotify`): `WHERE id IN (matched_ids from CSV) AND local_path IS NOT NULL`; skips tracks where `metadata_written=1 AND metadata_source='spotify'`
+- `writer.py` (`--source audio-analysis`): `WHERE acquisition_status = 'available' AND enriched_audio = 1 AND local_path IS NOT NULL`; skips tracks where `metadata_written=1 AND metadata_source='audio-analysis'`
+- `spotify.py`: `WHERE acquisition_status = 'available' AND enriched_spotify = 0` (or all `available` when `force=True`)
 - `audio_analysis.py`: `WHERE acquisition_status = 'available' AND enriched_audio = 0`
+- `art.py` (default): `WHERE acquisition_status = 'available' AND local_path IS NOT NULL AND cover_art_written = 0`; skips files that already have embedded art
+- `art.py` (`force=true`): `WHERE acquisition_status = 'available' AND local_path IS NOT NULL` (re-embeds all)
 - `mover.py`: `WHERE acquisition_status = 'available' AND metadata_written = 1 AND in_library = 0`
 
 ---

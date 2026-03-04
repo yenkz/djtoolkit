@@ -46,12 +46,15 @@ CREATE TABLE IF NOT EXISTS tracks (
     fingerprint_id   INTEGER REFERENCES fingerprints(id),
 
     -- Processing flags (independent — set when each step completes, 0=pending 1=done)
-    fingerprinted    INTEGER NOT NULL DEFAULT 0,
-    enriched_spotify INTEGER NOT NULL DEFAULT 0,
-    enriched_audio   INTEGER NOT NULL DEFAULT 0,
-    metadata_written INTEGER NOT NULL DEFAULT 0,
-    normalized       INTEGER NOT NULL DEFAULT 0,
-    in_library       INTEGER NOT NULL DEFAULT 0,
+    fingerprinted     INTEGER NOT NULL DEFAULT 0,
+    enriched_spotify  INTEGER NOT NULL DEFAULT 0,
+    enriched_audio    INTEGER NOT NULL DEFAULT 0,
+    metadata_written  INTEGER NOT NULL DEFAULT 0,
+    normalized        INTEGER NOT NULL DEFAULT 0,
+    cover_art_written     INTEGER NOT NULL DEFAULT 0,
+    cover_art_embedded_at DATETIME,    -- set only when art is newly embedded (NULL = had pre-existing art or not yet processed)
+    in_library        INTEGER NOT NULL DEFAULT 0,
+    metadata_source  TEXT,              -- last enrichment source written to file: 'spotify' | 'audio-analysis'
 
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP

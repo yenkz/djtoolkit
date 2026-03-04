@@ -13,6 +13,13 @@ def _fpcalc_path(cfg: Config) -> str:
     return cfg.fingerprint.fpcalc_path or "fpcalc"
 
 
+def is_available(cfg: Config) -> bool:
+    """Return True if the fpcalc binary can be found."""
+    import shutil
+    path = _fpcalc_path(cfg)
+    return bool(shutil.which(path) or Path(path).is_file())
+
+
 def calc(file_path: str | Path, cfg: Config) -> dict | None:
     """
     Run fpcalc on a file and return {fingerprint, duration}.

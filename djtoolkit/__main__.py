@@ -11,9 +11,11 @@ app = typer.Typer(help="djtoolkit — DJ music library manager", no_args_is_help
 db_app = typer.Typer(help="Database management commands")
 import_app = typer.Typer(help="Import tracks into the database")
 metadata_app = typer.Typer(help="Metadata commands")
+coverart_app = typer.Typer(help="Cover art commands")
 app.add_typer(db_app, name="db")
 app.add_typer(import_app, name="import")
 app.add_typer(metadata_app, name="metadata")
+app.add_typer(coverart_app, name="coverart")
 
 console = Console()
 
@@ -141,7 +143,11 @@ def import_folder(
     if not folder.exists():
         console.print(f"[red]Folder not found:[/red] {folder}")
         raise typer.Exit(1)
-    result = _import(folder, cfg)
+    try:
+        result = _import(folder, cfg)
+    except RuntimeError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
     console.print(
         f"[green]✓[/green] Imported [bold]{result['inserted']}[/bold] tracks "
         f"([yellow]{result['skipped_duplicate']}[/yellow] fingerprint duplicates skipped)"
@@ -209,16 +215,23 @@ def enrich(
 
 
 @app.command("move-to-library")
-def move_to_library(config: ConfigOpt = "djtoolkit.toml"):
-    """Move tagged tracks into library_dir (final step after apply-metadata)."""
+def move_to_library(
+    config: ConfigOpt = "djtoolkit.toml",
+    mode: Annotated[str, typer.Option("--mode", help="Filter mode: 'metadata_applied' (default) or 'imported'")] = "metadata_applied",
+):
+    """Move tracks into library_dir. Use --mode imported to skip the metadata_written requirement."""
+    if mode not in ("metadata_applied", "imported"):
+        console.print(f"[red]Invalid mode {mode!r}. Choose 'metadata_applied' or 'imported'.[/red]")
+        raise typer.Exit(1)
     from djtoolkit.library.mover import run
     cfg = _cfg(config)
-    console.print("Moving tracks to library…")
-    stats = run(cfg)
+    console.print(f"Moving tracks to library (mode: {mode})…")
+    stats = run(cfg, mode=mode)
     console.print(
         f"[green]✓ moved {stats['moved']}[/green]  "
         f"[red]failed {stats['failed']}[/red]  "
-        f"skipped {stats['skipped']}"
+        f"skipped {stats['skipped']}  "
+        f"[yellow]duplicates {stats['duplicates']}[/yellow]"
     )
 
 
@@ -242,17 +255,91 @@ def dedup(config: ConfigOpt = "djtoolkit.toml"):
 # ─── metadata command ─────────────────────────────────────────────────────────
 
 @metadata_app.command("apply")
-def metadata_apply(config: ConfigOpt = "djtoolkit.toml"):
-    """Write DB metadata to downloaded files and normalize filenames."""
+def metadata_apply(
+    config: ConfigOpt = "djtoolkit.toml",
+    source: Annotated[Optional[str], typer.Option(
+        "--source", help="Metadata source: 'spotify' or 'audio-analysis'. Re-processes all eligible tracks with this source as authoritative.",
+    )] = None,
+    csv: Annotated[Optional[Path], typer.Option(
+        "--csv", help="Exportify CSV path (required when --source spotify)",
+    )] = None,
+):
+    """Write DB metadata to files and normalize filenames. Use --source to select metadata origin."""
+    if source and source not in ("spotify", "audio-analysis"):
+        console.print(f"[red]Invalid --source {source!r}. Choose 'spotify' or 'audio-analysis'.[/red]")
+        raise typer.Exit(1)
+    if source == "spotify" and not csv:
+        console.print("[red]--csv is required when --source spotify[/red]")
+        raise typer.Exit(1)
+    if csv and not csv.exists():
+        console.print(f"[red]CSV not found:[/red] {csv}")
+        raise typer.Exit(1)
+
     from djtoolkit.metadata.writer import run
     cfg = _cfg(config)
-    console.print("Applying metadata to files…")
-    stats = run(cfg)
+    label = f"[bold]{source}[/bold]" if source else "DB (unwritten tracks)"
+    console.print(f"Applying metadata to files (source: {label})…")
+    stats = run(cfg, metadata_source=source, csv_path=csv)
     console.print(
         f"[green]✓ applied {stats['applied']}[/green]  "
         f"[red]failed {stats['failed']}[/red]  "
         f"skipped {stats['skipped']}"
     )
+
+
+# ─── coverart commands ────────────────────────────────────────────────────────
+
+@coverart_app.command("fetch")
+def coverart_fetch(config: ConfigOpt = "djtoolkit.toml"):
+    """Fetch and embed cover art for tracks that are missing artwork."""
+    from djtoolkit.coverart.art import run
+    cfg = _cfg(config)
+    stats = run(cfg)
+    console.print(
+        f"[green]✓ embedded {stats['embedded']}[/green]  "
+        f"[red]failed {stats['failed']}[/red]  "
+        f"skipped {stats['skipped']}  "
+        f"[yellow]not found {stats['no_art_found']}[/yellow]"
+    )
+
+
+@coverart_app.command("list")
+def coverart_list(
+    config: ConfigOpt = "djtoolkit.toml",
+    since: Annotated[Optional[int], typer.Option(
+        "--since", help="Only show tracks embedded in the last N minutes"
+    )] = None,
+):
+    """List tracks that had cover art embedded by djtoolkit."""
+    from djtoolkit.db.database import connect
+    cfg = _cfg(config)
+    query = """
+        SELECT artist, title, album, cover_art_embedded_at
+        FROM tracks
+        WHERE cover_art_embedded_at IS NOT NULL
+    """
+    params: list = []
+    if since is not None:
+        query += " AND cover_art_embedded_at > datetime('now', ?)"
+        params.append(f"-{since} minutes")
+    query += " ORDER BY cover_art_embedded_at DESC"
+
+    with connect(cfg.db_path) as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    if not rows:
+        console.print("[dim]No tracks with embedded cover art found.[/dim]")
+        return
+
+    t = Table("Artist", "Title", "Album", "Embedded at", title=f"Cover art embedded ({len(rows)} tracks)")
+    for row in rows:
+        t.add_row(
+            row["artist"] or "—",
+            row["title"] or "—",
+            row["album"] or "—",
+            row["cover_art_embedded_at"] or "—",
+        )
+    console.print(t)
 
 
 if __name__ == "__main__":
