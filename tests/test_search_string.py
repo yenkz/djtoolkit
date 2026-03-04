@@ -30,3 +30,32 @@ def test_empty_inputs():
     assert build("", "") == ""
     assert build("Artist", "") == "artist"
     assert build("", "Title") == "title"
+
+
+def test_strips_vs():
+    result = build("Artist vs. Another", "Title")
+    assert "vs" not in result
+    assert "another" not in result
+    assert "artist" in result
+
+
+def test_strips_x_feat():
+    result = build("Artist x Featured", "Title")
+    assert "featured" not in result
+    assert "artist" in result
+
+
+def test_unicode_survives():
+    # Should not raise; result is lowercase
+    result = build("Björk", "Jóga")
+    assert result == result.lower()
+
+
+def test_consecutive_spaces_collapsed():
+    result = build("Big   Wild", "City   of   Sound")
+    assert "  " not in result
+
+
+def test_result_is_lowercase():
+    result = build("ARTIST", "TITLE")
+    assert result == result.lower()

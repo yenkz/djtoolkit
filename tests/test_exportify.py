@@ -73,3 +73,91 @@ def test_import_audio_features(db, csv_file):
         ).fetchone()
     assert abs(row["tempo"] - 120.008) < 0.001
     assert abs(row["danceability"] - 0.684) < 0.001
+
+
+# ─── Additional coverage ──────────────────────────────────────────────────────
+
+_HEADER = (
+    "Track URI,Track Name,Album Name,Artist Name(s),Release Date,Duration (ms),"
+    "Popularity,Explicit,Added By,Added At,Genres,Record Label,Danceability,Energy,"
+    "Key,Loudness,Mode,Speechiness,Acousticness,Instrumentalness,Liveness,Valence,"
+    "Tempo,Time Signature\n"
+)
+
+
+def _csv(rows: list) -> str:
+    return _HEADER + "".join(r + "\n" for r in rows)
+
+
+def test_import_sparse_row(db, tmp_path):
+    """Row with only required fields and empty optionals inserts without crash."""
+    # 8 explicit values, then 16 empty trailing columns
+    row = "spotify:track:sparse001,Sparse Track,,Solo Artist,,,,false,,,,,,,,,,,,,,,,"
+    path = tmp_path / "sparse.csv"
+    path.write_text(_csv([row]), encoding="utf-8")
+    result = import_csv(path, db)
+    assert result["inserted"] == 1
+    with connect(db) as conn:
+        r = conn.execute(
+            "SELECT title, album FROM tracks WHERE spotify_uri='spotify:track:sparse001'"
+        ).fetchone()
+    assert r["title"] == "Sparse Track"
+    assert r["album"] is None
+
+
+def test_import_explicit_true_false(db, tmp_path):
+    """Explicit field: 'True' → 1, 'False' → 0."""
+    rows = [
+        "spotify:track:exp001,Explicit,,Artist,2020,200000,60,True,,,,,,,,,,,,,,,,",
+        "spotify:track:exp002,Clean,,Artist,2020,200000,60,False,,,,,,,,,,,,,,,,",
+    ]
+    path = tmp_path / "explicit.csv"
+    path.write_text(_csv(rows), encoding="utf-8")
+    import_csv(path, db)
+    with connect(db) as conn:
+        e = conn.execute(
+            "SELECT explicit FROM tracks WHERE spotify_uri='spotify:track:exp001'"
+        ).fetchone()
+        c = conn.execute(
+            "SELECT explicit FROM tracks WHERE spotify_uri='spotify:track:exp002'"
+        ).fetchone()
+    assert e["explicit"] == 1
+    assert c["explicit"] == 0
+
+
+def test_import_trailing_semicolon_artist(db, tmp_path):
+    """Artist field 'Artist;' → primary artist is 'Artist'."""
+    row = "spotify:track:semi001,Title,,Artist;,2020,200000,,,,,,,,,,,,,,,,,,"
+    path = tmp_path / "semi.csv"
+    path.write_text(_csv([row]), encoding="utf-8")
+    import_csv(path, db)
+    with connect(db) as conn:
+        r = conn.execute(
+            "SELECT artist FROM tracks WHERE spotify_uri='spotify:track:semi001'"
+        ).fetchone()
+    assert r["artist"] == "Artist"
+
+
+def test_import_idempotent(db, csv_file):
+    """Re-importing the same CSV twice keeps same data with 0 new inserts."""
+    r1 = import_csv(csv_file, db)
+    r2 = import_csv(csv_file, db)
+    assert r1["inserted"] == 2
+    assert r2["inserted"] == 0
+    assert r2["skipped_duplicate"] == 2
+    with connect(db) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+    assert count == 2
+
+
+def test_import_bad_year_stores_none(db, tmp_path):
+    """Malformed release_date → year is NULL, no crash."""
+    row = "spotify:track:badyr001,Track,,Artist,not-a-date,200000,,,,,,,,,,,,,,,,,,"
+    path = tmp_path / "bad.csv"
+    path.write_text(_csv([row]), encoding="utf-8")
+    import_csv(path, db)
+    with connect(db) as conn:
+        r = conn.execute(
+            "SELECT year FROM tracks WHERE spotify_uri='spotify:track:badyr001'"
+        ).fetchone()
+    assert r["year"] is None
