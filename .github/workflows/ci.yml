@@ -20,7 +20,9 @@ jobs:
           cache: "poetry"
 
       - name: Install Poetry
-        run: pip install poetry==2.3.2
+        run: |
+          pip install poetry==2.3.2
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Verify lock file
         run: poetry check --lock
