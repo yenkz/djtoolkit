@@ -26,7 +26,7 @@ init:
 	@echo "Next: run 'make slskd-up' to start the slskd container (requires Docker)"
 
 install:
-	poetry install
+	poetry install --lock --no-interaction
 
 setup:
 	$(DJ) db setup --config $(CONFIG)
