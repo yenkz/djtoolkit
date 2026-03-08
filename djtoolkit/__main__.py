@@ -62,6 +62,15 @@ def db_migrate(config: ConfigOpt = "djtoolkit.toml"):
     console.print("[green]✓[/green] Migration complete")
 
 
+@db_app.command("reconcile")
+def db_reconcile(config: ConfigOpt = "djtoolkit.toml"):
+    """Scan downloads_dir and library_dir and mark any already-downloaded tracks as available."""
+    from djtoolkit.downloader.slskd import reconcile_disk
+    cfg = _cfg(config)
+    stats = reconcile_disk(cfg)
+    console.print(f"[green]✓ updated {stats['updated']}[/green]  skipped {stats['skipped']}")
+
+
 @db_app.command("wipe")
 def db_wipe(
     config: ConfigOpt = "djtoolkit.toml",
@@ -158,16 +167,30 @@ def import_folder(
 
 @app.command()
 def download(config: ConfigOpt = "djtoolkit.toml"):
-    """Send download_candidate tracks to slskd and poll until complete."""
-    from djtoolkit.downloader.slskd import run
+    """Send candidate tracks to slskd and poll until complete."""
+    import time
+    from djtoolkit.downloader.slskd import run, poll_downloads
     cfg = _cfg(config)
     console.print("Searching and downloading via slskd…")
     stats = run(cfg)
     console.print(
-        f"[green]✓ downloaded {stats['downloaded']}[/green]  "
+        f"[green]✓ queued {stats['queued']}[/green]  "
         f"[red]✗ failed {stats['failed']}[/red]  "
         f"(attempted {stats['attempted']})"
     )
+
+    if stats["queued"] > 0:
+        console.print("Polling for completed downloads…")
+        for _ in range(60):  # max ~5 min (60 × 5s)
+            poll = poll_downloads(cfg)
+            console.print(
+                f"  updated {poll['updated']}  "
+                f"failed {poll['failed']}  "
+                f"still downloading {poll['still_downloading']}"
+            )
+            if poll["still_downloading"] == 0:
+                break
+            time.sleep(5)
 
 
 @app.command()

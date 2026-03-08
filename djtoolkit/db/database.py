@@ -65,6 +65,21 @@ def migrate(db_path: str | Path) -> None:
             conn.execute("UPDATE tracks SET fingerprinted    = 1 WHERE status IN ('duplicated', 'metadata_applied')")
             conn.execute("UPDATE tracks SET metadata_written = 1 WHERE status = 'metadata_applied'")
 
+        # Rename any legacy acquisition_status values still present in the column (idempotent)
+        conn.execute("""
+            UPDATE tracks SET acquisition_status = CASE
+                WHEN acquisition_status = 'download_candidate'                          THEN 'candidate'
+                WHEN acquisition_status IN ('downloaded', 'imported', 'metadata_applied') THEN 'available'
+                WHEN acquisition_status = 'download_fail'                               THEN 'failed'
+                WHEN acquisition_status = 'duplicated'                                  THEN 'duplicate'
+                ELSE acquisition_status
+            END
+            WHERE acquisition_status IN (
+                'download_candidate', 'downloaded', 'imported',
+                'metadata_applied', 'download_fail', 'duplicated'
+            )
+        """)
+
         conn.commit()
 
 

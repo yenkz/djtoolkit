@@ -37,6 +37,7 @@ make fetch-cover-art              # fetch + embed cover art for tracks missing a
 # Utilities
 make check-db                     # DB integrity check
 make wipe-db                      # drop and recreate DB (destructive, asks confirmation)
+make reconcile                    # scan downloads_dir, mark on-disk files as available
 make normalize                    # ReplayGain/EBU R128 loudness normalization
 make playlist                     # generate M3U playlists grouped by genre/style
 

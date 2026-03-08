@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from djtoolkit.config import Config
+from djtoolkit.db.database import connect, setup
 from djtoolkit.downloader.slskd import (
     _basename,
     _ext,
@@ -14,6 +15,7 @@ from djtoolkit.downloader.slskd import (
     _quality_score,
     _relevance,
     health_check,
+    reconcile_disk,
 )
 
 
@@ -25,6 +27,31 @@ def cfg():
     c.matching.min_score_title = 0.5
     c.matching.duration_tolerance_ms = 2000
     return c
+
+
+@pytest.fixture
+def reconcile_cfg(tmp_path):
+    """Config wired to a fresh DB and controlled downloads_dir/library_dir."""
+    db_path = tmp_path / "test.db"
+    setup(db_path)
+    downloads_dir = tmp_path / "downloads"
+    downloads_dir.mkdir()
+    c = Config()
+    c.db.path = str(db_path)
+    c.paths.downloads_dir = str(downloads_dir)
+    c.paths.library_dir = str(tmp_path / "library")  # does not exist — won't be scanned
+    return c
+
+
+def _insert_track(db_path, *, status="candidate", artist="Test Artist", title="Test Track", slskd_job_id=None):
+    with connect(db_path) as conn:
+        cur = conn.execute(
+            "INSERT INTO tracks (acquisition_status, source, title, artist, slskd_job_id)"
+            " VALUES (?, 'exportify', ?, ?, ?)",
+            (status, title, artist, slskd_job_id),
+        )
+        conn.commit()
+        return cur.lastrowid
 
 
 # ─── Pure helpers ─────────────────────────────────────────────────────────────
@@ -186,3 +213,66 @@ def test_health_check_returns_true_when_connected(cfg):
         ok, msg = health_check(cfg)
     assert ok is True
     assert "testuser" in msg
+
+
+# ─── reconcile_disk ───────────────────────────────────────────────────────────
+
+
+def test_reconcile_disk_candidate_matched(reconcile_cfg):
+    """A candidate track whose file is found by fuzzy name is set to available."""
+    track_id = _insert_track(reconcile_cfg.db_path, status="candidate", artist="Big Wild", title="City of Sound")
+    audio_file = reconcile_cfg.downloads_dir / "Big Wild - City of Sound.mp3"
+    audio_file.touch()
+
+    stats = reconcile_disk(reconcile_cfg)
+
+    assert stats["updated"] == 1
+    assert stats["skipped"] == 0
+    with connect(reconcile_cfg.db_path) as conn:
+        row = conn.execute("SELECT acquisition_status, local_path FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    assert row["acquisition_status"] == "available"
+    assert row["local_path"] == str(audio_file)
+
+
+def test_reconcile_disk_downloading_exact_match(reconcile_cfg):
+    """A downloading track matched by slskd_job_id basename is set to available."""
+    job_id = "\\\\user\\music\\Big Wild - City of Sound.flac"
+    track_id = _insert_track(
+        reconcile_cfg.db_path, status="downloading", artist="Big Wild", title="City of Sound", slskd_job_id=job_id
+    )
+    audio_file = reconcile_cfg.downloads_dir / "Big Wild - City of Sound.flac"
+    audio_file.touch()
+
+    stats = reconcile_disk(reconcile_cfg)
+
+    assert stats["updated"] == 1
+    with connect(reconcile_cfg.db_path) as conn:
+        row = conn.execute("SELECT acquisition_status FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    assert row["acquisition_status"] == "available"
+
+
+def test_reconcile_disk_no_match(reconcile_cfg):
+    """A candidate track with no matching file on disk stays candidate."""
+    track_id = _insert_track(reconcile_cfg.db_path, status="candidate", artist="Big Wild", title="City of Sound")
+    unrelated = reconcile_cfg.downloads_dir / "Some Other Artist - Unrelated Track.mp3"
+    unrelated.touch()
+
+    stats = reconcile_disk(reconcile_cfg)
+
+    assert stats["updated"] == 0
+    assert stats["skipped"] == 1
+    with connect(reconcile_cfg.db_path) as conn:
+        row = conn.execute("SELECT acquisition_status FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    assert row["acquisition_status"] == "candidate"
+
+
+def test_reconcile_disk_missing_downloads_dir(reconcile_cfg):
+    """If downloads_dir doesn't exist, no crash and updated=0."""
+    import shutil
+    shutil.rmtree(reconcile_cfg.downloads_dir)
+    _insert_track(reconcile_cfg.db_path, status="candidate")
+
+    stats = reconcile_disk(reconcile_cfg)
+
+    assert stats["updated"] == 0
+    assert stats["skipped"] == 1

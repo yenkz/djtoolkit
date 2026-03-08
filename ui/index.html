@@ -87,13 +87,11 @@
     .stat-card .count { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 4px; }
     .stat-card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
 
-    .status-download_candidate .count { color: var(--blue); }
-    .status-downloaded .count { color: var(--green); }
-    .status-download_fail .count { color: var(--red); }
-    .status-duplicated .count { color: var(--yellow); }
-    .status-metadata_applied .count { color: var(--green); }
-    .status-imported .count { color: var(--blue); }
+    .status-candidate .count   { color: var(--blue); }
     .status-downloading .count { color: var(--yellow); }
+    .status-available .count   { color: var(--green); }
+    .status-failed .count      { color: var(--red); }
+    .status-duplicate .count   { color: var(--yellow); }
 
     /* Pipeline buttons */
     .pipeline { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
@@ -152,13 +150,11 @@
       font-weight: 500;
     }
 
-    .badge-download_candidate { background: #1e3a5f; color: var(--blue); }
-    .badge-downloading        { background: #3f2e00; color: var(--yellow); }
-    .badge-downloaded         { background: #052e16; color: var(--green); }
-    .badge-download_fail      { background: #450a0a; color: var(--red); }
-    .badge-duplicated         { background: #3f2e00; color: var(--yellow); }
-    .badge-metadata_applied   { background: #14532d; color: var(--green); }
-    .badge-imported           { background: #1e3a5f; color: var(--blue); }
+    .badge-candidate   { background: #1e3a5f; color: var(--blue); }
+    .badge-downloading { background: #3f2e00; color: var(--yellow); }
+    .badge-available   { background: #052e16; color: var(--green); }
+    .badge-failed      { background: #450a0a; color: var(--red); }
+    .badge-duplicate   { background: #3f2e00; color: var(--yellow); }
 
     /* Filter bar */
     .filter-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
@@ -267,13 +263,11 @@
       <div class="filter-bar">
         <select id="status-filter" onchange="loadTracks(0)">
           <option value="">All statuses</option>
-          <option value="download_candidate">download_candidate</option>
+          <option value="candidate">candidate</option>
           <option value="downloading">downloading</option>
-          <option value="downloaded">downloaded</option>
-          <option value="download_fail">download_fail</option>
-          <option value="duplicated">duplicated</option>
-          <option value="metadata_applied">metadata_applied</option>
-          <option value="imported">imported</option>
+          <option value="available">available</option>
+          <option value="failed">failed</option>
+          <option value="duplicate">duplicate</option>
         </select>
       </div>
       <div class="table-wrap">
@@ -396,7 +390,7 @@
     const status = document.getElementById('status-filter').value;
     const offset = page * PAGE_SIZE;
     let url = `${API}/tracks?limit=${PAGE_SIZE}&offset=${offset}`;
-    if (status) url += `&status=${encodeURIComponent(status)}`;
+    if (status) url += `&acquisition_status=${encodeURIComponent(status)}`;
 
     const res = await fetch(url);
     const data = await res.json();
@@ -408,7 +402,7 @@
       const tr = document.createElement('tr');
       const dur = t.duration_ms ? Math.round(t.duration_ms / 1000) + 's' : '—';
       tr.innerHTML = `
-        <td><span class="badge badge-${t.status}">${t.status}</span></td>
+        <td><span class="badge badge-${t.acquisition_status}">${t.acquisition_status}</span></td>
         <td title="${t.title || ''}">${t.title || '—'}</td>
         <td title="${t.artist || ''}">${t.artist || '—'}</td>
         <td title="${t.album || ''}">${t.album || '—'}</td>

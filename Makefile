@@ -1,5 +1,5 @@
 .PHONY: init install setup import-csv download fingerprint apply-metadata move-to-library \
-        import-folder enrich fetch-cover-art migrate-db check-db wipe-db normalize playlist ui dev \
+        import-folder enrich fetch-cover-art migrate-db check-db wipe-db reconcile normalize playlist ui dev \
         test lint \
         install-docker slskd-up slskd-down slskd-logs slskd-status
 
@@ -76,6 +76,9 @@ wipe-db:
 	@echo "⚠️  This will delete all data in the database. Press Ctrl-C to cancel."
 	@read -p "Type 'wipe' to confirm: " confirm && [ "$$confirm" = "wipe" ]
 	$(DJ) db wipe --config $(CONFIG)
+
+reconcile:
+	$(DJ) db reconcile --config $(CONFIG)
 
 ## not implemented yet, but will run various normalization steps on the database (e.g. genre/style cleanup, filename cleanup, etc.)
 

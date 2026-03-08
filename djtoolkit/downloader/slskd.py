@@ -341,6 +341,11 @@ def _set_acquisition_status(db_path: Path, track_id: int, status: str, local_pat
             )
         else:
             conn.execute("UPDATE tracks SET acquisition_status = ? WHERE id = ?", (status, track_id))
+        # Also sync the legacy 'status' column if it still exists in the schema
+        try:
+            conn.execute("UPDATE tracks SET status = ? WHERE id = ?", (status, track_id))
+        except Exception:
+            pass  # fresh installs don't have the old column
         conn.commit()
 
 
@@ -457,6 +462,80 @@ def poll_downloads(cfg: Config) -> dict:
             stats["still_downloading"] += 1
 
     log.info("poll_downloads complete: %s", stats)
+    return stats
+
+
+def reconcile_disk(cfg: Config) -> dict:
+    """
+    Scan downloads_dir and library_dir and update any 'candidate' or 'downloading'
+    tracks whose files are already on disk to 'available'.
+    Returns {updated, skipped}.
+    """
+    stats = {"updated": 0, "skipped": 0}
+
+    with connect(cfg.db_path) as conn:
+        # Also catch tracks where the legacy 'status' column has old values
+        # and acquisition_status hasn't been populated yet (migration not run)
+        try:
+            rows = conn.execute(
+                "SELECT id, slskd_job_id, artist, title FROM tracks"
+                " WHERE acquisition_status IN ('candidate', 'downloading', 'download_candidate')"
+                " OR (acquisition_status IS NULL AND status IN ('download_candidate', 'downloading'))"
+            ).fetchall()
+        except Exception:
+            # 'status' column doesn't exist (fresh install) — use acquisition_status only
+            rows = conn.execute(
+                "SELECT id, slskd_job_id, artist, title FROM tracks"
+                " WHERE acquisition_status IN ('candidate', 'downloading', 'download_candidate')"
+            ).fetchall()
+
+    if not rows:
+        log.info("reconcile_disk: no candidate/downloading tracks")
+        return stats
+
+    # Collect audio files from both downloads_dir and library_dir
+    audio_files: list[Path] = []
+    for search_dir in (cfg.downloads_dir, cfg.library_dir):
+        if search_dir.exists():
+            audio_files.extend(p for p in search_dir.rglob("*") if p.suffix.lower() in AUDIO_EXTS and p.is_file())
+
+    if not audio_files:
+        log.warning("reconcile_disk: no audio files found in downloads_dir or library_dir")
+        stats["skipped"] = len(rows)
+        return stats
+
+    log.info("reconcile_disk: %d audio files on disk, %d tracks to check", len(audio_files), len(rows))
+
+    for row in rows:
+        track_id = row["id"]
+        job = row["slskd_job_id"] or ""
+        matched_path: str | None = None
+
+        if job:
+            expected_bn = job.replace("\\", "/").split("/")[-1].lower()
+            for p in audio_files:
+                if p.name.lower() == expected_bn:
+                    matched_path = str(p)
+                    break
+        else:
+            target = f"{row['artist'] or ''} {row['title'] or ''}".lower()
+            best_score, best_path = 0.0, None
+            for p in audio_files:
+                score = fuzz.partial_ratio(target, p.stem.lower()) / 100
+                if score > best_score:
+                    best_score, best_path = score, p
+            if best_score >= 0.75:
+                matched_path = str(best_path)
+
+        if matched_path:
+            _set_acquisition_status(cfg.db_path, track_id, "available", local_path=matched_path)
+            log.info("[%d] Reconciled to available: %s", track_id, matched_path)
+            stats["updated"] += 1
+        else:
+            log.debug("[%d] No disk match found", track_id)
+            stats["skipped"] += 1
+
+    log.info("reconcile_disk complete: %s", stats)
     return stats
 
 
