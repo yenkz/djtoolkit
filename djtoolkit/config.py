@@ -39,13 +39,11 @@ class PathsConfig:
 
 
 @dataclass
-class SlskdConfig:
-    host: str = "http://localhost:5030"
-    url_base: str = "/api/v0"
-    api_key: str = ""  # set SLSKD_API_KEY in .env
-    search_timeout_ms: int = 15000
-    response_limit: int = 100
-    file_limit: int = 10000
+class SoulseekConfig:
+    username: str = ""            # Soulseek account username
+    password: str = ""            # set SOULSEEK_PASSWORD in .env
+    search_timeout_sec: float = 15.0   # seconds to collect search responses
+    download_timeout_sec: float = 300.0  # seconds to wait per download
 
 
 @dataclass
@@ -101,7 +99,7 @@ class AudioAnalysisConfig:
 class Config:
     db: DbConfig = field(default_factory=DbConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
-    slskd: SlskdConfig = field(default_factory=SlskdConfig)
+    soulseek: SoulseekConfig = field(default_factory=SoulseekConfig)
     matching: MatchingConfig = field(default_factory=MatchingConfig)
     fingerprint: FingerprintConfig = field(default_factory=FingerprintConfig)
     loudnorm: LoudnormConfig = field(default_factory=LoudnormConfig)
@@ -148,7 +146,7 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
         cfg = Config(
             db=_make(DbConfig, "db"),
             paths=_make(PathsConfig, "paths"),
-            slskd=_make(SlskdConfig, "slskd"),
+            soulseek=_make(SoulseekConfig, "soulseek"),
             matching=_make(MatchingConfig, "matching"),
             fingerprint=_make(FingerprintConfig, "fingerprint"),
             loudnorm=_make(LoudnormConfig, "loudnorm"),
@@ -157,8 +155,8 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
         )
 
     # Env vars override TOML for secrets (env always wins)
-    if slskd_key := os.environ.get("SLSKD_API_KEY"):
-        cfg.slskd.api_key = slskd_key
+    if soulseek_pw := os.environ.get("SOULSEEK_PASSWORD"):
+        cfg.soulseek.password = soulseek_pw
     if acoustid_key := os.environ.get("ACOUSTID_API_KEY"):
         cfg.fingerprint.acoustid_api_key = acoustid_key
     if lastfm_key := os.environ.get("LASTFM_API_KEY"):

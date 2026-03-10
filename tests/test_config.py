@@ -18,25 +18,25 @@ def test_load_missing_file_returns_defaults(tmp_path):
     cfg = load(tmp_path / "nonexistent.toml")
     assert isinstance(cfg, Config)
     assert cfg.db.path == "djtoolkit.db"
-    assert cfg.slskd.host == "http://localhost:5030"
+    assert cfg.soulseek.username == ""
 
 
 def test_load_minimal_toml(tmp_path):
     (tmp_path / "cfg.toml").write_text('[db]\npath = "custom.db"\n')
     cfg = load(tmp_path / "cfg.toml")
     assert cfg.db.path == "custom.db"
-    assert cfg.slskd.host == "http://localhost:5030"  # default preserved
+    assert cfg.soulseek.username == ""  # default preserved
 
 
 def test_load_all_sections(tmp_path):
     (tmp_path / "cfg.toml").write_text(
         '[db]\npath = "mydb.db"\n'
-        '[slskd]\nhost = "http://slskd:9090"\n'
+        '[soulseek]\nusername = "djuser"\n'
         '[matching]\nmin_score = 0.9\n'
     )
     cfg = load(tmp_path / "cfg.toml")
     assert cfg.db.path == "mydb.db"
-    assert cfg.slskd.host == "http://slskd:9090"
+    assert cfg.soulseek.username == "djuser"
     assert cfg.matching.min_score == 0.9
 
 
@@ -70,10 +70,10 @@ def test_unknown_toml_keys_ignored(tmp_path):
     assert cfg.db.path == "x.db"
 
 
-def test_env_override_slskd_api_key(tmp_path, monkeypatch):
-    monkeypatch.setenv("SLSKD_API_KEY", "test-key-from-env")
+def test_env_override_soulseek_password(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOULSEEK_PASSWORD", "secret123")
     cfg = load(tmp_path / "nonexistent.toml")
-    assert cfg.slskd.api_key == "test-key-from-env"
+    assert cfg.soulseek.password == "secret123"
 
 
 def test_env_override_spotify(tmp_path, monkeypatch):
@@ -92,10 +92,10 @@ def test_env_override_lastfm(tmp_path, monkeypatch):
 
 def test_env_beats_toml(tmp_path, monkeypatch):
     """Environment variable overrides value from TOML."""
-    (tmp_path / "cfg.toml").write_text('[slskd]\napi_key = "from-toml"\n')
-    monkeypatch.setenv("SLSKD_API_KEY", "from-env")
+    (tmp_path / "cfg.toml").write_text('[soulseek]\npassword = "from-toml"\n')
+    monkeypatch.setenv("SOULSEEK_PASSWORD", "from-env")
     cfg = load(tmp_path / "cfg.toml")
-    assert cfg.slskd.api_key == "from-env"
+    assert cfg.soulseek.password == "from-env"
 
 
 def test_load_dotenv_loads_key_value(tmp_path, monkeypatch):

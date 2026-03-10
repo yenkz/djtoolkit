@@ -16,13 +16,11 @@ beets_config          = "~/.config/beets/config.yaml"
 scan_dir              = ""                            # used by import-folder
 candidates_csv_export = "djtoolkit_candidates.csv"
 
-[slskd]
-host              = "http://localhost:5030"
-url_base          = "/api/v0"
-# api_key is loaded from SLSKD_API_KEY in .env — omit here
-search_timeout_ms = 15000
-response_limit    = 100
-file_limit        = 10000
+[soulseek]
+username             = ""       # your Soulseek account username
+# password is loaded from SOULSEEK_PASSWORD in .env — omit here
+search_timeout_sec   = 15.0    # seconds to collect search responses
+download_timeout_sec = 300.0   # seconds to wait per download (0 = unlimited)
 
 [matching]
 min_score             = 0.86     # combined artist+title fuzzy score threshold
