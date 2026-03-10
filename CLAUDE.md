@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Setup
 make install                      # poetry install
 make setup                        # initialize DB from schema
-make migrate-db                   # migrate existing DB to current schema (idempotent)
+make migrate-db                   # migrate existing DB to current schema; drops legacy `status` column (idempotent)
 
 # Flow 1 — Exportify CSV → Downloaded + Tagged
 make import-csv CSV=path/to.csv   # import Exportify CSV → DB (acquisition_status: candidate)

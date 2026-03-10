@@ -80,6 +80,11 @@ def migrate(db_path: str | Path) -> None:
             )
         """)
 
+        # Drop the legacy 'status' column now that acquisition_status is the source of truth
+        if "status" in existing:
+            conn.execute("DROP INDEX IF EXISTS idx_tracks_status")
+            conn.execute("ALTER TABLE tracks DROP COLUMN status")
+
         conn.commit()
 
 

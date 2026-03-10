@@ -341,11 +341,6 @@ def _set_acquisition_status(db_path: Path, track_id: int, status: str, local_pat
             )
         else:
             conn.execute("UPDATE tracks SET acquisition_status = ? WHERE id = ?", (status, track_id))
-        # Also sync the legacy 'status' column if it still exists in the schema
-        try:
-            conn.execute("UPDATE tracks SET status = ? WHERE id = ?", (status, track_id))
-        except Exception:
-            pass  # fresh installs don't have the old column
         conn.commit()
 
 
@@ -474,20 +469,10 @@ def reconcile_disk(cfg: Config) -> dict:
     stats = {"updated": 0, "skipped": 0}
 
     with connect(cfg.db_path) as conn:
-        # Also catch tracks where the legacy 'status' column has old values
-        # and acquisition_status hasn't been populated yet (migration not run)
-        try:
-            rows = conn.execute(
-                "SELECT id, slskd_job_id, artist, title FROM tracks"
-                " WHERE acquisition_status IN ('candidate', 'downloading', 'download_candidate')"
-                " OR (acquisition_status IS NULL AND status IN ('download_candidate', 'downloading'))"
-            ).fetchall()
-        except Exception:
-            # 'status' column doesn't exist (fresh install) — use acquisition_status only
-            rows = conn.execute(
-                "SELECT id, slskd_job_id, artist, title FROM tracks"
-                " WHERE acquisition_status IN ('candidate', 'downloading', 'download_candidate')"
-            ).fetchall()
+        rows = conn.execute(
+            "SELECT id, slskd_job_id, artist, title FROM tracks"
+            " WHERE acquisition_status IN ('candidate', 'downloading')"
+        ).fetchall()
 
     if not rows:
         log.info("reconcile_disk: no candidate/downloading tracks")
