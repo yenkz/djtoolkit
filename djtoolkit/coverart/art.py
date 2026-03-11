@@ -33,6 +33,7 @@ Config (``[cover_art]`` in djtoolkit.toml)::
 import io
 import json
 import logging
+import re
 import struct
 import time
 import urllib.parse
@@ -58,6 +59,49 @@ console = Console()
 
 _EMBEDDABLE_EXTS = {".mp3", ".flac", ".m4a", ".aac"}
 _USER_AGENT = "djtoolkit/1.0 (cover art fetcher)"
+
+# ─── Metadata cleaning for search ─────────────────────────────────────────────
+
+_LEADING_NUM_RE = re.compile(r"^\d+[\.\s]+")
+_BLOG_PREFIX_RE = re.compile(r"^(Premiere|Exclusive|Preview|Edit)\s*:\s*", re.I)
+_MULTI_ARTIST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|vs\.?|presents?|\bx\b)\s+|\s*[&+]\s*", re.I)
+
+_URL_RE = re.compile(r"https?://|\bwww\.\S|\S+\.(com|net|org|biz|info)\b", re.I)
+_PROMO_RE = re.compile(r"\s*(OUT NOW|#\d+\s+ON\s+BEATPORT|FREE\s+DOWNLOAD).*$", re.I)
+_DISC_SUFFIX_RE = re.compile(r"\s*[-/]\s*(?:CD|Disc)\s*\d+.*$", re.I)
+_MIXED_BY_RE = re.compile(r"\s*[-/]\s*Mixed\s+by\s+.+$", re.I)
+_DISC_PREFIX_RE = re.compile(r"^(?:CD|Disc)\s*\d+\s*[-–:]\s*", re.I)
+
+
+def _clean_artist(artist: str) -> str:
+    """Strip track number prefixes, blog prefixes, and trailing noise."""
+    a = artist.strip()
+    a = _BLOG_PREFIX_RE.sub("", a)       # "Premiere: Yaya" → "Yaya"
+    a = _LEADING_NUM_RE.sub("", a)       # "07 Henry Saiz" → "Henry Saiz"
+    return a.rstrip("_.").strip()
+
+
+def _first_artist(artist: str) -> str:
+    """Extract just the primary artist from a compound string."""
+    return _MULTI_ARTIST_RE.split(_clean_artist(artist))[0].strip()
+
+
+_DISC_ONLY_RE = re.compile(r"^(?:CD|Disc)\s*\d+$", re.I)
+
+
+def _clean_album(album: str) -> str:
+    """Return cleaned album name, or '' if the value is a URL / pure garbage."""
+    a = album.strip()
+    if not a or _URL_RE.search(a):
+        return ""
+    a = _PROMO_RE.sub("", a)        # "Ridin' Higher OUT NOW : #2 ON BEATPORT" → "Ridin' Higher"
+    a = _MIXED_BY_RE.sub("", a)     # "Ibiza 2013 - CD 1 - Mixed by Simon Dunmore" → "Ibiza 2013"
+    a = _DISC_SUFFIX_RE.sub("", a)  # "Ibiza 2013 - CD 1" → "Ibiza 2013"
+    a = _DISC_PREFIX_RE.sub("", a)  # "CD1 - Eclectic Party" → "Eclectic Party"
+    a = a.strip()
+    if _DISC_ONLY_RE.match(a):      # "CD 2" alone → useless
+        return ""
+    return a
 
 
 # ─── Detection ────────────────────────────────────────────────────────────────
@@ -307,29 +351,57 @@ def _fetch_art(
     spotify_client_secret: str = "",
     lastfm_api_key: str = "",
 ) -> Optional[bytes]:
-    """Try each configured source in order. Returns the first successful image."""
-    for source in sources:
-        try:
-            if source == "coverart":
-                img = _source_coverart(artist, album, title)
-            elif source == "itunes":
-                img = _source_itunes(artist, album)
-            elif source == "deezer":
-                img = _source_deezer(artist, title)
-            elif source == "spotify":
-                img = _source_spotify(spotify_uri, spotify_client_id, spotify_client_secret) if spotify_uri else None
-            elif source == "lastfm":
-                img = _source_lastfm(artist, album, lastfm_api_key) if lastfm_api_key else None
-            else:
-                log.debug("unknown cover art source %r — skipping", source)
-                continue
-        except Exception as exc:
-            log.debug("source %r raised: %s", source, exc)
-            img = None
-        if img:
-            log.debug("fetched art from %r (%d bytes)", source, len(img))
-            return img
-        time.sleep(0.3)  # polite delay between source attempts
+    """Try each configured source in order. Returns the first successful image.
+
+    Applies two search passes:
+      Pass 1 — cleaned artist + cleaned album
+      Pass 2 — first artist only (when artist was a compound "A & B feat. C" string)
+
+    When album is empty/garbage after cleaning, album-based sources (coverart
+    release-group, itunes, lastfm) fall back to track/title-based queries so
+    they remain useful instead of making empty-album requests.
+    """
+    artist_c = _clean_artist(artist)
+    album_c = _clean_album(album)
+    first = _first_artist(artist)
+
+    def _try(art: str, alb: str) -> Optional[bytes]:
+        for source in sources:
+            try:
+                if source == "coverart":
+                    # When album is known, try release-group search first (album art);
+                    # when album is missing, go straight to recording search (single art).
+                    img = _source_coverart(art, alb, title) if alb else _source_coverart_recording(art, title)
+                elif source == "itunes":
+                    img = _source_itunes(art, alb) if alb else None
+                elif source == "deezer":
+                    img = _source_deezer(art, title)
+                elif source == "spotify":
+                    img = _source_spotify(spotify_uri, spotify_client_id, spotify_client_secret) if spotify_uri else None
+                elif source == "lastfm":
+                    img = _source_lastfm(art, alb, lastfm_api_key) if lastfm_api_key and alb else None
+                else:
+                    log.debug("unknown cover art source %r — skipping", source)
+                    continue
+            except Exception as exc:
+                log.debug("source %r raised: %s", source, exc)
+                img = None
+            if img:
+                log.debug("fetched art from %r (%d bytes) [artist=%r album=%r]", source, len(img), art, alb)
+                return img
+            time.sleep(0.3)
+        return None
+
+    # Pass 1: cleaned artist + cleaned album
+    result = _try(artist_c, album_c)
+    if result:
+        return result
+
+    # Pass 2: first artist only — helps with "A & B feat. C" compound strings
+    if first != artist_c:
+        log.debug("retrying with first artist only: %r", first)
+        return _try(first, album_c)
+
     return None
 
 
