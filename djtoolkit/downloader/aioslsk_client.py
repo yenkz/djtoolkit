@@ -297,11 +297,15 @@ async def _search_all(client, query_by_track_id: dict[int, str], timeout_sec: fl
 
 # ─── Download ─────────────────────────────────────────────────────────────────
 
-async def _wait_for_transfer(client, transfer, timeout_sec: float, track_id: int = 0) -> bool:
+async def _wait_for_transfer(
+    client, transfer, timeout_sec: float,
+    track_id: int = 0, progress=None, task_id=None,
+) -> bool:
     """
     Wait for a Transfer to reach a terminal state.
     Returns True on COMPLETE, False on failure/timeout.
-    Logs progress every 30s so the terminal doesn't appear frozen.
+    When progress+task_id are given, drives a rich progress bar every 2s.
+    Otherwise logs every 30s so the terminal doesn't appear frozen.
     """
     from aioslsk.events import TransferProgressEvent
     from aioslsk.transfer.state import TransferState
@@ -322,31 +326,33 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float, track_id: int
 
     async def _ticker():
         elapsed = 0
+        tick = 2 if progress else 30
         while True:
-            await asyncio.sleep(30)
-            elapsed += 30
+            await asyncio.sleep(tick)
+            elapsed += tick
             snap = transfer.progress_snapshot
             total = transfer.filesize or 0
-            mb_done = snap.bytes_transfered / 1_048_576
-            speed_kbps = (snap.speed or 0) / 1024
-            if transfer.place_in_queue is not None and snap.bytes_transfered == 0:
-                log.info(
-                    "[%d]   queued at position %d (%ds elapsed)",
-                    track_id, transfer.place_in_queue, elapsed,
-                )
-            elif total:
-                pct = snap.bytes_transfered / total * 100
-                log.info(
-                    "[%d]   %.0f%% (%.1f / %.1f MB @ %.0f KB/s, %ds elapsed)",
-                    track_id, pct, mb_done, total / 1_048_576, speed_kbps, elapsed,
-                )
-            elif mb_done > 0:
-                log.info(
-                    "[%d]   %.1f MB @ %.0f KB/s (%ds elapsed)",
-                    track_id, mb_done, speed_kbps, elapsed,
-                )
+            if progress and task_id is not None:
+                if snap.bytes_transfered > 0:
+                    progress.update(task_id, completed=snap.bytes_transfered,
+                                    total=total or None)
+                elif transfer.place_in_queue is not None:
+                    progress.update(task_id, completed=0, total=None)
             else:
-                log.info("[%d]   waiting for peer… (%ds elapsed)", track_id, elapsed)
+                mb_done = snap.bytes_transfered / 1_048_576
+                speed_kbps = (snap.speed or 0) / 1024
+                if transfer.place_in_queue is not None and snap.bytes_transfered == 0:
+                    log.info("[%d]   queued at position %d (%ds elapsed)",
+                             track_id, transfer.place_in_queue, elapsed)
+                elif total:
+                    pct = snap.bytes_transfered / total * 100
+                    log.info("[%d]   %.0f%% (%.1f / %.1f MB @ %.0f KB/s, %ds elapsed)",
+                             track_id, pct, mb_done, total / 1_048_576, speed_kbps, elapsed)
+                elif mb_done > 0:
+                    log.info("[%d]   %.1f MB @ %.0f KB/s (%ds elapsed)",
+                             track_id, mb_done, speed_kbps, elapsed)
+                else:
+                    log.info("[%d]   waiting for peer… (%ds elapsed)", track_id, elapsed)
 
     client.events.register(TransferProgressEvent, on_progress)
     ticker_task = asyncio.create_task(_ticker())
@@ -365,7 +371,10 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float, track_id: int
     return success
 
 
-async def _download_track(client, cfg: Config, track: dict, results: list, query: str = "") -> str | None:
+async def _download_track(
+    client, cfg: Config, track: dict, results: list,
+    query: str = "", progress=None, task_id=None,
+) -> str | None:
     """
     Download a single track given pre-fetched search results.
     Tries up to _MAX_DOWNLOAD_RETRIES peers (best-first) before giving up.
@@ -376,16 +385,33 @@ async def _download_track(client, cfg: Config, track: dict, results: list, query
         return None
 
     track_id = track["id"]
+    label = f"{track.get('artist', '')} – {track.get('title', '')}"
+
     for attempt, (username, remote_filename) in enumerate(ranked[:_MAX_DOWNLOAD_RETRIES]):
         fname = remote_filename.split("\\")[-1]
         if attempt > 0:
-            log.info("[%d] Peer %d/%d → %s: %s", track_id, attempt + 1, _MAX_DOWNLOAD_RETRIES, username, fname)
+            log.info("[%d] Retry %d/%d → %s: %s", track_id, attempt + 1, _MAX_DOWNLOAD_RETRIES, username, fname)
         else:
             log.info("[%d] → %s: %s", track_id, username, fname)
+
         transfer = await client.transfers.download(username, remote_filename)
-        size_mb = f"{transfer.filesize / 1_048_576:.1f} MB" if transfer.filesize else "unknown size"
-        log.info("[%d]   %s", track_id, size_mb)
-        success = await _wait_for_transfer(client, transfer, cfg.soulseek.download_timeout_sec, track_id)
+
+        if progress and task_id is not None:
+            retry_prefix = f"[yellow]↻{attempt+1}[/yellow] " if attempt > 0 else ""
+            progress.update(
+                task_id,
+                description=f"{retry_prefix}[cyan]{label}[/cyan]  [dim]{fname}[/dim]",
+                total=transfer.filesize or None,
+                completed=0,
+            )
+        else:
+            size_mb = f"{transfer.filesize / 1_048_576:.1f} MB" if transfer.filesize else "unknown size"
+            log.info("[%d]   %s", track_id, size_mb)
+
+        success = await _wait_for_transfer(
+            client, transfer, cfg.soulseek.download_timeout_sec,
+            track_id, progress=progress, task_id=task_id,
+        )
         if success:
             local_path = getattr(transfer, "local_path", None)
             if local_path:
@@ -413,7 +439,7 @@ def _set_status(db_path: Path, track_id: int, status: str, local_path: str | Non
 
 # ─── Main pipeline step ───────────────────────────────────────────────────────
 
-async def _run_async(cfg: Config) -> dict:
+async def _run_async(cfg: Config, progress=None) -> dict:
     from aioslsk.client import SoulSeekClient
 
     if not cfg.soulseek.username or not cfg.soulseek.password:
@@ -437,9 +463,11 @@ async def _run_async(cfg: Config) -> dict:
     settings = _make_settings(cfg)
 
     # Suppress noisy internal aioslsk logs (P2P connection chatter, distributed network)
+    # aioslsk.distributed is the correct module name (not aioslsk.network.distributed)
     for _noisy in (
         "aioslsk.network.network", "aioslsk.network.connection",
-        "aioslsk.network.peer", "aioslsk.transfer", "aioslsk.network.distributed",
+        "aioslsk.network.peer", "aioslsk.transfer",
+        "aioslsk.network.distributed", "aioslsk.distributed",
     ):
         logging.getLogger(_noisy).setLevel(logging.CRITICAL)
 
@@ -469,29 +497,47 @@ async def _run_async(cfg: Config) -> dict:
     async def _do_download(client, track: dict, results: list, query: str = "") -> None:
         track_id = track["id"]
         label = f"{track.get('artist')} – {track.get('title')}"
+        task_id = None
+        if progress:
+            task_id = progress.add_task(
+                f"[dim]{label}[/dim]",
+                total=None,
+            )
         try:
             if not results:
-                log.warning("[%d] No results from any query: %s", track_id, label)
+                log.warning("[%d] No results: %s", track_id, label)
+                if progress and task_id is not None:
+                    progress.update(task_id, description=f"[red]✗ no results[/red]  {label}",
+                                    total=1, completed=1)
                 _set_status(cfg.db_path, track_id, "failed")
                 stats["no_match"] += 1
                 stats["failed"] += 1
                 return
-            local_path = await _download_track(client, cfg, track, results, query)
+            local_path = await _download_track(client, cfg, track, results, query,
+                                               progress=progress, task_id=task_id)
             if local_path:
                 _set_status(cfg.db_path, track_id, "available", local_path)
-                log.info("[%d] ✓ Done: %s", track_id, local_path)
+                log.info("[%d] ✓ %s", track_id, label)
+                if progress and task_id is not None:
+                    progress.update(task_id, description=f"[green]✓[/green]  {label}",
+                                    completed=progress._tasks[task_id].total or 1,
+                                    total=progress._tasks[task_id].total or 1)
                 stats["downloaded"] += 1
             else:
                 n_files = sum(len(sr.shared_items) for sr in results)
-                log.warning(
-                    "[%d] No match: %s  (%d files in %d results, all filtered/timed out)",
-                    track_id, label, n_files, len(results),
-                )
+                log.warning("[%d] No match: %s  (%d files, all filtered/timed out)",
+                            track_id, label, n_files)
+                if progress and task_id is not None:
+                    progress.update(task_id, description=f"[red]✗ no match[/red]  {label}",
+                                    total=1, completed=1)
                 _set_status(cfg.db_path, track_id, "failed")
                 stats["no_match"] += 1
                 stats["failed"] += 1
         except Exception:
             log.exception("[%d] Unexpected error: %s", track_id, label)
+            if progress and task_id is not None:
+                progress.update(task_id, description=f"[red]✗ error[/red]  {label}",
+                                total=1, completed=1)
             _set_status(cfg.db_path, track_id, "failed")
             stats["failed"] += 1
 
@@ -505,20 +551,27 @@ async def _run_async(cfg: Config) -> dict:
         queries_by_track: dict[int, list[str]] = {t["id"]: _build_search_queries(t) for t in tracks}
 
         # ── Phase 1: search ────────────────────────────────────────────────────
-        log.info(
-            "── Phase 1: searching %d tracks (%.0fs window) ──",
-            len(tracks), cfg.soulseek.search_timeout_sec,
-        )
+        log.info("Searching %d tracks (%.0fs window)…", len(tracks), cfg.soulseek.search_timeout_sec)
+        search_task = None
+        if progress:
+            search_task = progress.add_task(
+                f"[bold cyan]Searching {len(tracks)} tracks"
+                f"[/bold cyan]  [dim]{cfg.soulseek.search_timeout_sec:.0f}s window[/dim]",
+                total=None,
+            )
+
         primary_queries = {t["id"]: queries_by_track[t["id"]][0] for t in tracks}
         results_by_track = await _search_all(client, primary_queries, cfg.soulseek.search_timeout_sec)
 
-        # Summarise search results
         hits = sum(1 for r in results_by_track.values() if r)
         total_files = sum(sum(len(sr.shared_items) for sr in r) for r in results_by_track.values())
-        log.info(
-            "Search done: %d/%d tracks got results (%d files total)",
-            hits, len(tracks), total_files,
-        )
+        log.info("Search done: %d/%d tracks got results (%d files total)", hits, len(tracks), total_files)
+        if progress and search_task is not None:
+            progress.update(search_task,
+                            description=f"[bold cyan]Search[/bold cyan]  {hits}/{len(tracks)} tracks"
+                                        f"  [dim]{total_files} files[/dim]",
+                            total=1, completed=1)
+
         for t in tracks:
             res = results_by_track[t["id"]]
             n_files = sum(len(sr.shared_items) for sr in res)
@@ -548,18 +601,30 @@ async def _run_async(cfg: Config) -> dict:
                 log.info("[%d] Fallback #%d query: «%s»", t["id"], idx, variant)
                 fallback_attempt[t["id"]] += 1
 
-            log.info(
-                "── Phase 1b (round %d): fallback search for %d tracks (%.0fs window) ──",
-                _round + 1, len(fallback_queries), cfg.soulseek.search_timeout_sec,
-            )
+            fallback_task = None
+            if progress:
+                fallback_task = progress.add_task(
+                    f"[bold cyan]Fallback search[/bold cyan]"
+                    f"  [dim]round {_round+1}, {len(fallback_queries)} tracks[/dim]",
+                    total=None,
+                )
+            else:
+                log.info("── Phase 1b (round %d): fallback search for %d tracks (%.0fs window) ──",
+                         _round + 1, len(fallback_queries), cfg.soulseek.search_timeout_sec)
+
             fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
             improved = 0
             for tid, res in fallback_results.items():
                 if res:
-                    # Merge: keep all results to maximise candidate pool
                     results_by_track[tid] = results_by_track[tid] + res
                     improved += 1
+
             log.info("Fallback round %d done: %d tracks gained new results", _round + 1, improved)
+            if progress and fallback_task is not None:
+                progress.update(fallback_task,
+                                description=f"[bold cyan]Fallback {_round+1}[/bold cyan]"
+                                            f"  [dim]{improved} tracks improved[/dim]",
+                                total=1, completed=1)
 
         # ── Phase 2: download ──────────────────────────────────────────────────
         ready = sum(1 for t in tracks if results_by_track[t["id"]])
@@ -575,12 +640,13 @@ async def _run_async(cfg: Config) -> dict:
     return stats
 
 
-def run(cfg: Config) -> dict:
+def run(cfg: Config, progress=None) -> dict:
     """
     Search and download all candidate tracks via embedded aioslsk Soulseek client.
     Returns {attempted, downloaded, failed, no_match}.
+    Pass a rich.progress.Progress instance for live progress bars.
     """
-    return asyncio.run(_run_async(cfg))
+    return asyncio.run(_run_async(cfg, progress=progress))
 
 
 def reconcile_disk(cfg: Config) -> dict:

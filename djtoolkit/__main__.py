@@ -169,14 +169,36 @@ def import_folder(
 def download(config: ConfigOpt = "djtoolkit.toml"):
     """Search Soulseek and download candidate tracks via embedded aioslsk client."""
     import logging
+    from rich.logging import RichHandler
+    from rich.progress import (
+        Progress, SpinnerColumn, BarColumn, TextColumn,
+        DownloadColumn, TransferSpeedColumn, TimeRemainingColumn,
+    )
     from djtoolkit.downloader.aioslsk_client import run
+
+    # Route log output through Rich so it renders above the live progress bars
     logging.basicConfig(
         level=logging.INFO,
         format="%(message)s",
+        handlers=[RichHandler(console=console, show_path=False, show_time=False,
+                              markup=True, rich_tracebacks=True)],
     )
+    # Silence ALL aioslsk internal chatter at the parent logger level
+    logging.getLogger("aioslsk").setLevel(logging.CRITICAL)
+
     cfg = _cfg(config)
-    console.print("Searching and downloading via Soulseek (aioslsk)…")
-    stats = run(cfg)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}", no_wrap=True),
+        BarColumn(bar_width=20),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        stats = run(cfg, progress=progress)
+
     console.print(
         f"[green]✓ downloaded {stats['downloaded']}[/green]  "
         f"[red]✗ failed {stats['failed']}[/red]  "
