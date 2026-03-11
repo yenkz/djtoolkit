@@ -168,7 +168,12 @@ def import_folder(
 @app.command()
 def download(config: ConfigOpt = "djtoolkit.toml"):
     """Search Soulseek and download candidate tracks via embedded aioslsk client."""
+    import logging
     from djtoolkit.downloader.aioslsk_client import run
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+    )
     cfg = _cfg(config)
     console.print("Searching and downloading via Soulseek (aioslsk)…")
     stats = run(cfg)
