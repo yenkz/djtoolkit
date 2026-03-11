@@ -33,6 +33,9 @@ log = logging.getLogger(__name__)
 
 AUDIO_EXTS = {".mp3", ".flac", ".aiff", ".aif", ".wav", ".ogg", ".m4a"}
 
+# Max number of peers to try per track before giving up
+_MAX_DOWNLOAD_RETRIES = 3
+
 # TransferState.State values that indicate a finished transfer
 _TERMINAL_FAILED = None  # populated lazily from aioslsk.transfer.state
 
@@ -123,10 +126,9 @@ def _relevance(track: dict, filename: str, query: str = "") -> float:
     return t * 0.6 + a * 0.4
 
 
-def _pick_best(track: dict, results: list, cfg: Config, query: str = "") -> tuple[str | None, str | None]:
+def _rank_candidates(track: dict, results: list, cfg: Config, query: str = "") -> list[tuple[str, str]]:
     """
-    Pick best file from a list of SearchResult objects.
-    Returns (username, remote_filename) or (None, None).
+    Return all valid (username, remote_filename) pairs sorted best-first.
 
     Filters: extension in AUDIO_EXTS, duration within tolerance, relevance >= min_score_title.
     Ranks: quality score (FLAC > MP3, bitrate) then relevance.
@@ -157,12 +159,18 @@ def _pick_best(track: dict, results: list, cfg: Config, query: str = "") -> tupl
 
             candidates.append((_quality_score(file), rel, username, file.filename))
 
-    if not candidates:
-        return None, None
-
     candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    _, _, best_user, best_filename = candidates[0]
-    return best_user, best_filename
+    total_files = sum(len(r.shared_items) for r in results)
+    log.debug(
+        "[%d] %d/%d files passed filter (from %d peers)",
+        track["id"], len(candidates), total_files, len(results),
+    )
+    return [(user, fn) for _, _, user, fn in candidates]
+
+
+def _pick_best(track: dict, results: list, cfg: Config, query: str = "") -> tuple[str | None, str | None]:
+    ranked = _rank_candidates(track, results, cfg, query)
+    return (ranked[0][0], ranked[0][1]) if ranked else (None, None)
 
 
 # ─── Search query helpers ─────────────────────────────────────────────────────
@@ -297,21 +305,26 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float) -> bool:
 async def _download_track(client, cfg: Config, track: dict, results: list, query: str = "") -> str | None:
     """
     Download a single track given pre-fetched search results.
-    Returns local_path on success, None on no match or failure.
+    Tries up to _MAX_DOWNLOAD_RETRIES peers (best-first) before giving up.
+    Returns local_path on success, None on no match or all peers exhausted.
     """
-    username, remote_filename = _pick_best(track, results, cfg, query)
-    if not username or not remote_filename:
+    ranked = _rank_candidates(track, results, cfg, query)
+    if not ranked:
         return None
 
-    log.info("[%d] Downloading from %s: %s", track["id"], username, remote_filename.split("\\")[-1])
-    transfer = await client.transfers.download(username, remote_filename)
+    for attempt, (username, remote_filename) in enumerate(ranked[:_MAX_DOWNLOAD_RETRIES]):
+        if attempt > 0:
+            log.info("[%d] Retry %d/%d from %s", track["id"], attempt + 1, _MAX_DOWNLOAD_RETRIES, username)
+        else:
+            log.info("[%d] Downloading from %s: %s", track["id"], username, remote_filename.split("\\")[-1])
+        transfer = await client.transfers.download(username, remote_filename)
+        success = await _wait_for_transfer(client, transfer, cfg.soulseek.download_timeout_sec)
+        if success:
+            local_path = getattr(transfer, "local_path", None)
+            if local_path:
+                return str(local_path)
 
-    success = await _wait_for_transfer(client, transfer, cfg.soulseek.download_timeout_sec)
-    if not success:
-        return None
-
-    local_path = getattr(transfer, "local_path", None)
-    return str(local_path) if local_path else None
+    return None
 
 
 # ─── DB helper ────────────────────────────────────────────────────────────────
@@ -357,17 +370,25 @@ async def _run_async(cfg: Config) -> dict:
     settings = _make_settings(cfg)
 
     # Suppress noisy internal aioslsk logs (P2P connection chatter, distributed network)
-    for _noisy in ("aioslsk.network.network", "aioslsk.network.connection",
-                   "aioslsk.network.peer", "aioslsk.transfer"):
+    for _noisy in (
+        "aioslsk.network.network", "aioslsk.network.connection",
+        "aioslsk.network.peer", "aioslsk.transfer", "aioslsk.network.distributed",
+    ):
         logging.getLogger(_noisy).setLevel(logging.CRITICAL)
 
-    # Suppress asyncio "unhandled exception on loop" noise from aioslsk P2P connection failures
+    # Suppress asyncio "unhandled exception on loop" noise from aioslsk background tasks.
+    # set_exception_handler only covers exceptions raised while the loop is running;
+    # post-close GC-triggered exceptions go through call_exception_handler directly.
+    # Patching the method on the loop instance covers both cases.
     loop = asyncio.get_running_loop()
     _orig_handler = loop.get_exception_handler()
 
     def _quiet_exception_handler(loop, context):
         exc = context.get("exception")
-        if exc and type(exc).__module__.startswith("aioslsk"):
+        if exc and (
+            type(exc).__module__.startswith("aioslsk")
+            or isinstance(exc, (ConnectionError, TimeoutError, OSError))
+        ):
             return
         if _orig_handler:
             _orig_handler(loop, context)
@@ -375,6 +396,8 @@ async def _run_async(cfg: Config) -> dict:
             loop.default_exception_handler(context)
 
     loop.set_exception_handler(_quiet_exception_handler)
+    # Also patch the instance method so GC-triggered post-close exceptions are suppressed
+    loop.call_exception_handler = lambda ctx: _quiet_exception_handler(loop, ctx)
 
     async def _do_download(client, track: dict, results: list, query: str = "") -> None:
         track_id = track["id"]
@@ -409,15 +432,27 @@ async def _run_async(cfg: Config) -> dict:
         primary_queries = {t["id"]: queries_by_track[t["id"]][0] for t in tracks}
         results_by_track = await _search_all(client, primary_queries, cfg.soulseek.search_timeout_sec)
 
-        # Phase 1b: fallback searches for tracks that got zero results
-        no_results = [t for t in tracks if not results_by_track[t["id"]]]
-        if no_results:
+        # Phase 1b: fallback searches for tracks that got zero results OR
+        # whose results contained no viable candidates (all filtered out by scoring).
+        needs_fallback = []
+        for t in tracks:
+            res = results_by_track[t["id"]]
+            if not res:
+                needs_fallback.append(t)
+            elif not _rank_candidates(t, res, cfg, queries_by_track[t["id"]][0]):
+                log.info(
+                    "[%d] Got %d results but none passed scoring, trying fallback query",
+                    t["id"], len(res),
+                )
+                needs_fallback.append(t)
+
+        if needs_fallback:
             fallback_queries: dict[int, str] = {}
-            for t in no_results:
+            for t in needs_fallback:
                 variants = queries_by_track[t["id"]]
                 if len(variants) > 1:
                     fallback_queries[t["id"]] = variants[1]
-                    log.info("[%d] No results for primary query, trying: %s", t["id"], variants[1])
+                    log.info("[%d] Fallback query: %s", t["id"], variants[1])
             if fallback_queries:
                 fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
                 for track_id, res in fallback_results.items():
