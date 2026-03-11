@@ -14,7 +14,7 @@ aioslsk data model quick-reference:
   FileData.get_attribute_map() → dict[AttributeKey, int]
     AttributeKey.BITRATE = 0   (kbps)
     AttributeKey.DURATION = 1  (seconds)
-  TransferProgressEvent.updates → list[tuple[Transfer, TransferProgressSnapshot]]
+  TransferProgressEvent.updates → list[tuple[Transfer, TransferProgressSnapshot, TransferProgressSnapshot]]
   TransferProgressSnapshot.state → TransferState.State
   Transfer.local_path       → str | None  (set after download completes)
 """
@@ -157,27 +157,39 @@ def _pick_best(track: dict, results: list, cfg: Config) -> tuple[str | None, str
 
 # ─── Search ───────────────────────────────────────────────────────────────────
 
-async def _search(client, query: str, timeout_sec: float) -> list:
+async def _search_all(client, tracks: list[dict], timeout_sec: float) -> dict[int, list]:
     """
-    Submit a global search and collect SearchResult objects for timeout_sec.
-    Returns a flat list of SearchResult (one per responding peer).
+    Fire all searches simultaneously, wait once for timeout_sec, return results.
+    Returns {track_id: [SearchResult, ...]} for all tracks.
     """
     from aioslsk.commands import GlobalSearchCommand
     from aioslsk.events import SearchResultEvent
 
-    results: list = []
+    # ticket → track_id mapping
+    ticket_to_track: dict[int, int] = {}
+    results_by_track: dict[int, list] = {t["id"]: [] for t in tracks}
 
     async def on_result(event: SearchResultEvent):
-        results.append(event.result)
+        ticket = getattr(event.result, "ticket", None)
+        track_id = ticket_to_track.get(ticket)
+        if track_id is not None:
+            results_by_track[track_id].append(event.result)
 
     client.events.register(SearchResultEvent, on_result)
     try:
-        await client.execute(GlobalSearchCommand(query))
+        # Issue all searches without waiting between them
+        for track in tracks:
+            query = track.get("search_string") or f"{track.get('artist', '')} {track.get('title', '')}"
+            cmd = GlobalSearchCommand(query)
+            await client.execute(cmd)
+            ticket_to_track[cmd._ticket] = track["id"]
+
+        # Wait once for all results to stream in
         await asyncio.sleep(timeout_sec)
     finally:
         client.events.unregister(SearchResultEvent, on_result)
 
-    return results
+    return results_by_track
 
 
 # ─── Download ─────────────────────────────────────────────────────────────────
@@ -196,7 +208,7 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float) -> bool:
 
     async def on_progress(event: TransferProgressEvent):
         nonlocal success
-        for xfer, snapshot in event.updates:
+        for xfer, *_, snapshot in event.updates:
             if xfer is not transfer:
                 continue
             if snapshot.state == TransferState.State.COMPLETE:
@@ -216,16 +228,11 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float) -> bool:
     return success
 
 
-async def _download_track(client, cfg: Config, track: dict) -> str | None:
+async def _download_track(client, cfg: Config, track: dict, results: list) -> str | None:
     """
-    Search and download a single track. Returns local_path on success, None on failure.
-    Sets acquisition_status = 'downloading' before waiting, caller updates to 'available'/'failed'.
+    Download a single track given pre-fetched search results.
+    Returns local_path on success, None on no match or failure.
     """
-    query = track.get("search_string") or f"{track.get('artist', '')} {track.get('title', '')}"
-
-    results = await _search(client, query, cfg.soulseek.search_timeout_sec)
-    log.info("[%d] %d peers responded for: %s", track["id"], len(results), query)
-
     username, remote_filename = _pick_best(track, results, cfg)
     if not username or not remote_filename:
         return None
@@ -283,32 +290,63 @@ async def _run_async(cfg: Config) -> dict:
     log.info("Downloading %d candidates via aioslsk (Soulseek)", len(candidates))
     settings = _make_settings(cfg)
 
+    # Suppress noisy internal aioslsk logs (P2P connection chatter, distributed network)
+    for _noisy in ("aioslsk.network.network", "aioslsk.network.connection",
+                   "aioslsk.network.peer", "aioslsk.transfer"):
+        logging.getLogger(_noisy).setLevel(logging.CRITICAL)
+
+    # Suppress asyncio "unhandled exception on loop" noise from aioslsk P2P connection failures
+    loop = asyncio.get_running_loop()
+    _orig_handler = loop.get_exception_handler()
+
+    def _quiet_exception_handler(loop, context):
+        exc = context.get("exception")
+        if exc and type(exc).__module__.startswith("aioslsk"):
+            return
+        if _orig_handler:
+            _orig_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_quiet_exception_handler)
+
+    async def _do_download(client, track: dict, results: list) -> None:
+        track_id = track["id"]
+        label = f"{track.get('artist')} – {track.get('title')}"
+        try:
+            local_path = await _download_track(client, cfg, track, results)
+            if local_path:
+                _set_status(cfg.db_path, track_id, "available", local_path)
+                log.info("[%d] OK: %s", track_id, local_path)
+                stats["downloaded"] += 1
+            else:
+                log.warning("[%d] No match: %s", track_id, label)
+                _set_status(cfg.db_path, track_id, "failed")
+                stats["no_match"] += 1
+                stats["failed"] += 1
+        except Exception:
+            log.exception("[%d] Unexpected error: %s", track_id, label)
+            _set_status(cfg.db_path, track_id, "failed")
+            stats["failed"] += 1
+
     async with SoulSeekClient(settings) as client:
         await client.login()
 
-        for row in candidates:
-            track = dict(row)
-            track_id = track["id"]
-            stats["attempted"] += 1
-            label = f"{track.get('artist')} – {track.get('title')}"
+        tracks = [dict(row) for row in candidates]
+        stats["attempted"] = len(tracks)
 
-            _set_status(cfg.db_path, track_id, "downloading")
+        # Phase 1: fire all searches simultaneously, wait once
+        log.info("Searching for %d tracks (%.0fs window)…", len(tracks), cfg.soulseek.search_timeout_sec)
+        results_by_track = await _search_all(client, tracks, cfg.soulseek.search_timeout_sec)
 
-            try:
-                local_path = await _download_track(client, cfg, track)
-                if local_path:
-                    _set_status(cfg.db_path, track_id, "available", local_path)
-                    log.info("[%d] OK: %s", track_id, local_path)
-                    stats["downloaded"] += 1
-                else:
-                    log.warning("[%d] No match: %s", track_id, label)
-                    _set_status(cfg.db_path, track_id, "failed")
-                    stats["no_match"] += 1
-                    stats["failed"] += 1
-            except Exception:
-                log.exception("[%d] Unexpected error: %s", track_id, label)
-                _set_status(cfg.db_path, track_id, "failed")
-                stats["failed"] += 1
+        # Phase 2: mark all as downloading, then download all concurrently
+        for track in tracks:
+            _set_status(cfg.db_path, track["id"], "downloading")
+
+        await asyncio.gather(*[
+            _do_download(client, track, results_by_track[track["id"]])
+            for track in tracks
+        ])
 
     return stats
 
