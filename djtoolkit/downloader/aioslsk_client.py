@@ -219,18 +219,47 @@ def _relevance_score(filename: str, query: str) -> int:
     return 0 if ratio < 0.5 else int(ratio * 100)
 
 
+def _normalize_query(text: str) -> str:
+    """Strip punctuation and collapse whitespace — produces a clean Soulseek query."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text)).strip().lower()
+
+
 def _build_search_queries(track: dict) -> list[str]:
-    """Return progressive fallback queries: original → simplified → artist-only."""
+    """
+    Return progressive fallback queries (deduplicated, in priority order):
+      1. Original search_string (may contain hyphens / punctuation)
+      2. Simplified title (remix/version/feat stripped) if different
+      3. Punctuation-normalised version of the primary query
+      4. Artist-only (last resort, only for multi-word artists)
+    """
     base = track.get("search_string") or f"{track.get('artist', '')} {track.get('title', '')}"
-    queries = [base]
     artist = (track.get("artist") or "").split(";")[0].strip()
     title = track.get("title") or ""
+
+    seen: set[str] = set()
+    queries: list[str] = []
+
+    def _add(q: str) -> None:
+        # Dedup by exact string — we intentionally keep "romare rainbow - club" and
+        # "romare rainbow club" as distinct queries since some Soulseek peers treat
+        # punctuation differently during local file matching.
+        if q and q not in seen:
+            seen.add(q)
+            queries.append(q)
+
+    _add(base)
+
     if title:
         simplified = f"{artist} {_simplify_for_search(title)}".strip()
-        if simplified.lower() != base.lower():
-            queries.append(simplified)
-        if len(artist.split()) >= 2:
-            queries.append(artist)
+        _add(simplified)
+
+    # Normalised version strips hyphens/parentheses that confuse some peers
+    _add(_normalize_query(base))
+
+    # Artist-only as last resort for multi-word artists
+    if len(artist.split()) >= 2:
+        _add(artist)
+
     return queries
 
 
@@ -497,39 +526,40 @@ async def _run_async(cfg: Config) -> dict:
 
         # ── Phase 1b: fallback search ──────────────────────────────────────────
         # Trigger for tracks with zero results OR results that all failed scoring.
-        needs_fallback = []
-        for t in tracks:
+        # Tracks that still need a better query are tracked by next variant index.
+        def _needs_better_results(t: dict) -> bool:
             res = results_by_track[t["id"]]
-            if not res:
-                needs_fallback.append(t)
-            elif not _rank_candidates(t, res, cfg, queries_by_track[t["id"]][0]):
-                n_files = sum(len(sr.shared_items) for sr in res)
-                log.info(
-                    "[%d] %d files found but none passed scoring — will try fallback query",
-                    t["id"], n_files,
-                )
-                needs_fallback.append(t)
+            return not res or not _rank_candidates(t, res, cfg, queries_by_track[t["id"]][0])
 
-        if needs_fallback:
+        # Try each remaining query variant in turn until all tracks are satisfied
+        # or variants are exhausted.  Each round fires one window of searches.
+        fallback_attempt: dict[int, int] = {t["id"]: 1 for t in tracks}  # next variant index
+
+        for _round in range(3):  # at most 3 fallback rounds
+            still_needing = [t for t in tracks if _needs_better_results(t) and fallback_attempt[t["id"]] < len(queries_by_track[t["id"]])]
+            if not still_needing:
+                break
+
             fallback_queries: dict[int, str] = {}
-            for t in needs_fallback:
-                variants = queries_by_track[t["id"]]
-                if len(variants) > 1:
-                    fallback_queries[t["id"]] = variants[1]
-                    log.info("[%d] Fallback query: «%s»", t["id"], variants[1])
+            for t in still_needing:
+                idx = fallback_attempt[t["id"]]
+                variant = queries_by_track[t["id"]][idx]
+                fallback_queries[t["id"]] = variant
+                log.info("[%d] Fallback #%d query: «%s»", t["id"], idx, variant)
+                fallback_attempt[t["id"]] += 1
 
-            if fallback_queries:
-                log.info(
-                    "── Phase 1b: fallback search for %d tracks (%.0fs window) ──",
-                    len(fallback_queries), cfg.soulseek.search_timeout_sec,
-                )
-                fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
-                improved = 0
-                for tid, res in fallback_results.items():
-                    if res:
-                        results_by_track[tid] = res
-                        improved += 1
-                log.info("Fallback search done: %d tracks gained results", improved)
+            log.info(
+                "── Phase 1b (round %d): fallback search for %d tracks (%.0fs window) ──",
+                _round + 1, len(fallback_queries), cfg.soulseek.search_timeout_sec,
+            )
+            fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
+            improved = 0
+            for tid, res in fallback_results.items():
+                if res:
+                    # Merge: keep all results to maximise candidate pool
+                    results_by_track[tid] = results_by_track[tid] + res
+                    improved += 1
+            log.info("Fallback round %d done: %d tracks gained new results", _round + 1, improved)
 
         # ── Phase 2: download ──────────────────────────────────────────────────
         ready = sum(1 for t in tracks if results_by_track[t["id"]])
