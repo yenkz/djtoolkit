@@ -1,7 +1,31 @@
 .PHONY: init install setup import-csv download fingerprint apply-metadata move-to-library \
         import-folder enrich fetch-cover-art migrate-db check-db wipe-db reconcile normalize playlist ui dev \
-        test lint \
-        install-docker slskd-up slskd-down slskd-logs slskd-status
+        test lint
+
+.DEFAULT_GOAL := help
+
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "  init            copy example config files"
+	@echo "  install         poetry install"
+	@echo "  setup           initialize DB from schema"
+	@echo "  migrate-db      apply schema migrations to existing DB"
+	@echo ""
+	@echo "  import-csv      CSV=path  import Exportify CSV"
+	@echo "  download        download candidate tracks via Soulseek"
+	@echo "  fingerprint     run Chromaprint, mark duplicates"
+	@echo "  apply-metadata  write tags + normalize filenames"
+	@echo "  move-to-library move tagged files into library_dir"
+	@echo ""
+	@echo "  import-folder   DIR=path  scan existing folder"
+	@echo "  enrich          ARGS='...' enrich DB only"
+	@echo "  fetch-cover-art embed cover art"
+	@echo ""
+	@echo "  ui              start FastAPI + UI at http://localhost:8000"
+	@echo "  check-db        DB integrity check"
+	@echo "  wipe-db         drop and recreate DB (destructive)"
+	@echo "  test            run pytest"
 
 PYTHON  := poetry run python
 DJ      := $(PYTHON) -m djtoolkit
@@ -23,7 +47,7 @@ endif
 init:
 	@test -f djtoolkit.toml || (cp djtoolkit.toml.example djtoolkit.toml && echo "Created djtoolkit.toml from example")
 	@test -f .env           || (cp .env.example .env && echo "Created .env from example")
-	@echo "Next: run 'make slskd-up' to start the slskd container (requires Docker)"
+	@echo "Next: add your Soulseek credentials to djtoolkit.toml [soulseek] and .env"
 
 install:
 	poetry install --lock --no-interaction

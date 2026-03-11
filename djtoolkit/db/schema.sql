@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     -- Toolkit fields
     search_string    TEXT,
     local_path       TEXT,
-    slskd_job_id     TEXT,
+    download_job_id  TEXT,
     fingerprint_id   INTEGER REFERENCES fingerprints(id),
 
     -- Processing flags (independent — set when each step completes, 0=pending 1=done)

@@ -15,12 +15,10 @@ scope = "new"
 label = ""
 import_method = ""
 
-[slskd]
-host = "http://localhost:5030"
-url_base = "/api/v0"
-search_timeout_ms = 90000
-response_limit = 100
-file_limit = 10000
+[soulseek]
+username = ""
+search_timeout_sec = 15.0
+download_timeout_sec = 300.0
 
 [matching]
 min_score = 0.86

@@ -29,7 +29,7 @@ The app reads `djtoolkit.toml` from the current working directory on each reques
 
 - **Background tasks** — pipeline operations (download, fingerprint, metadata) are dispatched as FastAPI `BackgroundTasks` so the HTTP response returns immediately
 - **In-memory log buffer** — a `logging.Handler` captures all `djtoolkit.*` log output into a `deque(maxlen=200)`, exposed at `GET /api/logs`. The UI polls this endpoint to show live progress
-- **Graceful error handling** — all routes that import pipeline modules are wrapped in `try/except` to always return valid JSON even if an optional dependency (e.g. `slskd_api`) is not installed
+- **Graceful error handling** — all routes that import pipeline modules are wrapped in `try/except` to always return valid JSON even if an optional dependency is not installed
 - **No auth** — designed for local use only; do not expose externally
 
 ---

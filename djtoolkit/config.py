@@ -126,7 +126,7 @@ class Config:
 def load(config_path: str | Path = "djtoolkit.toml") -> Config:
     """Load config from TOML file. Missing keys fall back to defaults.
 
-    Secrets (SLSKD_API_KEY, ACOUSTID_API_KEY) are read from the environment,
+    Secrets (ACOUSTID_API_KEY, SOULSEEK_PASSWORD) are read from the environment,
     with .env loaded automatically. TOML values are used as fallback.
     """
     _load_dotenv()

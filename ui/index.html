@@ -297,15 +297,14 @@
 
     <!-- PIPELINE -->
     <section id="pipeline" class="section">
-      <h2>slskd Status</h2>
-      <div id="slskd-status" style="margin-bottom:16px;padding:10px 14px;border-radius:6px;background:var(--surface);border:1px solid var(--border);font-size:13px;">
+      <h2>Soulseek Status</h2>
+      <div id="soulseek-status" style="margin-bottom:16px;padding:10px 14px;border-radius:6px;background:var(--surface);border:1px solid var(--border);font-size:13px;">
         Checking…
       </div>
 
       <h2>Pipeline</h2>
       <div class="pipeline">
         <button class="btn btn-primary" onclick="triggerPipeline('download')">▶ Run Download</button>
-        <button class="btn btn-primary" onclick="triggerPipeline('poll-downloads')">⟳ Check Downloads</button>
         <button class="btn btn-primary" onclick="triggerPipeline('fingerprint')">▶ Run Fingerprint</button>
         <button class="btn btn-primary" onclick="triggerPipeline('metadata')">▶ Apply Metadata</button>
         <button class="btn btn-secondary" onclick="resetFailed()">↺ Reset Failed</button>
@@ -485,20 +484,20 @@
     _logSince = 0;
   }
 
-  // ── slskd health ─────────────────────────────────────────────────────────────
+  // ── Soulseek health ───────────────────────────────────────────────────────────
 
-  async function checkSlskdHealth() {
-    const el = document.getElementById('slskd-status');
+  async function checkSoulseekHealth() {
+    const el = document.getElementById('soulseek-status');
     if (!el) return;
     try {
-      const res = await fetch(`${API}/slskd/health`);
+      const res = await fetch(`${API}/soulseek/health`);
       const data = await res.json();
       if (data.ok) {
         el.style.borderColor = 'var(--green)';
-        el.innerHTML = `<span style="color:var(--green)">● Connected</span> — ${data.message} <span style="color:var(--muted)">(${data.host})</span>`;
+        el.innerHTML = `<span style="color:var(--green)">● Configured</span> — ${data.message}`;
       } else {
         el.style.borderColor = 'var(--red)';
-        el.innerHTML = `<span style="color:var(--red)">● Unreachable</span> — ${data.message}`;
+        el.innerHTML = `<span style="color:var(--red)">● Not configured</span> — ${data.message}`;
       }
     } catch (e) {
       el.style.borderColor = 'var(--red)';
@@ -535,7 +534,7 @@
   document.querySelectorAll('nav button').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.dataset.section === 'pipeline') {
-        checkSlskdHealth();
+        checkSoulseekHealth();
         startLogPolling();
         pollServerLogs();
       } else {

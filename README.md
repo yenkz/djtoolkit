@@ -4,7 +4,7 @@
 
 A personal CLI tool for managing a DJ music library — download, tag, deduplicate, and organize tracks automatically.
 
-djtoolkit connects to a local [slskd](https://github.com/slskd/slskd) instance (Soulseek over Docker), matches tracks from Spotify/Exportify playlists, enriches metadata, fingerprints for deduplication, and moves finalized files into a clean library folder. The SQLite database is the single source of truth for all track state.
+djtoolkit uses [aioslsk](https://github.com/JurgenR/aioslsk) to download from Soulseek directly (embedded Python client, no external service), matches tracks from Spotify/Exportify playlists, enriches metadata, fingerprints for deduplication, and moves finalized files into a clean library folder. The SQLite database is the single source of truth for all track state.
 
 ---
 
@@ -16,11 +16,11 @@ djtoolkit connects to a local [slskd](https://github.com/slskd/slskd) instance (
 | **[Homebrew](https://brew.sh)** | macOS package manager — install it first |
 | **Python 3.11+** | `brew install python` |
 | **[Poetry](https://python-poetry.org)** | `brew install poetry` |
-| **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** | Required to run slskd |
+| **Soulseek account** | Free account at [slsknet.org](http://www.slsknet.org) — needed for downloading |
 | **Chromaprint** (`fpcalc`) | `brew install chromaprint` — needed for fingerprinting |
 | **Git** | `brew install git` |
 | **[VSCode](https://code.visualstudio.com)** (recommended) | With the Python extension |
-| **Soulseek account** | Free account at [slsknet.org](http://www.slsknet.org) — needed to download via slskd |
+| **Soulseek credentials** | Username in `djtoolkit.toml [soulseek]`, password in `.env` as `SOULSEEK_PASSWORD` |
 
 ### API keys (optional but recommended)
 
@@ -49,10 +49,9 @@ make init          # copies djtoolkit.toml.example → djtoolkit.toml and .env.e
                    # edit djtoolkit.toml — set your paths (downloads_dir, library_dir, etc.)
                    # edit .env — fill in API keys (AcoustID, Spotify, Last.fm as needed)
 
-# 3. Start slskd (Soulseek client in Docker)
-make slskd-up      # starts container at http://localhost:5030
-                   # open the slskd web UI → Settings → log in with your Soulseek credentials
-                   # slskd must be connected before `make download` will work
+# 3. Add your Soulseek credentials
+                   # edit djtoolkit.toml → set username under [soulseek]
+                   # edit .env → set SOULSEEK_PASSWORD
 
 # 4. Initialize the database
 make setup
@@ -107,7 +106,7 @@ A single-page dashboard for monitoring pipeline status and triggering operations
 
 ```bash
 make import-csv CSV=path/to.csv     # import Exportify playlist
-make download                        # download via slskd
+make download                        # download via Soulseek
 make fingerprint                     # deduplicate with Chromaprint
 make apply-metadata                  # write tags + normalize filenames
 make move-to-library                 # move tagged files into library_dir (requires metadata_written=1)
@@ -128,7 +127,7 @@ See [docs/flows.md](docs/flows.md) for the full pipeline reference.
 
 ## Configuration
 
-Copy `djtoolkit.toml.example` to `djtoolkit.toml` and edit it. Secrets (`SLSKD_API_KEY`, `ACOUSTID_API_KEY`) can also live in `.env`.
+Copy `djtoolkit.toml.example` to `djtoolkit.toml` and edit it. Secrets (`SOULSEEK_PASSWORD`, `ACOUSTID_API_KEY`) go in `.env`.
 
 See [docs/configuration.md](docs/configuration.md) for a full reference.
 

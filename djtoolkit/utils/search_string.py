@@ -1,4 +1,4 @@
-"""Build a slskd-friendly search string from track metadata."""
+"""Build a Soulseek search string from track metadata."""
 
 import re
 
@@ -29,7 +29,7 @@ def _clean(text: str) -> str:
 
 def build(artist: str, title: str) -> str:
     """
-    Build a slskd search string.
+    Build a Soulseek search string.
 
     Uses the primary artist (first before any ';') + full title.
     Remix info in the title is intentionally kept — it helps match

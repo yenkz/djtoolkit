@@ -2,7 +2,7 @@
 
 ## Context
 
-djtoolkit is currently a single-user CLI + local FastAPI tool with no auth, a single SQLite DB, and hard dependencies on locally-running services (slskd Docker container, fpcalc binary). The goal is to transform it into a SaaS platform where customers:
+djtoolkit is currently a single-user CLI + local FastAPI tool with no auth, a single SQLite DB, and local dependencies (fpcalc binary, embedded aioslsk Soulseek client). The goal is to transform it into a SaaS platform where customers:
 1. Connect their own Spotify accounts (OAuth) or upload Exportify CSVs
 2. Get an isolated music catalog per account
 3. Run a lightweight local agent on their laptop/PC to handle downloads and file processing (since fpcalc, librosa, and the actual music files must stay local)
@@ -66,22 +66,22 @@ djtoolkit is currently a single-user CLI + local FastAPI tool with no auth, a si
 
 ---
 
-## Soulseek Client: aioslsk (replaces slskd)
+## Soulseek Client: aioslsk
 
-Current djtoolkit depends on a local slskd Docker container. For SaaS, this is replaced by **[aioslsk](https://github.com/JurgenR/aioslsk)** — a pure Python asyncio library for the Soulseek protocol.
+djtoolkit uses **[aioslsk](https://github.com/JurgenR/aioslsk)** — a pure Python asyncio library for the Soulseek protocol, embedded directly in the process.
 
-| | slskd (current) | aioslsk (SaaS) |
-|---|---|---|
-| Install | Docker + docker-compose | `pip install djtoolkit` |
-| Runs as | Separate Docker container | Embedded in local agent process |
-| Credentials | slskd web UI / config | `djtoolkit.toml [soulseek]` |
-| Progress tracking | Poll REST API every 2s | Async events (push) |
-| Python version | N/A (Go binary) | 3.10–3.14 |
-| Latest release | — | v1.6.3 (Feb 2026) |
-| License | MIT | **GPL-3.0** — see Security section |
+| | aioslsk |
+|---|---|
+| Install | `pip install djtoolkit` |
+| Runs as | Embedded in local agent process |
+| Credentials | `djtoolkit.toml [soulseek]` |
+| Progress tracking | Async events (push) |
+| Python version | 3.10–3.14 |
+| Latest release | v1.6.3 (Feb 2026) |
+| License | **GPL-3.0** — see Security section |
 
 ```python
-# aioslsk download pattern (replaces slskd.py)
+# aioslsk download pattern
 from aioslsk.client import SoulSeekClient
 from aioslsk.commands import GlobalSearchCommand
 from aioslsk.events import TransferStateChangedEvent
@@ -107,7 +107,7 @@ async def search_and_download(cfg, artist, title, duration_ms):
         return transfer.local_path
 ```
 
-The fuzzy matching/scoring logic in `slskd.py` (thefuzz, duration tolerance, format preference) carries over unchanged — aioslsk just delivers raw results to rank.
+The fuzzy matching/scoring logic in `aioslsk_client.py` (thefuzz, duration tolerance, format preference) applies to raw results from aioslsk.
 
 ---
 
@@ -266,7 +266,7 @@ POST /catalog/import/csv  (multipart/form-data)
 ### Installation
 
 ```bash
-pip install djtoolkit        # no Docker required
+pip install djtoolkit
 djtoolkit agent configure \
     --cloud-url https://api.djtoolkit.com \
     --api-key <KEY_FROM_WEB_UI>
@@ -320,7 +320,7 @@ async def run_agent(cfg):
 async def execute_job(cfg, job):
     match job["job_type"]:
         case "download":
-            # djtoolkit/downloader/aioslsk_client.py  (NEW — replaces slskd.py)
+            # djtoolkit/downloader/aioslsk_client.py
             result = await run_download_job(cfg, job["payload"])
             # returns: { local_path, file_format, file_size }
 
@@ -445,7 +445,7 @@ async def recover_stale_jobs():
 | File Storage | Cloudflare R2 or AWS S3 | CSV uploads, optional cover art CDN |
 | Cache / Rate limit | Redis (Upstash) | Session store, per-user rate limiting |
 | Hosting | Railway or Render | Simple Python deployment |
-| Local Agent | pip package | `pip install djtoolkit` — no Docker needed |
+| Local Agent | pip package | `pip install djtoolkit` |
 | Soulseek client | aioslsk (embedded) | Pure Python, Python 3.10-3.14, v1.6.3, GPL-3 |
 | Monitoring | Sentry + Posthog | Error tracking + usage analytics |
 
@@ -507,7 +507,7 @@ Replace `ui/index.html` with a React + Next.js app (or keep vanilla JS for MVP),
 | `djtoolkit/__main__.py` | Add `agent start` and `migrate-to-cloud` CLI commands |
 | `djtoolkit/agent/runner.py` | **NEW** — polling loop + job dispatch |
 | `djtoolkit/agent/sync.py` | **NEW** — local SQLite ↔ cloud catalog sync |
-| `djtoolkit/downloader/aioslsk_client.py` | **NEW** — replaces `slskd.py`; embedded aioslsk client |
+| `djtoolkit/downloader/aioslsk_client.py` | Embedded aioslsk Soulseek client |
 
 ---
 

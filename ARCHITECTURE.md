@@ -24,8 +24,8 @@ djtoolkit is a Python CLI for managing a DJ music library. It ingests tracks fro
       ▲  │                    ▲                       ▲
       │  │                    │                       │
       │  ▼                    │                       │
-      │  downloader/slskd.py ──► slskd (Docker)       │
-      │                        Soulseek network        │
+      │  downloader/aioslsk_client.py ──► Soulseek     │
+      │                        (embedded client)        │
       │                                                │
       ├── fingerprint/chromaprint.py ──► fpcalc       │
       │                          └──► AcoustID API    │
@@ -60,8 +60,8 @@ make import-csv CSV=…
        acquisition_status = 'candidate'
 
 make download
-  └─ downloader/slskd.py
-       For each 'candidate': search slskd → score results → enqueue best match
+  └─ downloader/aioslsk_client.py
+       For each 'candidate': search Soulseek → score results → download best match
        Sets: 'candidate' → 'downloading' → 'available'  (or 'failed')
 
 make fingerprint
@@ -121,7 +121,7 @@ make enrich ARGS='--audio-analysis'
 | Value | Meaning |
 |---|---|
 | `candidate` | Waiting to be downloaded (Flow 1 only) |
-| `downloading` | slskd transfer in progress |
+| `downloading` | Soulseek download in progress |
 | `available` | File exists on disk (downloaded or imported) |
 | `failed` | Download failed — resettable to `candidate` |
 | `duplicate` | Fingerprint matches an existing track — skip all processing |
@@ -156,14 +156,14 @@ Flow 2:  available (on insert) ──► [processing flags]
 |---|---|---|---|
 | `importers/exportify.py` | Parse Exportify CSV → insert tracks | — | `tracks` INSERT (`candidate`) |
 | `importers/folder.py` | Scan folder → fingerprint → insert | `fingerprints` (dupe check) | `tracks` INSERT (`available`), `fingerprints` |
-| `downloader/slskd.py` | Search slskd, enqueue, poll transfers | `acquisition_status='candidate'` | `acquisition_status`, `local_path`, `slskd_job_id` |
+| `downloader/aioslsk_client.py` | Search Soulseek, download, wait for completion | `acquisition_status='candidate'` | `acquisition_status`, `local_path`, `download_job_id` |
 | `fingerprint/chromaprint.py` | Run fpcalc, AcoustID lookup, dupe detection | `available AND fingerprinted=0` | `fingerprinted`, `acquisition_status`, `fingerprints` |
 | `enrichment/spotify.py` | Fill NULL metadata from Exportify CSV | `available AND enriched_spotify=0` | metadata columns, `enriched_spotify=1` |
 | `enrichment/audio_analysis.py` | BPM/key/loudness via librosa; genre via essentia (optional) | `available AND enriched_audio=0` | `tempo`, `key`, `mode`, `danceability`, `loudness`, `enriched_audio=1`, `track_embeddings` |
 | `metadata/writer.py` | Write tags to file, normalize filename | `available AND metadata_written=0 AND source='exportify'` | `metadata_written=1`, `local_path` |
 | `db/database.py` | `connect()`, `setup()`, `migrate()`, `wipe()` | — | — |
 | `config.py` | Load `djtoolkit.toml` into typed dataclasses | — | — |
-| `utils/search_string.py` | Build slskd query from artist + title | — | — |
+| `utils/search_string.py` | Build Soulseek query from artist + title | — | — |
 | `api/routes.py` | REST endpoints for UI + pipeline triggering | `tracks`, `fingerprints` | `acquisition_status` (reset-failed) |
 | `api/app.py` | Mount routes, serve `ui/index.html` | — | — |
 
@@ -177,7 +177,7 @@ Flow 2:  available (on insert) ──► [processing flags]
 Config
 ├── DbConfig          [db]            — DB file path
 ├── PathsConfig       [paths]         — downloads_dir, inbox_dir, library_dir, scan_dir
-├── SlskdConfig       [slskd]         — host, api_key, timeouts, limits
+├── SoulseekConfig    [soulseek]      — username, password, timeouts
 ├── MatchingConfig    [matching]      — fuzzy score thresholds, duration tolerance
 ├── FingerprintConfig [fingerprint]   — AcoustID key, fpcalc path, enabled flag
 ├── LoudnormConfig    [loudnorm]      — EBU R128 target LUFS/TP/LRA
@@ -191,7 +191,7 @@ Config
 
 FastAPI (`api/app.py`) runs on port 8000 (`make ui`). It serves two things:
 
-1. **REST API** (`api/routes.py`) — CRUD on tracks, pipeline triggers (download, fingerprint, metadata apply), slskd health check, DB integrity check. Pipeline steps run in FastAPI `BackgroundTasks` so the HTTP response returns immediately and progress appears in the log stream.
+1. **REST API** (`api/routes.py`) — CRUD on tracks, pipeline triggers (download, fingerprint, metadata apply), Soulseek credentials check, DB integrity check. Pipeline steps run in FastAPI `BackgroundTasks` so the HTTP response returns immediately and progress appears in the log stream.
 
 2. **Static UI** (`ui/index.html`) — A single HTML5 file with vanilla JS. No Node.js, no build step. Polls `/api/logs` for the in-memory log buffer (last 200 entries) and `/api/tracks/stats` for status counts.
 
@@ -201,14 +201,14 @@ FastAPI (`api/app.py`) runs on port 8000 (`make ui`). It serves two things:
 
 | Dependency | Role | Notes |
 |---|---|---|
-| **slskd** | Soulseek download client | Runs in Docker at `localhost:5030`; REST API via `slskd_api` Python package (lazy imported) |
+| **aioslsk** | Soulseek download client | Embedded Python client; runs inside djtoolkit process; no external service required |
 | **fpcalc** (Chromaprint) | Audio fingerprinting | CLI binary; auto-detected on `PATH` or set via config |
 | **AcoustID API** | Fingerprint → MusicBrainz recording ID | Optional; free key at acoustid.org |
 | **librosa** | BPM, chroma/key, danceability | Cross-platform; works on Python 3.14 / Apple Silicon / Windows |
 | **pyloudnorm** | EBU R128 integrated loudness (LUFS) | Cross-platform; matches Spotify's loudness scale |
 | **essentia-tensorflow** | MusicNN embeddings, Discogs genre, vocal/instrumental | Optional; Linux/macOS x86_64 only, Python ≤3.11 |
 | **mutagen** | Read/write audio tags (ID3, FLAC, M4A) | |
-| **thefuzz** | Fuzzy string matching for slskd result scoring | |
+| **thefuzz** | Fuzzy string matching for Soulseek result scoring | |
 | **spotipy** / **httpx** | HTTP clients | |
 
 ---
@@ -221,7 +221,7 @@ FastAPI (`api/app.py`) runs on port 8000 (`make ui`). It serves two things:
 
 **Independent processing flags.** The five flags are not a linear state machine. A folder-imported track can be `enriched_audio=1` without ever being `metadata_written=1`. Each step only cares about its own flag and `acquisition_status`.
 
-**Lazy imports.** `slskd_api` and `essentia` are imported inside the functions that use them, not at module level. The FastAPI server and CLI start correctly even if these optional packages aren't installed — errors surface only when the relevant command is actually invoked.
+**Lazy imports.** `aioslsk` and `essentia` are imported inside the functions that use them, not at module level. The FastAPI server and CLI start correctly even if these optional packages aren't installed — errors surface only when the relevant command is actually invoked.
 
 **Cross-platform paths.** `pathlib.Path` is used throughout. No hardcoded `/` or `\` separators.
 

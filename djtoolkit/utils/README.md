@@ -8,7 +8,7 @@ Shared utilities used across modules.
 
 | File | Description |
 |---|---|
-| `search_string.py` | Build a normalized slskd search query from artist + title |
+| `search_string.py` | Build a normalized Soulseek search query from artist + title |
 
 ---
 
@@ -36,4 +36,4 @@ query = build("The Prodigy feat. Maxim", "Poison (Radio Edit)")
 6. Lowercase everything
 7. Format: `"{artist} {title}"`
 
-The resulting string is stored in `tracks.search_string` at import time and used directly as the slskd search query.
+The resulting string is stored in `tracks.search_string` at import time and used directly as the Soulseek search query.

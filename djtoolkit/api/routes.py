@@ -113,8 +113,8 @@ class ActionResponse(BaseModel):
 
 @router.post("/pipeline/download", response_model=ActionResponse)
 def pipeline_download(background_tasks: BackgroundTasks):
-    """Trigger the slskd download pipeline in background."""
-    from djtoolkit.downloader.slskd import run
+    """Trigger the Soulseek download pipeline in background."""
+    from djtoolkit.downloader.aioslsk_client import run
     cfg = _cfg()
     background_tasks.add_task(_run_safe, run, cfg, "download")
     return ActionResponse(message="Download pipeline started — watch the log")
@@ -126,15 +126,6 @@ def pipeline_fingerprint(background_tasks: BackgroundTasks):
     cfg = _cfg()
     background_tasks.add_task(_run_safe, run, cfg, "fingerprint")
     return ActionResponse(message="Fingerprinting started — watch the log")
-
-
-@router.post("/pipeline/poll-downloads", response_model=ActionResponse)
-def pipeline_poll_downloads(background_tasks: BackgroundTasks):
-    """Check slskd transfers and update downloading tracks to downloaded/download_fail."""
-    from djtoolkit.downloader.slskd import poll_downloads
-    cfg = _cfg()
-    background_tasks.add_task(_run_safe, poll_downloads, cfg, "poll-downloads")
-    return ActionResponse(message="Checking download status — watch the log")
 
 
 @router.post("/pipeline/metadata", response_model=ActionResponse)
@@ -203,18 +194,18 @@ def get_logs(since: int = 0):
     return {"lines": lines[since:], "total": len(lines)}
 
 
-# ─── slskd health ─────────────────────────────────────────────────────────────
+# ─── Soulseek health ──────────────────────────────────────────────────────────
 
-@router.get("/slskd/health")
-def slskd_health():
-    """Check if slskd is reachable and connected to Soulseek."""
+@router.get("/soulseek/health")
+def soulseek_health():
+    """Check if Soulseek credentials are configured."""
     try:
-        from djtoolkit.downloader.slskd import health_check
         cfg = _cfg()
-        ok, msg = health_check(cfg)
-        return {"ok": ok, "message": msg, "host": cfg.slskd.host}
+        ok = bool(cfg.soulseek.username and cfg.soulseek.password)
+        msg = "Credentials configured" if ok else "Missing username or password in [soulseek] config"
+        return {"ok": ok, "message": msg}
     except Exception as e:
-        return {"ok": False, "message": f"Import or config error: {e}", "host": "unknown"}
+        return {"ok": False, "message": f"Config error: {e}"}
 
 
 # ─── DB ───────────────────────────────────────────────────────────────────────

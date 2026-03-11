@@ -43,6 +43,7 @@ def migrate(db_path: str | Path) -> None:
         ("metadata_source",    "TEXT"),
         ("cover_art_written",     "INTEGER NOT NULL DEFAULT 0"),
         ("cover_art_embedded_at", "DATETIME"),
+        ("download_job_id",    "TEXT"),
     ]
     with connect(db_path) as conn:
         existing = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
@@ -84,6 +85,10 @@ def migrate(db_path: str | Path) -> None:
         if "status" in existing:
             conn.execute("DROP INDEX IF EXISTS idx_tracks_status")
             conn.execute("ALTER TABLE tracks DROP COLUMN status")
+
+        # Rename slskd_job_id → download_job_id (idempotent via ADD + DROP pattern)
+        if "slskd_job_id" in existing and "download_job_id" not in existing:
+            conn.execute("ALTER TABLE tracks RENAME COLUMN slskd_job_id TO download_job_id")
 
         conn.commit()
 

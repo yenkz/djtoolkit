@@ -24,20 +24,20 @@ Parses the CSV and inserts tracks into the DB with `acquisition_status = 'candid
 
 Each track gets a `search_string` built from the primary artist and title, normalized for Soulseek queries (collapses feat./ft., strips special chars).
 
-#### 3. Download via slskd
+#### 3. Download via Soulseek
 
 ```bash
 make download
 ```
 
 For each `candidate` track:
-1. Searches slskd with the `search_string`
-2. Waits up to `search_timeout_ms` for results
+1. Searches Soulseek with the `search_string`
+2. Waits up to `search_timeout_sec` for results
 3. Scores each result with fuzzy matching (title + artist) against expected metadata, filtered by `duration_tolerance_ms`
 4. Downloads the best match above `min_score`
 5. Sets `acquisition_status = 'downloading'`, then `available` on success or `failed` on error
 
-Requires slskd running (`make slskd-up`) and logged in to Soulseek.
+Requires Soulseek credentials configured in `djtoolkit.toml` (`[soulseek]` section).
 
 #### 4. Fingerprint
 

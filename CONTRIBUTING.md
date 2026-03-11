@@ -104,7 +104,7 @@ Steps to verify the change works correctly.
 
 - **Python 3.11+** — use stdlib where possible (`tomllib`, `pathlib`, `sqlite3`)
 - **`pathlib.Path` everywhere** — never hardcode `/` or `\\` separators
-- **No global imports of optional deps** — lazy-import anything that might not be installed (see `slskd_api` pattern in `downloader/slskd.py`)
+- **No global imports of optional deps** — lazy-import anything that might not be installed (see `aioslsk` pattern in `downloader/aioslsk_client.py`)
 - **SQLite is the source of truth** — all state lives in the DB; don't track status in memory across runs
 - **Idempotency** — every pipeline step should be safe to re-run; always filter by the appropriate flag (`fingerprinted = 0`, `metadata_written = 0`, etc.)
 - **Return stats dicts** — every `run()` function returns `{"key": count, ...}` for CLI/UI reporting

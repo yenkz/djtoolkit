@@ -42,9 +42,9 @@ Every track in any state lives here.
 | `valence` | REAL | Musical positiveness (0–1) |
 | `tempo` | REAL | Estimated BPM |
 | `time_signature` | INTEGER | Estimated beats per bar |
-| `search_string` | TEXT | Query string built for slskd |
+| `search_string` | TEXT | Soulseek query string |
 | `local_path` | TEXT | Absolute path to file on disk |
-| `slskd_job_id` | TEXT | slskd download job reference |
+| `download_job_id` | TEXT | Download job reference |
 | `fingerprint_id` | INTEGER FK | → `fingerprints.id` |
 | `fingerprinted` | INTEGER | 0/1 — set after fpcalc runs |
 | `enriched_spotify` | INTEGER | 0/1 — set after Exportify enrichment |
@@ -96,7 +96,7 @@ Optional MusicNN embeddings (requires essentia-tensorflow).
 | Status | Meaning |
 |---|---|
 | `candidate` | Imported from CSV, waiting to be downloaded |
-| `downloading` | slskd download job in progress |
+| `downloading` | Soulseek download in progress |
 | `available` | File is on disk and ready for processing |
 | `failed` | Download failed (can be reset to `candidate` via the UI) |
 | `duplicate` | Audio fingerprint matched an existing track |

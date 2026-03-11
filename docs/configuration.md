@@ -20,7 +20,7 @@ Sensitive values are read from the environment first, falling back to the TOML v
 
 ```bash
 # .env
-SLSKD_API_KEY=your-slskd-api-key
+SOULSEEK_PASSWORD=your-soulseek-password
 ACOUSTID_API_KEY=your-acoustid-api-key
 ```
 
@@ -39,7 +39,7 @@ path = "djtoolkit.db"    # path to the SQLite database file
 
 ```toml
 [paths]
-downloads_dir = "~/Soulseek/downloads/complete"   # where slskd puts completed downloads
+downloads_dir = "~/Soulseek/downloads/complete"   # where completed downloads are saved
 inbox_dir     = "~/Music/DJ/inbox"                 # intermediate staging area (optional)
 library_dir   = "~/Music/DJ/library"               # final destination after move-to-library
 scan_dir      = ""                                  # used by import-folder; leave empty if unused
@@ -47,16 +47,14 @@ scan_dir      = ""                                  # used by import-folder; lea
 
 All paths support `~` expansion and are resolved relative to the shell working directory.
 
-### `[slskd]`
+### `[soulseek]`
 
 ```toml
-[slskd]
-host              = "http://localhost:5030"   # slskd base URL (no trailing slash)
-url_base          = "/api/v0"                 # API prefix — do not change unless you customized slskd
-api_key           = ""                        # set via SLSKD_API_KEY env var instead
-search_timeout_ms = 90000                     # how long to wait for a search to complete (ms)
-response_limit    = 100                       # max search responses per query
-file_limit        = 10000                     # max files per response
+[soulseek]
+username             = ""       # your Soulseek account username
+# password is loaded from SOULSEEK_PASSWORD in .env — omit here
+search_timeout_sec   = 15.0    # seconds to collect search responses
+download_timeout_sec = 300.0   # seconds to wait per download (0 = unlimited)
 ```
 
 ### `[matching]`
@@ -137,9 +135,9 @@ path = "djtoolkit.db"
 downloads_dir = "~/Soulseek/downloads/complete"
 library_dir   = "~/Music/DJ/library"
 
-[slskd]
-host    = "http://localhost:5030"
-api_key = ""   # set in .env as SLSKD_API_KEY
+[soulseek]
+username = ""   # set in djtoolkit.toml [soulseek]
+# password set in .env as SOULSEEK_PASSWORD
 
 [fingerprint]
 acoustid_api_key = ""   # set in .env as ACOUSTID_API_KEY

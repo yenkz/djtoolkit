@@ -1,8 +1,8 @@
-"""aioslsk downloader — embedded Soulseek client (no Docker/slskd required).
+"""aioslsk downloader — embedded Soulseek client.
 
-Replaces slskd.py. Uses aioslsk (https://github.com/JurgenR/aioslsk) to
-search the Soulseek network and download files directly from within the
-djtoolkit process. Credentials go in [soulseek] config section.
+Uses aioslsk (https://github.com/JurgenR/aioslsk) to search the Soulseek
+network and download files directly within the djtoolkit process.
+Credentials go in [soulseek] config section.
 
 aioslsk data model quick-reference:
   SearchResultEvent.result  → SearchResult
@@ -67,7 +67,7 @@ def _make_settings(cfg: Config):
     )
 
 
-# ─── Path helpers (same logic as slskd.py) ────────────────────────────────────
+# ─── Path helpers ─────────────────────────────────────────────────────────────
 
 def _basename(path: str) -> str:
     """Extract filename stem from a Windows or POSIX remote path."""
@@ -674,7 +674,7 @@ def reconcile_disk(cfg: Config) -> dict:
 
     with connect(cfg.db_path) as conn:
         rows = conn.execute(
-            "SELECT id, slskd_job_id, artist, title FROM tracks"
+            "SELECT id, download_job_id, artist, title FROM tracks"
             " WHERE acquisition_status IN ('candidate', 'downloading')"
         ).fetchall()
 
@@ -699,7 +699,7 @@ def reconcile_disk(cfg: Config) -> dict:
 
     for row in rows:
         track_id = row["id"]
-        job = row["slskd_job_id"] or ""
+        job = row["download_job_id"] or ""
         matched_path: str | None = None
 
         if job:

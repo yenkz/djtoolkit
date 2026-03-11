@@ -48,9 +48,8 @@ All pipeline actions run in the background and stream progress to the log endpoi
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/pipeline/download` | Start the slskd download pipeline |
+| `POST` | `/api/pipeline/download` | Start the Soulseek download pipeline |
 | `POST` | `/api/pipeline/fingerprint` | Run Chromaprint fingerprinting |
-| `POST` | `/api/pipeline/poll-downloads` | Check slskd transfer statuses |
 | `POST` | `/api/pipeline/metadata` | Write metadata tags to files |
 | `POST` | `/api/tracks/reset-failed` | Reset all `failed` tracks to `candidate` |
 
@@ -66,12 +65,12 @@ The log buffer holds the last 200 lines from all djtoolkit modules.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/slskd/health` | Check if slskd is reachable and connected |
+| `GET` | `/api/soulseek/health` | Check if Soulseek credentials are configured |
 | `GET` | `/api/db/check` | Run SQLite integrity check |
 
-**`GET /api/slskd/health` response:**
+**`GET /api/soulseek/health` response:**
 ```json
-{"ok": true, "message": "Connected", "host": "http://localhost:5030"}
+{"ok": true, "message": "Credentials configured"}
 ```
 
 ---
@@ -85,7 +84,7 @@ Features:
 - Pipeline status tiles (counts per stage)
 - One-click buttons to trigger pipeline steps
 - Live log tail (polls `/api/logs` every 2 seconds)
-- slskd health indicator
+- Soulseek credentials status indicator
 
 ---
 

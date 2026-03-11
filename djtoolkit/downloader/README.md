@@ -1,6 +1,6 @@
 # djtoolkit/downloader
 
-Downloads tracks from Soulseek via the [slskd](https://github.com/slskd/slskd) REST API.
+Downloads tracks from Soulseek using [aioslsk](https://github.com/JurgenR/aioslsk) — an embedded Python Soulseek client that runs directly within the djtoolkit process.
 
 ---
 
@@ -8,52 +8,46 @@ Downloads tracks from Soulseek via the [slskd](https://github.com/slskd/slskd) R
 
 | File | Description |
 |---|---|
-| `slskd.py` | slskd REST client, search/score/download loop, transfer polling |
+| `aioslsk_client.py` | Embedded Soulseek client, search/score/download loop |
 
 ---
 
 ## How it works
 
 ```
-candidate tracks → search slskd → score results → enqueue best match → poll until complete
+candidate tracks → search Soulseek → score results → download best match → mark available
 ```
 
-1. **Search** — `POST /api/v0/searches` with the track's `search_string`
-2. **Poll search** — `GET /api/v0/searches/{id}` until `isComplete: true`
+1. **Search** — broadcasts a search query to the Soulseek network using `search_string`
+2. **Collect results** — waits up to `search_timeout_sec` for peers to respond
 3. **Score results** — fuzzy-match each result's title+artist against expected metadata using `thefuzz`; filter by `duration_tolerance_ms` and `min_score`
-4. **Download** — `POST /api/v0/transfers/downloads/{username}/{filename}` for the best match
-5. **Poll transfer** — `GET /api/v0/transfers/downloads` until `state: Completed` or `state: Errored`
+4. **Download** — enqueues the best match from the peer that returned it
+5. **Wait** — polls until `TransferState.COMPLETED` or a terminal failure state
 
 ---
 
 ## Public API
 
 ```python
-from djtoolkit.downloader.slskd import run, poll_downloads, health_check
+from djtoolkit.downloader.aioslsk_client import run
 
-# Full download pipeline (search + download + poll)
+# Full download pipeline (search + download + wait)
 stats = run(cfg)
 # stats = {"attempted": 50, "downloaded": 42, "failed": 8}
-
-# Only check status of in-flight transfers (without starting new searches)
-poll_downloads(cfg)
-
-# Check if slskd is reachable and connected to Soulseek
-ok, message = health_check(cfg)
 ```
 
 ---
 
 ## Configuration
 
-All slskd settings live under `[slskd]` in `djtoolkit.toml`:
+Soulseek settings live under `[soulseek]` in `djtoolkit.toml`:
 
 ```toml
-[slskd]
-host              = "http://localhost:5030"
-api_key           = ""           # set via SLSKD_API_KEY env var
-search_timeout_ms = 90000
-response_limit    = 100
+[soulseek]
+username             = ""       # your Soulseek account username
+# password is loaded from SOULSEEK_PASSWORD in .env
+search_timeout_sec   = 15.0
+download_timeout_sec = 300.0
 
 [matching]
 min_score          = 0.86
@@ -63,17 +57,7 @@ duration_tolerance_ms = 2000
 
 ---
 
-## Important implementation notes
-
-- `slskd_api` is **lazy-imported** inside `_make_client()` — never at module level. This prevents import errors from crashing the FastAPI server if the package is missing.
-- Search responses are fetched from `/searches/{id}/responses` (a separate endpoint), not inline in the search state object.
-- The health check uses `requests` directly on `/api/v0/application` and checks `server.state == "Connected"`.
-- The `url_base` config value must **not** include `/api/v0` — the `slskd_api` package appends it internally.
-
----
-
 ## Prerequisites
 
-- Docker Desktop running
-- slskd container up: `make slskd-up`
-- Logged in to Soulseek via the slskd web UI at `http://localhost:5030`
+- Soulseek account credentials configured in `djtoolkit.toml` and `.env`
+- `aioslsk` Python package installed (included in `pyproject.toml` dependencies)
