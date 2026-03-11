@@ -268,11 +268,11 @@ async def _search_all(client, query_by_track_id: dict[int, str], timeout_sec: fl
 
 # ─── Download ─────────────────────────────────────────────────────────────────
 
-async def _wait_for_transfer(client, transfer, timeout_sec: float) -> bool:
+async def _wait_for_transfer(client, transfer, timeout_sec: float, track_id: int = 0) -> bool:
     """
     Wait for a Transfer to reach a terminal state.
     Returns True on COMPLETE, False on failure/timeout.
-    Uses TransferProgressEvent which carries (Transfer, TransferProgressSnapshot) tuples.
+    Logs progress every 30s so the terminal doesn't appear frozen.
     """
     from aioslsk.events import TransferProgressEvent
     from aioslsk.transfer.state import TransferState
@@ -291,12 +291,46 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float) -> bool:
             elif snapshot.state in _terminal_failed_states():
                 done.set()
 
+    async def _ticker():
+        elapsed = 0
+        while True:
+            await asyncio.sleep(30)
+            elapsed += 30
+            snap = transfer.progress_snapshot
+            total = transfer.filesize or 0
+            mb_done = snap.bytes_transfered / 1_048_576
+            speed_kbps = (snap.speed or 0) / 1024
+            if transfer.place_in_queue is not None and snap.bytes_transfered == 0:
+                log.info(
+                    "[%d]   queued at position %d (%ds elapsed)",
+                    track_id, transfer.place_in_queue, elapsed,
+                )
+            elif total:
+                pct = snap.bytes_transfered / total * 100
+                log.info(
+                    "[%d]   %.0f%% (%.1f / %.1f MB @ %.0f KB/s, %ds elapsed)",
+                    track_id, pct, mb_done, total / 1_048_576, speed_kbps, elapsed,
+                )
+            elif mb_done > 0:
+                log.info(
+                    "[%d]   %.1f MB @ %.0f KB/s (%ds elapsed)",
+                    track_id, mb_done, speed_kbps, elapsed,
+                )
+            else:
+                log.info("[%d]   waiting for peer… (%ds elapsed)", track_id, elapsed)
+
     client.events.register(TransferProgressEvent, on_progress)
+    ticker_task = asyncio.create_task(_ticker())
     try:
         await asyncio.wait_for(done.wait(), timeout=timeout_sec)
     except asyncio.TimeoutError:
-        log.warning("Transfer timed out after %.0fs: %s", timeout_sec, transfer.remote_path)
+        log.warning("[%d] Transfer timed out after %.0fs", track_id, timeout_sec)
     finally:
+        ticker_task.cancel()
+        try:
+            await ticker_task
+        except asyncio.CancelledError:
+            pass
         client.events.unregister(TransferProgressEvent, on_progress)
 
     return success
@@ -312,13 +346,17 @@ async def _download_track(client, cfg: Config, track: dict, results: list, query
     if not ranked:
         return None
 
+    track_id = track["id"]
     for attempt, (username, remote_filename) in enumerate(ranked[:_MAX_DOWNLOAD_RETRIES]):
+        fname = remote_filename.split("\\")[-1]
         if attempt > 0:
-            log.info("[%d] Retry %d/%d from %s", track["id"], attempt + 1, _MAX_DOWNLOAD_RETRIES, username)
+            log.info("[%d] Peer %d/%d → %s: %s", track_id, attempt + 1, _MAX_DOWNLOAD_RETRIES, username, fname)
         else:
-            log.info("[%d] Downloading from %s: %s", track["id"], username, remote_filename.split("\\")[-1])
+            log.info("[%d] → %s: %s", track_id, username, fname)
         transfer = await client.transfers.download(username, remote_filename)
-        success = await _wait_for_transfer(client, transfer, cfg.soulseek.download_timeout_sec)
+        size_mb = f"{transfer.filesize / 1_048_576:.1f} MB" if transfer.filesize else "unknown size"
+        log.info("[%d]   %s", track_id, size_mb)
+        success = await _wait_for_transfer(client, transfer, cfg.soulseek.download_timeout_sec, track_id)
         if success:
             local_path = getattr(transfer, "local_path", None)
             if local_path:
@@ -403,13 +441,23 @@ async def _run_async(cfg: Config) -> dict:
         track_id = track["id"]
         label = f"{track.get('artist')} – {track.get('title')}"
         try:
+            if not results:
+                log.warning("[%d] No results from any query: %s", track_id, label)
+                _set_status(cfg.db_path, track_id, "failed")
+                stats["no_match"] += 1
+                stats["failed"] += 1
+                return
             local_path = await _download_track(client, cfg, track, results, query)
             if local_path:
                 _set_status(cfg.db_path, track_id, "available", local_path)
-                log.info("[%d] OK: %s", track_id, local_path)
+                log.info("[%d] ✓ Done: %s", track_id, local_path)
                 stats["downloaded"] += 1
             else:
-                log.warning("[%d] No match: %s", track_id, label)
+                n_files = sum(len(sr.shared_items) for sr in results)
+                log.warning(
+                    "[%d] No match: %s  (%d files in %d results, all filtered/timed out)",
+                    track_id, label, n_files, len(results),
+                )
                 _set_status(cfg.db_path, track_id, "failed")
                 stats["no_match"] += 1
                 stats["failed"] += 1
@@ -427,22 +475,38 @@ async def _run_async(cfg: Config) -> dict:
         # Build per-track query variants (original + simplified + artist-only fallbacks)
         queries_by_track: dict[int, list[str]] = {t["id"]: _build_search_queries(t) for t in tracks}
 
-        # Phase 1: fire all primary queries simultaneously, wait once
-        log.info("Searching for %d tracks (%.0fs window)…", len(tracks), cfg.soulseek.search_timeout_sec)
+        # ── Phase 1: search ────────────────────────────────────────────────────
+        log.info(
+            "── Phase 1: searching %d tracks (%.0fs window) ──",
+            len(tracks), cfg.soulseek.search_timeout_sec,
+        )
         primary_queries = {t["id"]: queries_by_track[t["id"]][0] for t in tracks}
         results_by_track = await _search_all(client, primary_queries, cfg.soulseek.search_timeout_sec)
 
-        # Phase 1b: fallback searches for tracks that got zero results OR
-        # whose results contained no viable candidates (all filtered out by scoring).
+        # Summarise search results
+        hits = sum(1 for r in results_by_track.values() if r)
+        total_files = sum(sum(len(sr.shared_items) for sr in r) for r in results_by_track.values())
+        log.info(
+            "Search done: %d/%d tracks got results (%d files total)",
+            hits, len(tracks), total_files,
+        )
+        for t in tracks:
+            res = results_by_track[t["id"]]
+            n_files = sum(len(sr.shared_items) for sr in res)
+            log.debug("[%d] %d peers / %d files — %s", t["id"], len(res), n_files, t.get("title"))
+
+        # ── Phase 1b: fallback search ──────────────────────────────────────────
+        # Trigger for tracks with zero results OR results that all failed scoring.
         needs_fallback = []
         for t in tracks:
             res = results_by_track[t["id"]]
             if not res:
                 needs_fallback.append(t)
             elif not _rank_candidates(t, res, cfg, queries_by_track[t["id"]][0]):
+                n_files = sum(len(sr.shared_items) for sr in res)
                 log.info(
-                    "[%d] Got %d results but none passed scoring, trying fallback query",
-                    t["id"], len(res),
+                    "[%d] %d files found but none passed scoring — will try fallback query",
+                    t["id"], n_files,
                 )
                 needs_fallback.append(t)
 
@@ -452,14 +516,24 @@ async def _run_async(cfg: Config) -> dict:
                 variants = queries_by_track[t["id"]]
                 if len(variants) > 1:
                     fallback_queries[t["id"]] = variants[1]
-                    log.info("[%d] Fallback query: %s", t["id"], variants[1])
-            if fallback_queries:
-                fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
-                for track_id, res in fallback_results.items():
-                    if res:
-                        results_by_track[track_id] = res
+                    log.info("[%d] Fallback query: «%s»", t["id"], variants[1])
 
-        # Phase 2: mark all as downloading, then download all concurrently
+            if fallback_queries:
+                log.info(
+                    "── Phase 1b: fallback search for %d tracks (%.0fs window) ──",
+                    len(fallback_queries), cfg.soulseek.search_timeout_sec,
+                )
+                fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
+                improved = 0
+                for tid, res in fallback_results.items():
+                    if res:
+                        results_by_track[tid] = res
+                        improved += 1
+                log.info("Fallback search done: %d tracks gained results", improved)
+
+        # ── Phase 2: download ──────────────────────────────────────────────────
+        ready = sum(1 for t in tracks if results_by_track[t["id"]])
+        log.info("── Phase 2: downloading %d/%d tracks concurrently ──", ready, len(tracks))
         for track in tracks:
             _set_status(cfg.db_path, track["id"], "downloading")
 
