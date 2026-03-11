@@ -189,7 +189,7 @@ def download(config: ConfigOpt = "djtoolkit.toml"):
     cfg = _cfg(config)
     with Progress(
         SpinnerColumn(),
-        TextColumn("{task.description}", no_wrap=True),
+        TextColumn("{task.description}"),
         BarColumn(bar_width=20),
         DownloadColumn(),
         TransferSpeedColumn(),
