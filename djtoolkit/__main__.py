@@ -85,6 +85,43 @@ def db_wipe(
     console.print("[yellow]Database wiped and schema recreated.[/yellow]")
 
 
+@db_app.command("reset-downloading")
+def db_reset_downloading(config: ConfigOpt = "djtoolkit.toml"):
+    """Reset stuck 'downloading' tracks back to candidate so they can be retried."""
+    from djtoolkit.db.database import connect
+    cfg = _cfg(config)
+    with connect(cfg.db_path) as conn:
+        result = conn.execute(
+            "UPDATE tracks SET acquisition_status = 'candidate' WHERE acquisition_status = 'downloading'"
+        )
+        count = result.rowcount
+        conn.commit()
+    console.print(f"[green]✓[/green] Reset [bold]{count}[/bold] stuck download(s) to candidate")
+
+
+@db_app.command("purge-failed")
+def db_purge_failed(
+    config: ConfigOpt = "djtoolkit.toml",
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
+):
+    """Permanently delete all 'failed' tracks from the database."""
+    from djtoolkit.db.database import connect
+    cfg = _cfg(config)
+    with connect(cfg.db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM tracks WHERE acquisition_status = 'failed'"
+        ).fetchone()[0]
+    if count == 0:
+        console.print("[dim]No failed tracks to delete.[/dim]")
+        return
+    if not yes:
+        typer.confirm(f"Delete {count} failed track(s) from the database?", abort=True)
+    with connect(cfg.db_path) as conn:
+        conn.execute("DELETE FROM tracks WHERE acquisition_status = 'failed'")
+        conn.commit()
+    console.print(f"[red]✗[/red] Deleted [bold]{count}[/bold] failed track(s)")
+
+
 @db_app.command("status")
 def db_status(config: ConfigOpt = "djtoolkit.toml"):
     """Show track counts by acquisition status and processing flags."""

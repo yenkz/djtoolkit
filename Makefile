@@ -91,35 +91,6 @@ playlist:
 dedup:
 	$(DJ) dedup --config $(CONFIG)
 
-# ── Docker / slskd ───────────────────────────────────────────────────────────
-
-install-docker:
-	@if [ "$(DETECTED_OS)" = "macos" ]; then \
-		if command -v docker >/dev/null 2>&1; then \
-			echo "Docker already installed."; \
-		else \
-			brew install --cask docker; \
-			echo "Docker Desktop installed. Start it from Applications before running 'make slskd-up'."; \
-		fi; \
-	elif [ "$(DETECTED_OS)" = "linux" ]; then \
-		echo "Install Docker Engine via your distro packages (e.g. apt install docker.io docker-compose-plugin)."; \
-	else \
-		echo "Install Docker Desktop from https://www.docker.com/products/docker-desktop/"; \
-	fi
-
-slskd-up:
-	docker compose up -d
-	@echo "slskd running at http://localhost:5030"
-
-slskd-down:
-	docker compose down
-
-slskd-logs:
-	docker compose logs -f slskd
-
-slskd-status:
-	docker compose ps
-
 # ── Dev / UI ──────────────────────────────────────────────────────────────────
 
 ui:

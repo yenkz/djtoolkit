@@ -49,7 +49,7 @@ class SoulseekConfig:
 @dataclass
 class MatchingConfig:
     min_score: float = 0.86
-    min_score_title: float = 0.78
+    min_score_title: float = 0.70
     duration_tolerance_ms: int = 2000
 
 

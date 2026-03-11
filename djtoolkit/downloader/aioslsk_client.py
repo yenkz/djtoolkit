@@ -112,8 +112,18 @@ def _relevance(track: dict, filename: str, query: str = "") -> float:
     Relevance of a remote filename against the track.
     Primary: word-overlap against search query (filters clearly wrong files).
     Secondary: fuzzy match against artist+title for ranking.
+
+    Title matching uses the max of full-title and simplified-title scores so that
+    files omitting version suffixes like "Original Mix" are not penalised.
+    e.g. "Holding On - Original Mix" vs file "Holding On.flac" — simplified wins.
+
+    Artist matching checks both the filename stem AND the full path, because
+    Soulseek users commonly store files as "Hotlane/Whenever.flac" — the artist
+    is in the directory name, not the filename itself.
     """
     stem = _basename(filename).lower()
+    # Forward-slash normalised full path for directory-level artist matching
+    full_path = filename.replace("\\", "/").lower()
 
     # Word-overlap pre-filter: if a query is provided, require ≥50% word match
     if query and _relevance_score(stem, query) == 0:
@@ -121,8 +131,11 @@ def _relevance(track: dict, filename: str, query: str = "") -> float:
 
     title = (track.get("title") or "").lower()
     artist = (track.get("artist") or "").lower()
-    t = fuzz.partial_ratio(title, stem) / 100
-    a = fuzz.partial_ratio(artist, stem) / 100
+    # Also score against the simplified title (version/remix suffix stripped)
+    simplified = _simplify_for_search(title).lower()
+    t = max(fuzz.partial_ratio(title, stem), fuzz.partial_ratio(simplified, stem)) / 100
+    # Artist may live in the directory path (e.g. "Hotlane/Whenever.flac")
+    a = max(fuzz.partial_ratio(artist, stem), fuzz.partial_ratio(artist, full_path)) / 100
     return t * 0.6 + a * 0.4
 
 

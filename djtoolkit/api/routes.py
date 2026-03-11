@@ -158,6 +158,32 @@ def reset_failed():
     return ActionResponse(message=f"Reset {count} failed tracks to candidate", stats={"reset": count})
 
 
+@router.post("/tracks/reset-downloading", response_model=ActionResponse)
+def reset_downloading():
+    """Reset stuck 'downloading' tracks back to candidate."""
+    cfg = _cfg()
+    with connect(cfg.db_path) as conn:
+        result = conn.execute(
+            "UPDATE tracks SET acquisition_status = 'candidate' WHERE acquisition_status = 'downloading'"
+        )
+        count = result.rowcount
+        conn.commit()
+    return ActionResponse(message=f"Reset {count} stuck downloads to candidate", stats={"reset": count})
+
+
+@router.delete("/tracks/failed", response_model=ActionResponse)
+def delete_failed():
+    """Permanently delete all tracks with acquisition_status = 'failed'."""
+    cfg = _cfg()
+    with connect(cfg.db_path) as conn:
+        result = conn.execute(
+            "DELETE FROM tracks WHERE acquisition_status = 'failed'"
+        )
+        count = result.rowcount
+        conn.commit()
+    return ActionResponse(message=f"Deleted {count} failed tracks", stats={"deleted": count})
+
+
 def _run_safe(fn, cfg, name: str):
     """Wrapper that ensures exceptions from background tasks appear in the log."""
     log = logging.getLogger("djtoolkit.api")

@@ -32,7 +32,6 @@ djtoolkit.toml
 
 # Exported CSVs
 *.csv
-djtoolkit_candidates.csv
 
 # macOS
 .DS_Store

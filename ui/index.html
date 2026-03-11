@@ -110,8 +110,8 @@
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: var(--border); color: var(--text); }
     .btn-secondary:hover { background: #333; }
-    .btn-danger { background: #450a0a; color: var(--red); border: 1px solid var(--red); }
-    .btn-danger:hover { background: #7f1d1d; }
+    .btn-danger { background: #7f1d1d; color: #fca5a5; }
+    .btn-danger:hover { background: #991b1b; }
 
     /* Track table */
     .table-wrap { overflow-x: auto; }
@@ -253,6 +253,8 @@
         <button class="btn btn-primary" onclick="triggerPipeline('fingerprint')">▶ Fingerprint</button>
         <button class="btn btn-primary" onclick="triggerPipeline('metadata')">▶ Apply Metadata</button>
         <button class="btn btn-secondary" onclick="resetFailed()">↺ Reset Failed</button>
+        <button class="btn btn-secondary" onclick="resetDownloading()">↺ Reset Stuck Downloads</button>
+        <button class="btn btn-danger" onclick="purgeFailed()">🗑 Purge Failed</button>
         <button class="btn btn-secondary" onclick="checkDb()">Check DB</button>
       </div>
     </section>
@@ -307,6 +309,8 @@
         <button class="btn btn-primary" onclick="triggerPipeline('fingerprint')">▶ Run Fingerprint</button>
         <button class="btn btn-primary" onclick="triggerPipeline('metadata')">▶ Apply Metadata</button>
         <button class="btn btn-secondary" onclick="resetFailed()">↺ Reset Failed</button>
+        <button class="btn btn-secondary" onclick="resetDownloading()">↺ Reset Stuck Downloads</button>
+        <button class="btn btn-danger" onclick="purgeFailed()">🗑 Purge Failed</button>
         <button class="btn btn-secondary" onclick="checkDb()">Check DB Integrity</button>
         <button class="btn btn-secondary" onclick="clearLog()">Clear Log</button>
       </div>
@@ -453,6 +457,23 @@
 
   async function resetFailed() {
     const res = await fetch(`${API}/tracks/reset-failed`, { method: 'POST' });
+    const data = await res.json();
+    toast(data.message);
+    log(data.message);
+    setTimeout(loadStats, 300);
+  }
+
+  async function resetDownloading() {
+    const res = await fetch(`${API}/tracks/reset-downloading`, { method: 'POST' });
+    const data = await res.json();
+    toast(data.message);
+    log(data.message);
+    setTimeout(loadStats, 300);
+  }
+
+  async function purgeFailed() {
+    if (!confirm('Permanently delete all failed tracks from the database?')) return;
+    const res = await fetch(`${API}/tracks/failed`, { method: 'DELETE' });
     const data = await res.json();
     toast(data.message);
     log(data.message);
