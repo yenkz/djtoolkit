@@ -21,6 +21,7 @@ aioslsk data model quick-reference:
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from thefuzz import fuzz
@@ -103,9 +104,18 @@ def _quality_score(file) -> tuple[int, int]:
     return score, file.filesize
 
 
-def _relevance(track: dict, filename: str) -> float:
-    """Fuzzy relevance 0–1 of a remote filename against track title + artist."""
+def _relevance(track: dict, filename: str, query: str = "") -> float:
+    """
+    Relevance of a remote filename against the track.
+    Primary: word-overlap against search query (filters clearly wrong files).
+    Secondary: fuzzy match against artist+title for ranking.
+    """
     stem = _basename(filename).lower()
+
+    # Word-overlap pre-filter: if a query is provided, require ≥50% word match
+    if query and _relevance_score(stem, query) == 0:
+        return 0.0
+
     title = (track.get("title") or "").lower()
     artist = (track.get("artist") or "").lower()
     t = fuzz.partial_ratio(title, stem) / 100
@@ -113,7 +123,7 @@ def _relevance(track: dict, filename: str) -> float:
     return t * 0.6 + a * 0.4
 
 
-def _pick_best(track: dict, results: list, cfg: Config) -> tuple[str | None, str | None]:
+def _pick_best(track: dict, results: list, cfg: Config, query: str = "") -> tuple[str | None, str | None]:
     """
     Pick best file from a list of SearchResult objects.
     Returns (username, remote_filename) or (None, None).
@@ -141,7 +151,7 @@ def _pick_best(track: dict, results: list, cfg: Config) -> tuple[str | None, str
                 if dur_sec and abs(track_dur_ms - dur_sec * 1000) > cfg.matching.duration_tolerance_ms:
                     continue
 
-            rel = _relevance(track, file.filename)
+            rel = _relevance(track, file.filename, query)
             if rel < cfg.matching.min_score_title:
                 continue
 
@@ -155,9 +165,70 @@ def _pick_best(track: dict, results: list, cfg: Config) -> tuple[str | None, str
     return best_user, best_filename
 
 
+# ─── Search query helpers ─────────────────────────────────────────────────────
+
+def _simplify_for_search(title: str) -> str:
+    """Strip remix/version/edit/feat suffixes to maximise Soulseek hit rate."""
+    patterns = [
+        r"\(feat\.?\s+[^)]*\)",
+        r"\(ft\.?\s+[^)]*\)",
+        r"feat\.?\s+.+",
+        r"ft\.?\s+.+",
+        r"-\s+.+\s+remix\b.*",
+        r"-\s+.+\s+edit\b.*",
+        r"-\s+.+\s+mix\b.*",
+        r"-\s+.+\s+version\b.*",
+        r"-\s+.+\s+dub\b.*",
+        r"-\s+.+\s+rework\b.*",
+        r"-\s+.+\s+bootleg\b.*",
+        r"-\s+\w+\s+remix\b.*",
+        r"-\s+\w+\s+version\b.*",
+        r"\(.*remix.*\)",
+        r"\(.*edit.*\)",
+        r"\(.*version.*\)",
+        r"\(.*mix\)",
+        r"\(.*dub\)",
+        r"\(.*rework.*\)",
+        r"\(.*bootleg.*\)",
+    ]
+    cleaned = title
+    for p in patterns:
+        cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", cleaned).strip(" -–—")
+
+
+def _relevance_score(filename: str, query: str) -> int:
+    """Word-overlap relevance of filename vs query (0–100). Returns 0 if clearly irrelevant."""
+    def _norm(text: str) -> str:
+        return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+    fn, q = _norm(filename), _norm(query)
+    words = q.split()
+    if not words:
+        return 0
+    matched = sum(1 for w in words if w in fn)
+    ratio = matched / len(words)
+    return 0 if ratio < 0.5 else int(ratio * 100)
+
+
+def _build_search_queries(track: dict) -> list[str]:
+    """Return progressive fallback queries: original → simplified → artist-only."""
+    base = track.get("search_string") or f"{track.get('artist', '')} {track.get('title', '')}"
+    queries = [base]
+    artist = (track.get("artist") or "").split(";")[0].strip()
+    title = track.get("title") or ""
+    if title:
+        simplified = f"{artist} {_simplify_for_search(title)}".strip()
+        if simplified.lower() != base.lower():
+            queries.append(simplified)
+        if len(artist.split()) >= 2:
+            queries.append(artist)
+    return queries
+
+
 # ─── Search ───────────────────────────────────────────────────────────────────
 
-async def _search_all(client, tracks: list[dict], timeout_sec: float) -> dict[int, list]:
+async def _search_all(client, query_by_track_id: dict[int, str], timeout_sec: float) -> dict[int, list]:
     """
     Fire all searches simultaneously, wait once for timeout_sec, return results.
     Returns {track_id: [SearchResult, ...]} for all tracks.
@@ -165,9 +236,8 @@ async def _search_all(client, tracks: list[dict], timeout_sec: float) -> dict[in
     from aioslsk.commands import GlobalSearchCommand
     from aioslsk.events import SearchResultEvent
 
-    # ticket → track_id mapping
     ticket_to_track: dict[int, int] = {}
-    results_by_track: dict[int, list] = {t["id"]: [] for t in tracks}
+    results_by_track: dict[int, list] = {tid: [] for tid in query_by_track_id}
 
     async def on_result(event: SearchResultEvent):
         ticket = getattr(event.result, "ticket", None)
@@ -177,14 +247,10 @@ async def _search_all(client, tracks: list[dict], timeout_sec: float) -> dict[in
 
     client.events.register(SearchResultEvent, on_result)
     try:
-        # Issue all searches without waiting between them
-        for track in tracks:
-            query = track.get("search_string") or f"{track.get('artist', '')} {track.get('title', '')}"
+        for track_id, query in query_by_track_id.items():
             cmd = GlobalSearchCommand(query)
             await client.execute(cmd)
-            ticket_to_track[cmd._ticket] = track["id"]
-
-        # Wait once for all results to stream in
+            ticket_to_track[cmd._ticket] = track_id
         await asyncio.sleep(timeout_sec)
     finally:
         client.events.unregister(SearchResultEvent, on_result)
@@ -228,12 +294,12 @@ async def _wait_for_transfer(client, transfer, timeout_sec: float) -> bool:
     return success
 
 
-async def _download_track(client, cfg: Config, track: dict, results: list) -> str | None:
+async def _download_track(client, cfg: Config, track: dict, results: list, query: str = "") -> str | None:
     """
     Download a single track given pre-fetched search results.
     Returns local_path on success, None on no match or failure.
     """
-    username, remote_filename = _pick_best(track, results, cfg)
+    username, remote_filename = _pick_best(track, results, cfg, query)
     if not username or not remote_filename:
         return None
 
@@ -310,11 +376,11 @@ async def _run_async(cfg: Config) -> dict:
 
     loop.set_exception_handler(_quiet_exception_handler)
 
-    async def _do_download(client, track: dict, results: list) -> None:
+    async def _do_download(client, track: dict, results: list, query: str = "") -> None:
         track_id = track["id"]
         label = f"{track.get('artist')} – {track.get('title')}"
         try:
-            local_path = await _download_track(client, cfg, track, results)
+            local_path = await _download_track(client, cfg, track, results, query)
             if local_path:
                 _set_status(cfg.db_path, track_id, "available", local_path)
                 log.info("[%d] OK: %s", track_id, local_path)
@@ -335,16 +401,35 @@ async def _run_async(cfg: Config) -> dict:
         tracks = [dict(row) for row in candidates]
         stats["attempted"] = len(tracks)
 
-        # Phase 1: fire all searches simultaneously, wait once
+        # Build per-track query variants (original + simplified + artist-only fallbacks)
+        queries_by_track: dict[int, list[str]] = {t["id"]: _build_search_queries(t) for t in tracks}
+
+        # Phase 1: fire all primary queries simultaneously, wait once
         log.info("Searching for %d tracks (%.0fs window)…", len(tracks), cfg.soulseek.search_timeout_sec)
-        results_by_track = await _search_all(client, tracks, cfg.soulseek.search_timeout_sec)
+        primary_queries = {t["id"]: queries_by_track[t["id"]][0] for t in tracks}
+        results_by_track = await _search_all(client, primary_queries, cfg.soulseek.search_timeout_sec)
+
+        # Phase 1b: fallback searches for tracks that got zero results
+        no_results = [t for t in tracks if not results_by_track[t["id"]]]
+        if no_results:
+            fallback_queries: dict[int, str] = {}
+            for t in no_results:
+                variants = queries_by_track[t["id"]]
+                if len(variants) > 1:
+                    fallback_queries[t["id"]] = variants[1]
+                    log.info("[%d] No results for primary query, trying: %s", t["id"], variants[1])
+            if fallback_queries:
+                fallback_results = await _search_all(client, fallback_queries, cfg.soulseek.search_timeout_sec)
+                for track_id, res in fallback_results.items():
+                    if res:
+                        results_by_track[track_id] = res
 
         # Phase 2: mark all as downloading, then download all concurrently
         for track in tracks:
             _set_status(cfg.db_path, track["id"], "downloading")
 
         await asyncio.gather(*[
-            _do_download(client, track, results_by_track[track["id"]])
+            _do_download(client, track, results_by_track[track["id"]], queries_by_track[track["id"]][0])
             for track in tracks
         ])
 
