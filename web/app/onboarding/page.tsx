@@ -541,7 +541,7 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
             .then((s) => setPendingJobs(s.pending))
             .catch(() => {});
         } else {
-          setPollErrors(() => 0);
+          // No live agent found — don't reset error counter
         }
       } catch {
         setPollErrors((e) => e + 1);
@@ -656,7 +656,7 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
               : "bg-gray-800 text-gray-600 cursor-not-allowed"
           }`}
         >
-          {agentConnected ? "Go to Pipeline →" : "Done →"}
+          Go to Pipeline →
         </button>
         <button
           onClick={() => { window.location.href = "/catalog"; }}
