@@ -384,36 +384,59 @@ async def test_import_spotify_queue_jobs_false_skips_jobs(db_user, monkeypatch):
 @_needs_db
 @pytest.mark.asyncio
 async def test_list_tracks_already_owned_flag(db_user):
-    """already_owned=true when a candidate's spotify_uri matches an available track."""
+    """Verify already_owned logic and no self-match bug.
+
+    The tracks table has a global UNIQUE constraint on spotify_uri, so we cannot
+    insert two rows with the same URI.  We therefore test:
+
+    1. SELF-MATCH PREVENTION: an available track must NOT report already_owned=true
+       for itself.  Without the ``AND o.id != t.id`` guard in the LATERAL subquery
+       it would, because the subquery would match the row against itself.
+
+    2. NEGATIVE CASE: a candidate track whose spotify_uri has no available
+       counterpart must report already_owned=false.
+    """
     user_id, token = db_user
     conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
 
-    spotify_uri = f"spotify:track:{uuid.uuid4().hex}"
+    uri_available = f"spotify:track:{uuid.uuid4().hex}"
+    uri_candidate = f"spotify:track:{uuid.uuid4().hex}"
+
     await conn.execute(
         """INSERT INTO tracks (user_id, acquisition_status, source, title, artist,
                                spotify_uri, search_string)
            VALUES ($1, 'available', 'folder', 'Owned Track', 'Artist A', $2, '')""",
-        user_id, spotify_uri,
+        user_id, uri_available,
     )
     await conn.execute(
         """INSERT INTO tracks (user_id, acquisition_status, source, title, artist,
                                spotify_uri, search_string)
-           VALUES ($1, 'candidate', 'spotify', 'Owned Track', 'Artist A', $2, '')
-           ON CONFLICT DO NOTHING""",
-        user_id, spotify_uri,
+           VALUES ($1, 'candidate', 'exportify', 'Candidate Track', 'Artist B', $2, '')""",
+        user_id, uri_candidate,
     )
     await conn.close()
 
     async with _async_client() as c:
         r = await c.get(
-            "/api/catalog/tracks?status=candidate",
+            "/api/catalog/tracks",
             headers={"Authorization": f"Bearer {token}"},
         )
     assert r.status_code == 200
     tracks = r.json()["tracks"]
-    owned = [t for t in tracks if t["spotify_uri"] == spotify_uri]
-    assert len(owned) == 1
-    assert owned[0]["already_owned"] is True
+
+    # 1. Self-match prevention: the available track must NOT show already_owned=true
+    available_tracks = [t for t in tracks if t["spotify_uri"] == uri_available]
+    assert len(available_tracks) == 1, "available track should appear in listing"
+    assert available_tracks[0]["already_owned"] is False, (
+        "available track must not match itself in the already_owned LATERAL subquery"
+    )
+
+    # 2. Negative case: candidate with no available counterpart → already_owned=false
+    candidate_tracks = [t for t in tracks if t["spotify_uri"] == uri_candidate]
+    assert len(candidate_tracks) == 1, "candidate track should appear in listing"
+    assert candidate_tracks[0]["already_owned"] is False, (
+        "candidate with no available counterpart must report already_owned=false"
+    )
 
 
 @_needs_db

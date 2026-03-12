@@ -315,6 +315,7 @@ async def list_tracks(
               AND o.spotify_uri IS NOT NULL
               AND o.spotify_uri = t.spotify_uri
               AND o.acquisition_status = 'available'
+              AND o.id != t.id
             LIMIT 1
         ) owned ON TRUE
         WHERE {where}
