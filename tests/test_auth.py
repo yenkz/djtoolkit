@@ -20,6 +20,8 @@ import os
 import time
 import uuid
 
+import asyncpg
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
@@ -158,25 +160,38 @@ async def test_user_jwt():
     return user_id, token
 
 
+def _async_client():
+    """Return an httpx AsyncClient that drives the ASGI app in the same event loop.
+
+    Using ASGITransport instead of TestClient avoids the event loop mismatch:
+    TestClient runs the app in a thread with its own loop, which causes asyncpg
+    pool operations to fail with "Future attached to a different loop".
+    """
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    )
+
+
 @_needs_db
 @pytest.mark.asyncio
 async def test_agent_register_and_auth(test_user_jwt):
     """Register agent, authenticate with the returned key, then clean up."""
-    from djtoolkit.db.postgres import close_pool, get_pool
+    from djtoolkit.db.postgres import close_pool
 
     user_id, jwt_token = test_user_jwt
 
-    # We need a real user row for the FK constraint in agents.
-    pool = await get_pool()
-    await pool.execute(
+    # Use a direct connection for setup/teardown — avoids pool singleton conflicts.
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    await conn.execute(
         "INSERT INTO users (id, email) VALUES ($1, $2)",
         user_id, f"test-{user_id}@djtoolkit.test",
     )
 
     try:
-        with TestClient(app, raise_server_exceptions=True) as client:
+        async with _async_client() as client:
             # 1. Register a new agent
-            resp = client.post(
+            resp = await client.post(
                 "/api/agents/register",
                 json={"machine_name": "test-machine", "capabilities": ["fpcalc"]},
                 headers={"Authorization": f"Bearer {jwt_token}"},
@@ -188,7 +203,7 @@ async def test_agent_register_and_auth(test_user_jwt):
             assert api_key.startswith("djt_")
 
             # 2. Authenticate using the agent key
-            resp = client.get(
+            resp = await client.get(
                 "/api/agents",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
@@ -197,7 +212,7 @@ async def test_agent_register_and_auth(test_user_jwt):
             assert any(a["id"] == agent_id for a in agents)
 
             # 3. Heartbeat with the agent key
-            resp = client.post(
+            resp = await client.post(
                 "/api/agents/heartbeat",
                 json={"capabilities": ["fpcalc", "librosa"]},
                 headers={"Authorization": f"Bearer {api_key}"},
@@ -205,21 +220,22 @@ async def test_agent_register_and_auth(test_user_jwt):
             assert resp.status_code == 204, resp.text
 
             # 4. Delete the agent
-            resp = client.delete(
+            resp = await client.delete(
                 f"/api/agents/{agent_id}",
                 headers={"Authorization": f"Bearer {jwt_token}"},
             )
             assert resp.status_code == 204, resp.text
 
             # 5. Revoked key no longer authenticates
-            resp = client.get(
+            resp = await client.get(
                 "/api/agents",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
             assert resp.status_code == 401, "Deleted agent key should be rejected"
 
     finally:
-        await pool.execute("DELETE FROM users WHERE id = $1", user_id)
+        await conn.execute("DELETE FROM users WHERE id = $1", user_id)
+        await conn.close()
         await close_pool()
 
 
@@ -227,24 +243,24 @@ async def test_agent_register_and_auth(test_user_jwt):
 @pytest.mark.asyncio
 async def test_agent_isolation_between_users():
     """User A's JWT cannot see or delete User B's agents."""
-    from djtoolkit.db.postgres import close_pool, get_pool
+    from djtoolkit.db.postgres import close_pool
 
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
     jwt_a = _make_jwt(user_a)
     jwt_b = _make_jwt(user_b)
 
-    pool = await get_pool()
-    await pool.execute(
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    await conn.execute(
         "INSERT INTO users (id, email) VALUES ($1, $2), ($3, $4)",
         user_a, f"test-{user_a}@djtoolkit.test",
         user_b, f"test-{user_b}@djtoolkit.test",
     )
 
     try:
-        with TestClient(app, raise_server_exceptions=True) as client:
+        async with _async_client() as client:
             # User B registers an agent
-            resp = client.post(
+            resp = await client.post(
                 "/api/agents/register",
                 json={"machine_name": "user-b-machine"},
                 headers={"Authorization": f"Bearer {jwt_b}"},
@@ -253,7 +269,7 @@ async def test_agent_isolation_between_users():
             agent_b_id = resp.json()["agent_id"]
 
             # User A lists agents — should NOT see user B's agent
-            resp = client.get(
+            resp = await client.get(
                 "/api/agents",
                 headers={"Authorization": f"Bearer {jwt_a}"},
             )
@@ -262,15 +278,16 @@ async def test_agent_isolation_between_users():
             assert agent_b_id not in agent_ids_a, "User A must not see User B's agents"
 
             # User A tries to delete User B's agent — should 404
-            resp = client.delete(
+            resp = await client.delete(
                 f"/api/agents/{agent_b_id}",
                 headers={"Authorization": f"Bearer {jwt_a}"},
             )
             assert resp.status_code == 404, "User A must not delete User B's agents"
 
     finally:
-        await pool.execute(
+        await conn.execute(
             "DELETE FROM users WHERE id = ANY($1::uuid[])",
             [user_a, user_b],
         )
+        await conn.close()
         await close_pool()
