@@ -26,6 +26,7 @@ pyloudnorm = "^0.1"
 Pillow     = "^10.0"
 # essentia-tensorflow: optional TF genre/instrumental models (Linux/macOS x86_64, Python ≤3.11 only)
 # Install manually: pip install essentia-tensorflow
+asyncpg = "^0.31.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest       = "^8.0"

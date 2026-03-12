@@ -55,5 +55,8 @@ htmlcov/
 .postman/
 postman/
 
+# Git worktrees
+.worktrees/
+
 # Logs
 *.log

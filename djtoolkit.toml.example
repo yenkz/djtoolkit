@@ -53,6 +53,10 @@ minwidth       = 800     # reject images narrower than this (px)
 maxwidth       = 2000    # resize images wider than this (px, requires Pillow)
 quality        = 90      # JPEG quality when re-encoding after resize
 
+[supabase]
+# Supabase project URL (no trailing slash).  Secrets go in .env — see .env.example.
+project_url = "https://wpjrzpsfssyzjgfzcmvf.supabase.co"
+
 [audio_analysis]
 models_dir           = "~/.djtoolkit/models"
 musicnn_model        = ""   # path to msd-musicnn-1.pb (optional, requires essentia-tensorflow)

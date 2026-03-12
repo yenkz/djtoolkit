@@ -96,6 +96,15 @@ class AudioAnalysisConfig:
 
 
 @dataclass
+class SupabaseConfig:
+    """Supabase project settings.  All secrets come from env vars — see .env.example."""
+
+    project_url: str = ""        # https://wpjrzpsfssyzjgfzcmvf.supabase.co
+    # Secrets loaded from env: SUPABASE_DATABASE_URL, SUPABASE_JWT_SECRET,
+    # SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+
+
+@dataclass
 class Config:
     db: DbConfig = field(default_factory=DbConfig)
     paths: PathsConfig = field(default_factory=PathsConfig)
@@ -105,6 +114,7 @@ class Config:
     loudnorm: LoudnormConfig = field(default_factory=LoudnormConfig)
     cover_art: CoverArtConfig = field(default_factory=CoverArtConfig)
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
+    supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
 
     @property
     def db_path(self) -> Path:
@@ -152,6 +162,7 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
             loudnorm=_make(LoudnormConfig, "loudnorm"),
             cover_art=_make(CoverArtConfig, "cover_art"),
             audio_analysis=_make(AudioAnalysisConfig, "audio_analysis"),
+            supabase=_make(SupabaseConfig, "supabase"),
         )
 
     # Env vars override TOML for secrets (env always wins)
