@@ -383,6 +383,41 @@ async def test_import_spotify_queue_jobs_false_skips_jobs(db_user, monkeypatch):
 
 @_needs_db
 @pytest.mark.asyncio
+async def test_list_tracks_already_owned_flag(db_user):
+    """already_owned=true when a candidate's spotify_uri matches an available track."""
+    user_id, token = db_user
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+
+    spotify_uri = f"spotify:track:{uuid.uuid4().hex}"
+    await conn.execute(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist,
+                               spotify_uri, search_string)
+           VALUES ($1, 'available', 'folder', 'Owned Track', 'Artist A', $2, '')""",
+        user_id, spotify_uri,
+    )
+    await conn.execute(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist,
+                               spotify_uri, search_string)
+           VALUES ($1, 'candidate', 'spotify', 'Owned Track', 'Artist A', $2, '')
+           ON CONFLICT DO NOTHING""",
+        user_id, spotify_uri,
+    )
+    await conn.close()
+
+    async with _async_client() as c:
+        r = await c.get(
+            "/api/catalog/tracks?status=candidate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200
+    tracks = r.json()["tracks"]
+    owned = [t for t in tracks if t["spotify_uri"] == spotify_uri]
+    assert len(owned) == 1
+    assert owned[0]["already_owned"] is True
+
+
+@_needs_db
+@pytest.mark.asyncio
 async def test_tenant_isolation(db_user):
     """User A's tracks must not be visible to User B."""
     from djtoolkit.db.postgres import close_pool

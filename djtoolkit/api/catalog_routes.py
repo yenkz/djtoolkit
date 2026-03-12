@@ -56,6 +56,7 @@ class TrackOut(BaseModel):
     cover_art_written: bool
     in_library: bool
     metadata_source: Optional[str]
+    already_owned: bool = False
     created_at: str
     updated_at: str
 
@@ -108,6 +109,7 @@ def _row_to_track(r) -> TrackOut:
         cover_art_written=bool(r["cover_art_written"]),
         in_library=bool(r["in_library"]),
         metadata_source=r["metadata_source"],
+        already_owned=bool(r.get("already_owned", False)),
         created_at=r["created_at"].isoformat(),
         updated_at=r["updated_at"].isoformat(),
     )
@@ -278,7 +280,7 @@ async def _insert_tracks_and_create_jobs(
 @router.get("/tracks", response_model=TrackListResponse)
 async def list_tracks(
     page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=200),
+    per_page: int = Query(50, ge=1, le=1000),
     status_filter: Optional[str] = Query(None, alias="status"),
     search: Optional[str] = Query(None),
     user: CurrentUser = Depends(get_current_user),
@@ -303,7 +305,22 @@ async def list_tracks(
 
     args_page = args + [per_page, offset]
     rows = await pool.fetch(
-        f"SELECT * FROM tracks WHERE {where} ORDER BY created_at DESC LIMIT ${len(args_page)-1} OFFSET ${len(args_page)}",
+        f"""
+        SELECT t.*,
+               (owned.id IS NOT NULL) AS already_owned
+        FROM tracks t
+        LEFT JOIN LATERAL (
+            SELECT id FROM tracks o
+            WHERE o.user_id = t.user_id
+              AND o.spotify_uri IS NOT NULL
+              AND o.spotify_uri = t.spotify_uri
+              AND o.acquisition_status = 'available'
+            LIMIT 1
+        ) owned ON TRUE
+        WHERE {where}
+        ORDER BY t.created_at DESC
+        LIMIT ${len(args_page)-1} OFFSET ${len(args_page)}
+        """,
         *args_page,
     )
 
