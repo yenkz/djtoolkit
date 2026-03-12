@@ -309,6 +309,75 @@ async def test_reset_failed_track(db_user):
 
 @_needs_db
 @pytest.mark.asyncio
+async def test_import_csv_queue_jobs_false(db_user):
+    """POST /catalog/import/csv?queue_jobs=false inserts tracks but no pipeline_jobs."""
+    user_id, token = db_user
+    csv_bytes = _MINIMAL_CSV
+    async with _async_client() as c:
+        r = await c.post(
+            "/api/catalog/import/csv?queue_jobs=false",
+            files={"file": ("test.csv", io.BytesIO(csv_bytes), "text/csv")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["imported"] > 0
+    assert data["jobs_created"] == 0
+
+    # Verify no pipeline_jobs were created
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    count = await conn.fetchval(
+        "SELECT count(*) FROM pipeline_jobs WHERE user_id = $1", user_id
+    )
+    await conn.close()
+    assert count == 0
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_import_spotify_queue_jobs_false_skips_jobs(db_user, monkeypatch):
+    """POST /catalog/import/spotify?queue_jobs=false creates no pipeline_jobs."""
+    from djtoolkit.api import catalog_routes
+    monkeypatch.setattr(
+        catalog_routes, "_get_spotify_token",
+        lambda user_id: "fake-token"
+    )
+
+    import respx, httpx as _httpx
+    with respx.mock:
+        respx.get("https://api.spotify.com/v1/playlists/test123/tracks").mock(
+            return_value=_httpx.Response(200, json={
+                "items": [{
+                    "added_by": {"id": "user"},
+                    "added_at": "2024-01-01T00:00:00Z",
+                    "track": {
+                        "uri": "spotify:track:abc123",
+                        "name": "Test Track",
+                        "duration_ms": 240000,
+                        "artists": [{"name": "Test Artist"}],
+                        "album": {"name": "Test Album", "release_date": "2024"},
+                        "explicit": False,
+                        "popularity": 50,
+                        "external_ids": {},
+                    }
+                }],
+                "next": None,
+            })
+        )
+        user_id, token = db_user
+        async with _async_client() as c:
+            r = await c.post(
+                "/api/catalog/import/spotify?queue_jobs=false",
+                json={"playlist_id": "test123"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert r.status_code == 201
+    assert r.json()["jobs_created"] == 0
+
+
+@_needs_db
+@pytest.mark.asyncio
 async def test_tenant_isolation(db_user):
     """User A's tracks must not be visible to User B."""
     from djtoolkit.db.postgres import close_pool

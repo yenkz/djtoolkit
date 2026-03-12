@@ -212,11 +212,12 @@ def _map_spotify_track(item: dict) -> dict:
 
 
 async def _insert_tracks_and_create_jobs(
-    conn, user_id: str, tracks: list[dict], source: str
+    conn, user_id: str, tracks: list[dict], source: str, *, queue_jobs: bool = True
 ) -> tuple[int, int, int]:
-    """Insert tracks (ON CONFLICT DO NOTHING) and create download jobs.
+    """Insert tracks (ON CONFLICT DO NOTHING) and optionally create download jobs.
 
     Returns (inserted, skipped_duplicates, jobs_created).
+    When queue_jobs=False, tracks are inserted but no pipeline_jobs rows are created.
     """
     inserted = 0
     skipped = 0
@@ -251,22 +252,23 @@ async def _insert_tracks_and_create_jobs(
             skipped += 1
         else:
             inserted += 1
-            # Create download job for this new candidate
-            await conn.execute(
-                """
-                INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
-                VALUES ($1, $2, 'download', $3)
-                """,
-                user_id, result,
-                json.dumps({
-                    "track_id": result,
-                    "search_string": t.get("search_string", ""),
-                    "artist": t.get("artist", ""),
-                    "title": t.get("title", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                }),
-            )
-            jobs_created += 1
+            if queue_jobs:
+                # Create download job for this new candidate
+                await conn.execute(
+                    """
+                    INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
+                    VALUES ($1, $2, 'download', $3)
+                    """,
+                    user_id, result,
+                    json.dumps({
+                        "track_id": result,
+                        "search_string": t.get("search_string", ""),
+                        "artist": t.get("artist", ""),
+                        "title": t.get("title", ""),
+                        "duration_ms": t.get("duration_ms", 0),
+                    }),
+                )
+                jobs_created += 1
 
     return inserted, skipped, jobs_created
 
@@ -365,6 +367,7 @@ async def catalog_stats(user: CurrentUser = Depends(get_current_user)):
 @router.post("/import/csv", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
 async def import_csv(
     file: UploadFile = File(...),
+    queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
 ):
     if file.content_type not in ("text/csv", "application/csv", "text/plain", "application/octet-stream"):
@@ -391,7 +394,7 @@ async def import_csv(
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
         inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
-            conn, user.user_id, tracks, "exportify"
+            conn, user.user_id, tracks, "exportify", queue_jobs=queue_jobs
         )
 
     return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
@@ -404,6 +407,7 @@ class SpotifyImportRequest(BaseModel):
 @router.post("/import/spotify", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
 async def import_spotify(
     body: SpotifyImportRequest,
+    queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
 ):
     access_token = await _get_spotify_token(user.user_id)
@@ -429,7 +433,7 @@ async def import_spotify(
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
         inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
-            conn, user.user_id, tracks, "spotify"
+            conn, user.user_id, tracks, "spotify", queue_jobs=queue_jobs
         )
 
     return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
