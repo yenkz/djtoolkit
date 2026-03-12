@@ -477,3 +477,194 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
     </div>
   );
 }
+
+// CopyBlock is defined at module scope so it doesn't remount on every render
+function CopyBlock({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 mb-2">
+      <code className="text-green-300 text-xs font-mono break-all">{text}</code>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+        className="text-xs text-gray-500 hover:text-white flex-shrink-0"
+      >
+        {copied ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+interface Step3Props {
+  apiKey: string;
+  setApiKey: (key: string) => void;
+  machineName: string;
+  onDone: () => void;
+}
+
+function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
+  const [agentConnected, setAgentConnected] = useState(false);
+  const [agentName, setAgentName] = useState("");
+  const [pendingJobs, setPendingJobs] = useState<number | null>(null);
+  const [pollErrors, setPollErrors] = useState(0);
+  const [registering, setRegistering] = useState(false);
+  const supabase = createClient();
+
+  useEffect(() => {
+    if (apiKey) return;
+    setRegistering(true);
+    registerAgent(machineName)
+      .then((result) => setApiKey(result.api_key))
+      .catch(() => toast.error("Failed to generate API key. Please try again."))
+      .finally(() => setRegistering(false));
+  }, [apiKey, machineName, setApiKey]);
+
+  useEffect(() => {
+    if (agentConnected) return;
+    const interval = setInterval(async () => {
+      try {
+        const agents = await fetchAgents();
+        const now = Date.now();
+        const live = agents.find(
+          (a) =>
+            a.last_seen_at &&
+            now - new Date(a.last_seen_at).getTime() < 60_000
+        );
+        if (live) {
+          setAgentConnected(true);
+          setAgentName(live.machine_name ?? "your Mac");
+          setPollErrors(0);
+          fetchPipelineStatus()
+            .then((s) => setPendingJobs(s.pending))
+            .catch(() => {});
+        } else {
+          setPollErrors(() => 0);
+        }
+      } catch {
+        setPollErrors((e) => e + 1);
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [agentConnected]);
+
+  async function handleDone() {
+    await supabase.auth.updateUser({
+      data: { onboarding_completed: true },
+    });
+    onDone();
+  }
+
+  const statusState =
+    agentConnected ? "connected" : pollErrors >= 3 ? "error" : "waiting";
+
+  return (
+    <div className="max-w-lg mx-auto px-6 py-10">
+      <h1 className="text-xl font-bold text-white mb-1">Install the djtoolkit agent</h1>
+      <p className="text-sm text-gray-500 mb-6">
+        The agent runs on your Mac and handles downloading, fingerprinting, and tagging
+        — your files never leave your machine.
+      </p>
+
+      {/* Download DMG */}
+      <div className="border border-indigo-500 bg-indigo-950/30 rounded-xl p-4 mb-4 flex items-center gap-3">
+        <span className="text-2xl">💿</span>
+        <div className="flex-1">
+          <div className="text-sm font-bold text-white">Download for macOS</div>
+          <div className="text-xs text-indigo-300">arm64 + x86_64 · Includes all dependencies</div>
+        </div>
+        <a
+          href="https://github.com/YOUR_ORG/djtoolkit/releases/latest/download/djtoolkit-macos.dmg"
+          className="bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-indigo-500"
+          download
+        >
+          Download .dmg
+        </a>
+      </div>
+
+      {/* pip alternative */}
+      <div className="mb-5">
+        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Or install via pip</div>
+        <CopyBlock text="pip install djtoolkit" />
+      </div>
+
+      {/* Configure + start */}
+      <div className="mb-6">
+        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">
+          Configure &amp; start
+        </div>
+        {registering || !apiKey ? (
+          <div className="text-xs text-gray-500 py-2">Generating API key…</div>
+        ) : (
+          <>
+            <CopyBlock text={`djtoolkit agent configure --api-key ${apiKey}`} />
+            <CopyBlock text="djtoolkit agent start" />
+          </>
+        )}
+      </div>
+
+      {/* Status indicator */}
+      <div
+        className={`border rounded-lg px-4 py-3 flex items-center gap-3 mb-5 ${
+          statusState === "connected"
+            ? "border-green-700 bg-green-950/30"
+            : statusState === "error"
+            ? "border-yellow-700 bg-yellow-950/20"
+            : "border-gray-700 bg-gray-900"
+        }`}
+      >
+        <div
+          className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+            statusState === "connected"
+              ? "bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.5)]"
+              : statusState === "error"
+              ? "bg-yellow-400 shadow-[0_0_8px_2px_rgba(250,204,21,0.4)]"
+              : "bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.4)]"
+          }`}
+        />
+        <div>
+          {statusState === "connected" ? (
+            <>
+              <div className="text-sm font-semibold text-green-300">
+                Agent connected — {agentName}
+              </div>
+              <div className="text-xs text-green-700">
+                {pendingJobs !== null ? `${pendingJobs} download jobs queued and ready` : ""}
+              </div>
+            </>
+          ) : statusState === "error" ? (
+            <div className="text-sm text-yellow-300">Connection check failed — retrying…</div>
+          ) : (
+            <>
+              <div className="text-sm text-gray-300">Agent not connected</div>
+              <div className="text-xs text-gray-600">Checking every 5s…</div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* CTAs */}
+      <div className="flex flex-col items-end gap-2">
+        <button
+          onClick={handleDone}
+          disabled={!agentConnected}
+          className={`text-sm font-bold px-6 py-2.5 rounded-lg transition-colors ${
+            agentConnected
+              ? "bg-green-600 text-white hover:bg-green-500"
+              : "bg-gray-800 text-gray-600 cursor-not-allowed"
+          }`}
+        >
+          {agentConnected ? "Go to Pipeline →" : "Done →"}
+        </button>
+        <button
+          onClick={() => { window.location.href = "/catalog"; }}
+          className="text-xs text-gray-600 hover:text-gray-400"
+        >
+          Skip for now
+        </button>
+      </div>
+    </div>
+  );
+}
