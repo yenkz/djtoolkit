@@ -99,6 +99,34 @@ def import_csv(csv_path: str | Path, db_path: str | Path) -> dict:
     return {"inserted": inserted, "skipped_duplicate": skipped, "total": inserted + skipped}
 
 
+def parse_csv_rows(data: bytes) -> list[dict]:
+    """Parse raw CSV bytes (Exportify format) into a list of track dicts.
+
+    Used by the cloud API's CSV upload endpoint — no DB writes.
+    Each dict matches the ``tracks`` table columns (minus user_id/status/source).
+    """
+    import io
+    text = data.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+    tracks: list[dict] = []
+    for row in reader:
+        row = {k.strip(): v.strip() for k, v in row.items()}
+        record: dict = {}
+        for csv_col, db_col in _CSV_TO_DB.items():
+            record[db_col] = row.get(csv_col) or None
+        artists_raw = record.get("artists") or ""
+        record["artist"] = _primary_artist(artists_raw) if artists_raw else None
+        record["year"] = _parse_year(record.get("release_date") or "")
+        explicit_raw = (record.get("explicit") or "").lower()
+        record["explicit"] = explicit_raw == "true"
+        artist = record.get("artist") or ""
+        title = record.get("title") or ""
+        record["search_string"] = build_search_string(artist, title) if (artist or title) else None
+        if record.get("spotify_uri"):
+            tracks.append(record)
+    return tracks
+
+
 def _insert(conn: sqlite3.Connection, record: dict) -> None:
     columns = ", ".join(record.keys())
     placeholders = ", ".join("?" for _ in record)
