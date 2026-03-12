@@ -1,0 +1,499 @@
+"""Catalog routes — track listing, stats, CSV/Spotify import.
+
+Routes
+------
+GET  /catalog/tracks                 Paginated, filterable track list (RLS-scoped)
+GET  /catalog/tracks/{id}            Single track
+GET  /catalog/stats                  Counts by status + processing flags
+POST /catalog/import/csv             Upload Exportify CSV → insert tracks + create jobs
+POST /catalog/import/spotify         Import from connected Spotify playlist
+GET  /catalog/import/spotify/playlists  List user's Spotify playlists
+POST /catalog/tracks/{id}/reset      Retry a failed track (reset to candidate)
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+import uuid
+from typing import Optional
+
+import httpx
+from cryptography.fernet import Fernet
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
+
+from djtoolkit.api.auth import CurrentUser, get_current_user
+from djtoolkit.db.postgres import get_pool, rls_transaction
+from djtoolkit.importers.exportify import parse_csv_rows
+from djtoolkit.utils.search_string import build as build_search_string
+
+router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+_MAX_CSV_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+# ─── Response models ──────────────────────────────────────────────────────────
+
+class TrackOut(BaseModel):
+    id: int
+    acquisition_status: str
+    source: str
+    title: Optional[str]
+    artist: Optional[str]
+    artists: Optional[str]
+    album: Optional[str]
+    year: Optional[int]
+    duration_ms: Optional[int]
+    genres: Optional[str]
+    spotify_uri: Optional[str]
+    local_path: Optional[str]
+    fingerprinted: bool
+    enriched_spotify: bool
+    enriched_audio: bool
+    metadata_written: bool
+    cover_art_written: bool
+    in_library: bool
+    metadata_source: Optional[str]
+    created_at: str
+    updated_at: str
+
+
+class TrackListResponse(BaseModel):
+    tracks: list[TrackOut]
+    total: int
+    page: int
+    per_page: int
+
+
+class CatalogStats(BaseModel):
+    total: int
+    by_status: dict[str, int]
+    flags: dict[str, int]
+
+
+class ImportResult(BaseModel):
+    imported: int
+    skipped_duplicates: int
+    jobs_created: int
+
+
+class SpotifyPlaylist(BaseModel):
+    id: str
+    name: str
+    track_count: int
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _row_to_track(r) -> TrackOut:
+    return TrackOut(
+        id=r["id"],
+        acquisition_status=r["acquisition_status"],
+        source=r["source"],
+        title=r["title"],
+        artist=r["artist"],
+        artists=r["artists"],
+        album=r["album"],
+        year=r["year"],
+        duration_ms=r["duration_ms"],
+        genres=r["genres"],
+        spotify_uri=r["spotify_uri"],
+        local_path=r["local_path"],
+        fingerprinted=bool(r["fingerprinted"]),
+        enriched_spotify=bool(r["enriched_spotify"]),
+        enriched_audio=bool(r["enriched_audio"]),
+        metadata_written=bool(r["metadata_written"]),
+        cover_art_written=bool(r["cover_art_written"]),
+        in_library=bool(r["in_library"]),
+        metadata_source=r["metadata_source"],
+        created_at=r["created_at"].isoformat(),
+        updated_at=r["updated_at"].isoformat(),
+    )
+
+
+def _fernet() -> Fernet:
+    key = os.environ.get("SPOTIFY_TOKEN_ENCRYPTION_KEY")
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="SPOTIFY_TOKEN_ENCRYPTION_KEY not configured",
+        )
+    return Fernet(key.encode())
+
+
+async def _get_spotify_token(user_id: str) -> str:
+    """Decrypt and return the user's Spotify access token, refreshing if needed."""
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT spotify_access_token, spotify_refresh_token, spotify_token_expires_at FROM users WHERE id = $1",
+        user_id,
+    )
+    if not row or not row["spotify_access_token"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Spotify not connected. Visit /auth/spotify/connect first.",
+        )
+
+    f = _fernet()
+    access_token = f.decrypt(row["spotify_access_token"].encode()).decode()
+
+    # Refresh if expired (with 60s buffer)
+    import datetime
+    if row["spotify_token_expires_at"]:
+        expires_at = row["spotify_token_expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if (expires_at - now).total_seconds() < 60:
+            refresh_token = f.decrypt(row["spotify_refresh_token"].encode()).decode()
+            access_token = await _refresh_spotify_token(user_id, refresh_token, f)
+
+    return access_token
+
+
+async def _refresh_spotify_token(user_id: str, refresh_token: str, f: Fernet) -> str:
+    client_id = os.environ.get("PLATFORM_SPOTIFY_CLIENT_ID", "")
+    client_secret = os.environ.get("PLATFORM_SPOTIFY_CLIENT_SECRET", "")
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            "https://accounts.spotify.com/api/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
+            },
+        )
+        r.raise_for_status()
+        data = r.json()
+
+    new_access = data["access_token"]
+    new_enc = f.encrypt(new_access.encode()).decode()
+
+    import datetime
+    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=data.get("expires_in", 3600))
+    pool = await get_pool()
+    await pool.execute(
+        "UPDATE users SET spotify_access_token = $1, spotify_token_expires_at = $2 WHERE id = $3",
+        new_enc, expires_at, user_id,
+    )
+    return new_access
+
+
+def _map_spotify_track(item: dict) -> dict:
+    """Map a Spotify playlist track item to our tracks schema."""
+    track = item.get("track") or {}
+    artists_list = track.get("artists") or []
+    primary_artist = artists_list[0]["name"] if artists_list else ""
+    all_artists = "|".join(a["name"] for a in artists_list)
+    album = (track.get("album") or {})
+    release_date = album.get("release_date", "")
+    year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
+
+    t = {
+        "title": track.get("name"),
+        "artist": primary_artist,
+        "artists": all_artists,
+        "album": album.get("name"),
+        "year": year,
+        "release_date": release_date,
+        "duration_ms": track.get("duration_ms"),
+        "isrc": (track.get("external_ids") or {}).get("isrc"),
+        "spotify_uri": track.get("uri"),
+        "popularity": track.get("popularity"),
+        "explicit": track.get("explicit", False),
+        "added_by": (item.get("added_by") or {}).get("id"),
+        "added_at": item.get("added_at"),
+    }
+    t["search_string"] = build_search_string(t)
+    return t
+
+
+async def _insert_tracks_and_create_jobs(
+    conn, user_id: str, tracks: list[dict], source: str
+) -> tuple[int, int, int]:
+    """Insert tracks (ON CONFLICT DO NOTHING) and create download jobs.
+
+    Returns (inserted, skipped_duplicates, jobs_created).
+    """
+    inserted = 0
+    skipped = 0
+    jobs_created = 0
+
+    for t in tracks:
+        result = await conn.fetchval(
+            """
+            INSERT INTO tracks (
+                user_id, acquisition_status, source,
+                title, artist, artists, album, year, release_date,
+                duration_ms, isrc, genres, spotify_uri, popularity,
+                explicit, added_by, added_at, search_string
+            ) VALUES (
+                $1, 'candidate', $2,
+                $3, $4, $5, $6, $7, $8,
+                $9, $10, $11, $12, $13,
+                $14, $15, $16, $17
+            )
+            ON CONFLICT (user_id, spotify_uri) DO NOTHING
+            RETURNING id
+            """,
+            user_id, source,
+            t.get("title"), t.get("artist"), t.get("artists"),
+            t.get("album"), t.get("year"), t.get("release_date"),
+            t.get("duration_ms"), t.get("isrc"), t.get("genres"),
+            t.get("spotify_uri"), t.get("popularity"),
+            t.get("explicit", False), t.get("added_by"), t.get("added_at"),
+            t.get("search_string"),
+        )
+        if result is None:
+            skipped += 1
+        else:
+            inserted += 1
+            # Create download job for this new candidate
+            await conn.execute(
+                """
+                INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
+                VALUES ($1, $2, 'download', $3)
+                """,
+                user_id, result,
+                json.dumps({
+                    "track_id": result,
+                    "search_string": t.get("search_string", ""),
+                    "artist": t.get("artist", ""),
+                    "title": t.get("title", ""),
+                    "duration_ms": t.get("duration_ms", 0),
+                }),
+            )
+            jobs_created += 1
+
+    return inserted, skipped, jobs_created
+
+
+# ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.get("/tracks", response_model=TrackListResponse)
+async def list_tracks(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    search: Optional[str] = Query(None),
+    user: CurrentUser = Depends(get_current_user),
+):
+    pool = await get_pool()
+    offset = (page - 1) * per_page
+
+    conditions = ["user_id = $1"]
+    args: list = [user.user_id]
+
+    if status_filter:
+        args.append(status_filter)
+        conditions.append(f"acquisition_status = ${len(args)}")
+
+    if search:
+        args.append(f"%{search}%")
+        conditions.append(f"(title ILIKE ${len(args)} OR artist ILIKE ${len(args)})")
+
+    where = " AND ".join(conditions)
+
+    total = await pool.fetchval(f"SELECT COUNT(*) FROM tracks WHERE {where}", *args)
+
+    args_page = args + [per_page, offset]
+    rows = await pool.fetch(
+        f"SELECT * FROM tracks WHERE {where} ORDER BY created_at DESC LIMIT ${len(args_page)-1} OFFSET ${len(args_page)}",
+        *args_page,
+    )
+
+    return TrackListResponse(
+        tracks=[_row_to_track(r) for r in rows],
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@router.get("/tracks/{track_id}", response_model=TrackOut)
+async def get_track(
+    track_id: int,
+    user: CurrentUser = Depends(get_current_user),
+):
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT * FROM tracks WHERE id = $1 AND user_id = $2",
+        track_id, user.user_id,
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Track not found")
+    return _row_to_track(row)
+
+
+@router.get("/stats", response_model=CatalogStats)
+async def catalog_stats(user: CurrentUser = Depends(get_current_user)):
+    pool = await get_pool()
+
+    status_rows = await pool.fetch(
+        "SELECT acquisition_status, COUNT(*) AS n FROM tracks WHERE user_id = $1 GROUP BY acquisition_status",
+        user.user_id,
+    )
+    flag_row = await pool.fetchrow(
+        """
+        SELECT
+            COUNT(*) FILTER (WHERE fingerprinted)    AS fingerprinted,
+            COUNT(*) FILTER (WHERE enriched_spotify) AS enriched_spotify,
+            COUNT(*) FILTER (WHERE enriched_audio)   AS enriched_audio,
+            COUNT(*) FILTER (WHERE metadata_written) AS metadata_written,
+            COUNT(*) FILTER (WHERE cover_art_written) AS cover_art_written,
+            COUNT(*) FILTER (WHERE in_library)       AS in_library,
+            COUNT(*)                                  AS total
+        FROM tracks WHERE user_id = $1
+        """,
+        user.user_id,
+    )
+
+    return CatalogStats(
+        total=flag_row["total"] if flag_row else 0,
+        by_status={r["acquisition_status"]: r["n"] for r in status_rows},
+        flags={
+            k: flag_row[k] if flag_row else 0
+            for k in ("fingerprinted", "enriched_spotify", "enriched_audio",
+                      "metadata_written", "cover_art_written", "in_library")
+        },
+    )
+
+
+@router.post("/import/csv", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+async def import_csv(
+    file: UploadFile = File(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    if file.content_type not in ("text/csv", "application/csv", "text/plain", "application/octet-stream"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="File must be a CSV",
+        )
+
+    raw = await file.read()
+    if len(raw) > _MAX_CSV_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="CSV must be under 10 MB",
+        )
+
+    try:
+        tracks = parse_csv_rows(raw)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Could not parse CSV: {exc}",
+        )
+
+    pool = await get_pool()
+    async with rls_transaction(pool, user.user_id) as conn:
+        inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
+            conn, user.user_id, tracks, "exportify"
+        )
+
+    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
+
+
+class SpotifyImportRequest(BaseModel):
+    playlist_id: str
+
+
+@router.post("/import/spotify", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+async def import_spotify(
+    body: SpotifyImportRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    access_token = await _get_spotify_token(user.user_id)
+
+    # Paginate through the full playlist
+    tracks: list[dict] = []
+    url = f"https://api.spotify.com/v1/playlists/{body.playlist_id}/tracks"
+    params = {"limit": 100, "fields": "items(added_by,added_at,track),next"}
+
+    async with httpx.AsyncClient() as client:
+        while url:
+            r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
+            if r.status_code == 401:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spotify token expired")
+            r.raise_for_status()
+            data = r.json()
+            for item in data.get("items", []):
+                if item.get("track") and item["track"].get("uri"):
+                    tracks.append(_map_spotify_track(item))
+            url = data.get("next")
+            params = {}  # next URL already has params
+
+    pool = await get_pool()
+    async with rls_transaction(pool, user.user_id) as conn:
+        inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
+            conn, user.user_id, tracks, "spotify"
+        )
+
+    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
+
+
+@router.get("/import/spotify/playlists", response_model=list[SpotifyPlaylist])
+async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
+    access_token = await _get_spotify_token(user.user_id)
+
+    playlists: list[SpotifyPlaylist] = []
+    url = "https://api.spotify.com/v1/me/playlists"
+    params = {"limit": 50}
+
+    async with httpx.AsyncClient() as client:
+        while url:
+            r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
+            r.raise_for_status()
+            data = r.json()
+            for p in data.get("items", []):
+                playlists.append(SpotifyPlaylist(
+                    id=p["id"],
+                    name=p["name"],
+                    track_count=p["tracks"]["total"],
+                ))
+            url = data.get("next")
+            params = {}
+
+    return playlists
+
+
+@router.post("/tracks/{track_id}/reset", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_track(
+    track_id: int,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Reset a failed track back to candidate so it can be retried."""
+    pool = await get_pool()
+    result = await pool.execute(
+        """
+        UPDATE tracks
+        SET acquisition_status = 'candidate', updated_at = NOW()
+        WHERE id = $1 AND user_id = $2 AND acquisition_status = 'failed'
+        """,
+        track_id, user.user_id,
+    )
+    if int(result.split()[-1]) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Track not found or not in failed state",
+        )
+    # Create a new download job for the reset track
+    row = await pool.fetchrow("SELECT * FROM tracks WHERE id = $1", track_id)
+    if row:
+        await pool.execute(
+            """
+            INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
+            VALUES ($1, $2, 'download', $3)
+            """,
+            user.user_id, track_id,
+            json.dumps({
+                "track_id": track_id,
+                "search_string": row["search_string"] or "",
+                "artist": row["artist"] or "",
+                "title": row["title"] or "",
+                "duration_ms": row["duration_ms"] or 0,
+            }),
+        )

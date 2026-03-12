@@ -1,0 +1,342 @@
+"""Tests for djtoolkit/api/catalog_routes.py.
+
+Unit tests (no DB needed):
+  - parse_csv_rows correctly maps Exportify CSV bytes to track dicts
+  - Missing Authorization returns 422
+  - Invalid token returns 401
+
+Integration tests (require SUPABASE_DATABASE_URL + SUPABASE_JWT_SECRET):
+  - GET /catalog/stats returns zeros for a fresh user
+  - GET /catalog/tracks returns empty list for a fresh user
+  - POST /catalog/import/csv inserts tracks and creates download jobs
+  - GET /catalog/tracks returns inserted tracks, paginated, filterable
+  - POST /catalog/tracks/{id}/reset resets a failed track back to candidate
+  - Tenant isolation: user A cannot see user B's tracks
+
+Run manually:
+    SUPABASE_DATABASE_URL="..." SUPABASE_JWT_SECRET="..." poetry run pytest tests/test_catalog_routes.py -v
+"""
+
+from __future__ import annotations
+
+import io
+import os
+import time
+import uuid
+
+import asyncpg
+import httpx
+import pytest
+import pytest_asyncio
+from jose import jwt
+
+from djtoolkit.api.app import app
+from djtoolkit.importers.exportify import parse_csv_rows
+
+
+# ─── Skip markers ─────────────────────────────────────────────────────────────
+
+_needs_db = pytest.mark.skipif(
+    not (os.environ.get("SUPABASE_DATABASE_URL") and os.environ.get("SUPABASE_JWT_SECRET")),
+    reason="SUPABASE_DATABASE_URL or SUPABASE_JWT_SECRET not set",
+)
+
+_needs_jwt = pytest.mark.skipif(
+    not os.environ.get("SUPABASE_JWT_SECRET"),
+    reason="SUPABASE_JWT_SECRET not set",
+)
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def _make_jwt(user_id: str) -> str:
+    secret = os.environ.get("SUPABASE_JWT_SECRET", "test-secret")
+    now = int(time.time())
+    return jwt.encode({"sub": user_id, "iat": now, "exp": now + 3600}, secret, algorithm="HS256")
+
+
+def _async_client():
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    )
+
+
+_MINIMAL_CSV = b"""Track URI,Track Name,Artist Name(s),Album Name,Release Date,Duration (ms),Popularity,Added By,Added At,Genres,Record Label,Danceability,Energy,Key,Loudness,Mode,Speechiness,Acousticness,Instrumentalness,Liveness,Valence,Tempo,Time Signature,Explicit
+spotify:track:aaa111,Test Track One,Artist A,Album One,2022-01-01,210000,70,user1,2022-01-10,,,,,,,,,,,,,,,False
+spotify:track:bbb222,Test Track Two,Artist B,Album Two,2023-06-15,185000,55,user1,2023-06-20,,,,,,,,,,,,,,,False
+"""
+
+
+# ─── Unit tests: parse_csv_rows ───────────────────────────────────────────────
+
+def test_parse_csv_rows_returns_list():
+    rows = parse_csv_rows(_MINIMAL_CSV)
+    assert len(rows) == 2
+
+
+def test_parse_csv_rows_fields():
+    rows = parse_csv_rows(_MINIMAL_CSV)
+    t = rows[0]
+    assert t["title"] == "Test Track One"
+    assert t["artist"] == "Artist A"
+    assert t["spotify_uri"] == "spotify:track:aaa111"
+    assert t["duration_ms"] == 210000
+    assert t["year"] == 2022
+
+
+def test_parse_csv_rows_search_string_set():
+    rows = parse_csv_rows(_MINIMAL_CSV)
+    assert rows[0]["search_string"]  # non-empty
+
+
+def test_parse_csv_rows_skips_rows_without_uri():
+    no_uri_csv = b"Track URI,Track Name,Artist Name(s)\n,Missing URI Track,Artist X\n"
+    rows = parse_csv_rows(no_uri_csv)
+    assert rows == []
+
+
+def test_parse_csv_rows_utf8_bom():
+    """BOM-prefixed CSV (common Windows export) should parse without errors."""
+    bom_csv = b"\xef\xbb\xbf" + _MINIMAL_CSV
+    rows = parse_csv_rows(bom_csv)
+    assert len(rows) == 2
+
+
+# ─── Unit tests: auth guards ──────────────────────────────────────────────────
+
+@_needs_jwt
+@pytest.mark.asyncio
+async def test_catalog_tracks_no_auth():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/catalog/tracks")
+    assert resp.status_code == 422  # missing required header
+
+
+@_needs_jwt
+@pytest.mark.asyncio
+async def test_catalog_tracks_invalid_token():
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/catalog/tracks", headers={"Authorization": "Bearer not.a.valid.token"})
+    # 401 from JWT decode failure, or 500/503 if no DB — but NOT 200/422
+    assert resp.status_code in (401, 500, 503)
+
+
+# ─── Integration tests ────────────────────────────────────────────────────────
+
+@pytest_asyncio.fixture
+async def db_user():
+    """Create a fresh user row and yield (user_id, jwt_token). Cleans up after test."""
+    user_id = str(uuid.uuid4())
+    token = _make_jwt(user_id)
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    await conn.execute(
+        "INSERT INTO users (id, email) VALUES ($1, $2)",
+        user_id, f"test-catalog-{user_id}@djtoolkit.test",
+    )
+    yield user_id, token
+    await conn.execute("DELETE FROM users WHERE id = $1", user_id)
+    await conn.close()
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_stats_empty_user(db_user):
+    user_id, token = db_user
+    async with _async_client() as client:
+        resp = await client.get("/api/catalog/stats", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 0
+    assert data["by_status"] == {}
+    assert data["flags"]["in_library"] == 0
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_tracks_empty_user(db_user):
+    user_id, token = db_user
+    async with _async_client() as client:
+        resp = await client.get("/api/catalog/tracks", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 0
+    assert data["tracks"] == []
+    assert data["page"] == 1
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_import_csv_inserts_tracks_and_jobs(db_user):
+    user_id, token = db_user
+    async with _async_client() as client:
+        resp = await client.post(
+            "/api/catalog/import/csv",
+            files={"file": ("test.csv", io.BytesIO(_MINIMAL_CSV), "text/csv")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["imported"] == 2
+    assert data["skipped_duplicates"] == 0
+    assert data["jobs_created"] == 2
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_import_csv_idempotent(db_user):
+    """Uploading the same CSV twice skips the duplicates on the second upload."""
+    user_id, token = db_user
+    async with _async_client() as client:
+        for i in range(2):
+            resp = await client.post(
+                "/api/catalog/import/csv",
+                files={"file": ("test.csv", io.BytesIO(_MINIMAL_CSV), "text/csv")},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            assert resp.status_code == 201, resp.text
+
+    data = resp.json()
+    assert data["imported"] == 0
+    assert data["skipped_duplicates"] == 2
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_tracks_after_import(db_user):
+    user_id, token = db_user
+    async with _async_client() as client:
+        await client.post(
+            "/api/catalog/import/csv",
+            files={"file": ("test.csv", io.BytesIO(_MINIMAL_CSV), "text/csv")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp = await client.get("/api/catalog/tracks", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    titles = {t["title"] for t in data["tracks"]}
+    assert "Test Track One" in titles
+    assert "Test Track Two" in titles
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_tracks_status_filter(db_user):
+    user_id, token = db_user
+    async with _async_client() as client:
+        await client.post(
+            "/api/catalog/import/csv",
+            files={"file": ("test.csv", io.BytesIO(_MINIMAL_CSV), "text/csv")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        resp = await client.get(
+            "/api/catalog/tracks?status=candidate",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["total"] == 2
+    assert all(t["acquisition_status"] == "candidate" for t in data["tracks"])
+
+    # Filter for a status that has no tracks
+    async with _async_client() as client:
+        resp = await client.get(
+            "/api/catalog/tracks?status=available",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.json()["total"] == 0
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_get_single_track(db_user):
+    user_id, token = db_user
+    async with _async_client() as client:
+        await client.post(
+            "/api/catalog/import/csv",
+            files={"file": ("test.csv", io.BytesIO(_MINIMAL_CSV), "text/csv")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        list_resp = await client.get("/api/catalog/tracks", headers={"Authorization": f"Bearer {token}"})
+        track_id = list_resp.json()["tracks"][0]["id"]
+
+        resp = await client.get(f"/api/catalog/tracks/{track_id}", headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["id"] == track_id
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_reset_failed_track(db_user):
+    user_id, token = db_user
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    try:
+        # Insert a failed track directly
+        track_id = await conn.fetchval(
+            """
+            INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+            VALUES ($1, 'failed', 'exportify', 'Failed Track', 'Artist', 'artist failed track')
+            RETURNING id
+            """,
+            user_id,
+        )
+
+        async with _async_client() as client:
+            resp = await client.post(
+                f"/api/catalog/tracks/{track_id}/reset",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 204, resp.text
+
+        # Verify status changed
+        row = await conn.fetchrow("SELECT acquisition_status FROM tracks WHERE id = $1", track_id)
+        assert row["acquisition_status"] == "candidate"
+
+        # Verify a download job was created
+        job = await conn.fetchrow(
+            "SELECT job_type FROM pipeline_jobs WHERE track_id = $1 AND status = 'pending'", track_id
+        )
+        assert job is not None
+        assert job["job_type"] == "download"
+
+    finally:
+        await conn.execute("DELETE FROM tracks WHERE id = $1", track_id)
+        await conn.close()
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_tenant_isolation(db_user):
+    """User A's tracks must not be visible to User B."""
+    from djtoolkit.db.postgres import close_pool
+
+    user_a_id, token_a = db_user
+    user_b_id = str(uuid.uuid4())
+    token_b = _make_jwt(user_b_id)
+
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    await conn.execute(
+        "INSERT INTO users (id, email) VALUES ($1, $2)",
+        user_b_id, f"test-catalog-b-{user_b_id}@djtoolkit.test",
+    )
+    try:
+        async with _async_client() as client:
+            # Import CSV for user A
+            await client.post(
+                "/api/catalog/import/csv",
+                files={"file": ("test.csv", io.BytesIO(_MINIMAL_CSV), "text/csv")},
+                headers={"Authorization": f"Bearer {token_a}"},
+            )
+            # User B should see 0 tracks
+            resp = await client.get("/api/catalog/tracks", headers={"Authorization": f"Bearer {token_b}"})
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["total"] == 0, "User B must not see User A's tracks"
+
+    finally:
+        await conn.execute("DELETE FROM users WHERE id = $1", user_b_id)
+        await conn.close()
+        await close_pool()
