@@ -96,6 +96,15 @@ class AudioAnalysisConfig:
 
 
 @dataclass
+class AgentConfig:
+    cloud_url: str = "https://api.djtoolkit.com"
+    api_key: str = ""           # env: DJTOOLKIT_AGENT_KEY
+    poll_interval_sec: float = 30.0
+    max_concurrent_jobs: int = 2
+    local_db_path: str = "~/.djtoolkit/agent.db"
+
+
+@dataclass
 class SupabaseConfig:
     """Supabase project settings.  All secrets come from env vars — see .env.example."""
 
@@ -115,6 +124,7 @@ class Config:
     cover_art: CoverArtConfig = field(default_factory=CoverArtConfig)
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
     supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
 
     @property
     def db_path(self) -> Path:
@@ -163,6 +173,7 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
             cover_art=_make(CoverArtConfig, "cover_art"),
             audio_analysis=_make(AudioAnalysisConfig, "audio_analysis"),
             supabase=_make(SupabaseConfig, "supabase"),
+            agent=_make(AgentConfig, "agent"),
         )
 
     # Env vars override TOML for secrets (env always wins)
@@ -176,5 +187,7 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
         cfg.cover_art.spotify_client_id = spotify_id
     if spotify_secret := os.environ.get("SPOTIFY_CLIENT_SECRET"):
         cfg.cover_art.spotify_client_secret = spotify_secret
+    if agent_key := os.environ.get("DJTOOLKIT_AGENT_KEY"):
+        cfg.agent.api_key = agent_key
 
     return cfg
