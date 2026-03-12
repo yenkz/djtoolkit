@@ -32,8 +32,9 @@ from djtoolkit.db.postgres import close_pool, get_pool, rls_transaction  # noqa:
 
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture
 async def pool():
+    """Fresh pool per test; closed on teardown to reset the singleton."""
     p = await get_pool()
     yield p
     await close_pool()
@@ -44,17 +45,16 @@ async def two_users(pool):
     """Insert two test users, yield their UUIDs, then clean up."""
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
-    email_a = f"test-{user_a}@djtoolkit.test"
-    email_b = f"test-{user_b}@djtoolkit.test"
 
-    # service_role connection bypasses RLS — insert directly
     await pool.execute(
         "INSERT INTO users (id, email) VALUES ($1, $2), ($3, $4)",
-        user_a, email_a, user_b, email_b,
+        user_a, f"test-{user_a}@djtoolkit.test",
+        user_b, f"test-{user_b}@djtoolkit.test",
     )
 
     yield user_a, user_b
 
+    # cleanup — cascade deletes tracks and other rows via FK
     await pool.execute(
         "DELETE FROM users WHERE id = ANY($1::uuid[])",
         [user_a, user_b],
@@ -71,11 +71,10 @@ async def test_get_pool_returns_pool(pool):
 
 
 @pytest.mark.asyncio
-async def test_get_pool_singleton():
-    """Calling get_pool() twice returns the same pool object."""
-    p1 = await get_pool()
+async def test_get_pool_singleton(pool):
+    """Calling get_pool() again returns the same pool object (global singleton)."""
     p2 = await get_pool()
-    assert p1 is p2
+    assert pool is p2
 
 
 @pytest.mark.asyncio

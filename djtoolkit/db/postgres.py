@@ -70,7 +70,11 @@ async def rls_transaction(
     """
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # true = transaction-local (cleared on COMMIT/ROLLBACK)
+            # Drop to authenticated role so RLS policies fire.
+            # The pool connects as postgres (superuser) which bypasses RLS;
+            # SET LOCAL ROLE reverts automatically at transaction end.
+            await conn.execute("SET LOCAL ROLE authenticated")
+            # Set the custom GUC that isolation policies filter on.
             await conn.execute(
                 "SELECT set_config('app.current_user_id', $1, true)",
                 str(user_id),
