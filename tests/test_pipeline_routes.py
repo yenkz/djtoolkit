@@ -78,6 +78,21 @@ def test_recover_stale_jobs_importable():
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture
+async def db_user():
+    """Create a fresh user row and yield (user_id, jwt_token). Cleans up after test."""
+    user_id = str(uuid.uuid4())
+    token = _make_jwt(user_id)
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    await conn.execute(
+        "INSERT INTO users (id, email) VALUES ($1, $2)",
+        user_id, f"test-pipeline-{user_id}@djtoolkit.test",
+    )
+    yield user_id, token
+    await conn.execute("DELETE FROM users WHERE id = $1", user_id)
+    await conn.close()
+
+
+@pytest_asyncio.fixture
 async def db_user_with_agent():
     """Create a user + registered agent. Yields (user_id, jwt_token, agent_id, api_key)."""
     from djtoolkit.api.auth import create_agent_key
@@ -308,3 +323,33 @@ async def test_recover_stale_jobs_resets_old_claims(db_user_with_agent):
     finally:
         await conn.execute("DELETE FROM tracks WHERE id = $1", track_id)
         await conn.close()
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_bulk_create_jobs(db_user):
+    """POST /pipeline/jobs/bulk creates one job per track_id."""
+    user_id, token = db_user
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+
+    t1 = await conn.fetchval(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+           VALUES ($1, 'candidate', 'spotify', 'Track One', 'Artist', '')
+           RETURNING id""", user_id
+    )
+    t2 = await conn.fetchval(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+           VALUES ($1, 'candidate', 'spotify', 'Track Two', 'Artist', '')
+           RETURNING id""", user_id
+    )
+    await conn.close()
+
+    async with _async_client() as c:
+        r = await c.post(
+            "/api/pipeline/jobs/bulk",
+            json={"track_ids": [t1, t2]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["created"] == 2
