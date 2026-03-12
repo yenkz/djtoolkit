@@ -12,10 +12,12 @@ db_app = typer.Typer(help="Database management commands")
 import_app = typer.Typer(help="Import tracks into the database")
 metadata_app = typer.Typer(help="Metadata commands")
 coverart_app = typer.Typer(help="Cover art commands")
+agent_app = typer.Typer(help="Local agent commands")
 app.add_typer(db_app, name="db")
 app.add_typer(import_app, name="import")
 app.add_typer(metadata_app, name="metadata")
 app.add_typer(coverart_app, name="coverart")
+app.add_typer(agent_app, name="agent")
 
 console = Console()
 
@@ -413,6 +415,78 @@ def coverart_list(
             row["cover_art_embedded_at"] or "—",
         )
     console.print(t)
+
+
+# ─── agent commands ───────────────────────────────────────────────────────────
+
+@agent_app.command("configure")
+def agent_configure(
+    cloud_url: Annotated[str, typer.Option("--cloud-url", help="Cloud API base URL")] = "https://api.djtoolkit.com",
+    api_key: Annotated[str, typer.Option("--api-key", help="Agent API key (djt_xxx)")] = "",
+    config: ConfigOpt = "djtoolkit.toml",
+):
+    """Write [agent] section to djtoolkit.toml."""
+    import tomllib
+    from pathlib import Path as _Path
+
+    cfg_path = _Path(config)
+    data: dict = {}
+    if cfg_path.exists():
+        with open(cfg_path, "rb") as f:
+            data = tomllib.load(f)
+
+    data.setdefault("agent", {})
+    data["agent"]["cloud_url"] = cloud_url
+    if api_key:
+        data["agent"]["api_key"] = api_key
+
+    # Write back as TOML (simple serialiser — sufficient for string/float/int/bool values)
+    def _toml_val(v):
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, str):
+            return f'"{v}"'
+        return str(v)
+
+    lines: list[str] = []
+    for section, vals in data.items():
+        if not isinstance(vals, dict):
+            continue
+        lines.append(f"\n[{section}]")
+        for k, v in vals.items():
+            lines.append(f"{k} = {_toml_val(v)}")
+
+    cfg_path.write_text("\n".join(lines).lstrip() + "\n")
+    console.print(f"[green]✓[/green] Wrote [bold]{config}[/bold]")
+    console.print(f"  cloud_url = {cloud_url}")
+    if api_key:
+        console.print(f"  api_key   = {api_key[:8]}…")
+
+
+@agent_app.command("start")
+def agent_start(config: ConfigOpt = "djtoolkit.toml"):
+    """Start the local agent polling loop."""
+    import asyncio
+    import logging
+    from rich.logging import RichHandler
+    from djtoolkit.agent.runner import run_agent
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_path=False, show_time=False)],
+    )
+
+    cfg = _cfg(config)
+    if not cfg.agent.api_key:
+        console.print("[red]No agent API key configured.[/red] Run [bold]djtoolkit agent configure --api-key djt_xxx[/bold] first.")
+        raise typer.Exit(1)
+
+    console.print(f"Starting agent → {cfg.agent.cloud_url}")
+    try:
+        asyncio.run(run_agent(cfg))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Agent stopped.[/yellow]")
 
 
 if __name__ == "__main__":
