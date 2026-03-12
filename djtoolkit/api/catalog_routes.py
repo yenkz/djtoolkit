@@ -217,7 +217,7 @@ def _map_spotify_track(item: dict) -> dict:
         "added_by": (item.get("added_by") or {}).get("id"),
         "added_at": item.get("added_at"),
     }
-    t["search_string"] = build_search_string(t)
+    t["search_string"] = build_search_string(t.get("artist", ""), t.get("title", ""))
     return t
 
 
