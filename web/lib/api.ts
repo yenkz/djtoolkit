@@ -54,6 +54,7 @@ export interface Track {
   local_path?: string;
   year?: number;
   genres?: string;
+  already_owned?: boolean;
 }
 
 export interface CatalogStats {
@@ -170,4 +171,53 @@ export async function registerAgent(
 
 export async function deleteAgent(id: string): Promise<void> {
   await apiClient(`/agents/${id}`, { method: "DELETE" });
+}
+
+// ─── Onboarding API functions ─────────────────────────────────────────────────
+
+export async function importSpotifyPlaylistNoJobs(
+  playlistId: string
+): Promise<ImportResult> {
+  const res = await apiClient(
+    `/catalog/import/spotify?queue_jobs=false`,
+    { method: "POST", body: JSON.stringify({ playlist_id: playlistId }) }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function importCsvNoJobs(file: File): Promise<ImportResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiClientForm(
+    `/catalog/import/csv?queue_jobs=false`,
+    form
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function bulkCreateJobs(trackIds: number[]): Promise<{ created: number }> {
+  const res = await apiClient("/pipeline/jobs/bulk", {
+    method: "POST",
+    body: JSON.stringify({ track_ids: trackIds }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function bulkDeleteTracks(trackIds: number[]): Promise<{ deleted: number }> {
+  const res = await apiClient("/catalog/tracks/bulk", {
+    method: "DELETE",
+    body: JSON.stringify({ track_ids: trackIds }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function fetchCandidateTracks(): Promise<Track[]> {
+  const res = await apiClient("/catalog/tracks?status=candidate&per_page=1000");
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.tracks as Track[];
 }

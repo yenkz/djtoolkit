@@ -95,6 +95,14 @@ class PipelineStatusResponse(BaseModel):
     agents: list[AgentStatus]
 
 
+class BulkJobsRequest(BaseModel):
+    track_ids: list[int]
+
+
+class BulkJobsResult(BaseModel):
+    created: int
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async def _apply_job_result(conn, job_id: str, user_id: str, job_type: str, result: dict) -> None:
@@ -236,6 +244,55 @@ def start_background_tasks(app) -> None:
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.post("/jobs/bulk", response_model=BulkJobsResult, status_code=status.HTTP_201_CREATED)
+async def bulk_create_jobs(
+    body: BulkJobsRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Create one download job per track_id. Skips tracks the user doesn't own,
+    non-candidate tracks, and tracks that already have a pending/running job."""
+    if not body.track_ids:
+        return BulkJobsResult(created=0)
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        created = 0
+        for track_id in body.track_ids:
+            track = await conn.fetchrow(
+                """SELECT id, title, artist, search_string, duration_ms
+                   FROM tracks
+                   WHERE id = $1 AND user_id = $2 AND acquisition_status = 'candidate'""",
+                track_id, user.user_id,
+            )
+            if track is None:
+                continue  # not found or not owned — skip silently
+
+            existing = await conn.fetchval(
+                """SELECT id FROM pipeline_jobs
+                   WHERE track_id = $1 AND status IN ('pending', 'claimed', 'running')
+                   LIMIT 1""",
+                track_id,
+            )
+            if existing:
+                continue
+
+            await conn.execute(
+                """INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
+                   VALUES ($1, $2, 'download', $3)""",
+                user.user_id, track_id,
+                json.dumps({
+                    "track_id": track_id,
+                    "search_string": track["search_string"] or "",
+                    "artist": track["artist"] or "",
+                    "title": track["title"] or "",
+                    "duration_ms": track["duration_ms"] or 0,
+                }),
+            )
+            created += 1
+
+    return BulkJobsResult(created=created)
+
 
 @router.get("/jobs", response_model=list[JobOut])
 async def fetch_jobs(

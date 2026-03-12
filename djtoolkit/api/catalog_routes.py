@@ -56,6 +56,7 @@ class TrackOut(BaseModel):
     cover_art_written: bool
     in_library: bool
     metadata_source: Optional[str]
+    already_owned: bool = False
     created_at: str
     updated_at: str
 
@@ -85,6 +86,14 @@ class SpotifyPlaylist(BaseModel):
     track_count: int
 
 
+class BulkTrackIdsRequest(BaseModel):
+    track_ids: list[int]
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _row_to_track(r) -> TrackOut:
@@ -108,6 +117,7 @@ def _row_to_track(r) -> TrackOut:
         cover_art_written=bool(r["cover_art_written"]),
         in_library=bool(r["in_library"]),
         metadata_source=r["metadata_source"],
+        already_owned=bool(r.get("already_owned", False)),
         created_at=r["created_at"].isoformat(),
         updated_at=r["updated_at"].isoformat(),
     )
@@ -212,11 +222,12 @@ def _map_spotify_track(item: dict) -> dict:
 
 
 async def _insert_tracks_and_create_jobs(
-    conn, user_id: str, tracks: list[dict], source: str
+    conn, user_id: str, tracks: list[dict], source: str, *, queue_jobs: bool = True
 ) -> tuple[int, int, int]:
-    """Insert tracks (ON CONFLICT DO NOTHING) and create download jobs.
+    """Insert tracks (ON CONFLICT DO NOTHING) and optionally create download jobs.
 
     Returns (inserted, skipped_duplicates, jobs_created).
+    When queue_jobs=False, tracks are inserted but no pipeline_jobs rows are created.
     """
     inserted = 0
     skipped = 0
@@ -251,22 +262,23 @@ async def _insert_tracks_and_create_jobs(
             skipped += 1
         else:
             inserted += 1
-            # Create download job for this new candidate
-            await conn.execute(
-                """
-                INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
-                VALUES ($1, $2, 'download', $3)
-                """,
-                user_id, result,
-                json.dumps({
-                    "track_id": result,
-                    "search_string": t.get("search_string", ""),
-                    "artist": t.get("artist", ""),
-                    "title": t.get("title", ""),
-                    "duration_ms": t.get("duration_ms", 0),
-                }),
-            )
-            jobs_created += 1
+            if queue_jobs:
+                # Create download job for this new candidate
+                await conn.execute(
+                    """
+                    INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
+                    VALUES ($1, $2, 'download', $3)
+                    """,
+                    user_id, result,
+                    json.dumps({
+                        "track_id": result,
+                        "search_string": t.get("search_string", ""),
+                        "artist": t.get("artist", ""),
+                        "title": t.get("title", ""),
+                        "duration_ms": t.get("duration_ms", 0),
+                    }),
+                )
+                jobs_created += 1
 
     return inserted, skipped, jobs_created
 
@@ -276,7 +288,7 @@ async def _insert_tracks_and_create_jobs(
 @router.get("/tracks", response_model=TrackListResponse)
 async def list_tracks(
     page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=200),
+    per_page: int = Query(50, ge=1, le=1000),
     status_filter: Optional[str] = Query(None, alias="status"),
     search: Optional[str] = Query(None),
     user: CurrentUser = Depends(get_current_user),
@@ -301,7 +313,23 @@ async def list_tracks(
 
     args_page = args + [per_page, offset]
     rows = await pool.fetch(
-        f"SELECT * FROM tracks WHERE {where} ORDER BY created_at DESC LIMIT ${len(args_page)-1} OFFSET ${len(args_page)}",
+        f"""
+        SELECT t.*,
+               (owned.id IS NOT NULL) AS already_owned
+        FROM tracks t
+        LEFT JOIN LATERAL (
+            SELECT id FROM tracks o
+            WHERE o.user_id = t.user_id
+              AND o.spotify_uri IS NOT NULL
+              AND o.spotify_uri = t.spotify_uri
+              AND o.acquisition_status = 'available'
+              AND o.id != t.id
+            LIMIT 1
+        ) owned ON TRUE
+        WHERE {where}
+        ORDER BY t.created_at DESC
+        LIMIT ${len(args_page)-1} OFFSET ${len(args_page)}
+        """,
         *args_page,
     )
 
@@ -365,6 +393,7 @@ async def catalog_stats(user: CurrentUser = Depends(get_current_user)):
 @router.post("/import/csv", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
 async def import_csv(
     file: UploadFile = File(...),
+    queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
 ):
     if file.content_type not in ("text/csv", "application/csv", "text/plain", "application/octet-stream"):
@@ -391,7 +420,7 @@ async def import_csv(
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
         inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
-            conn, user.user_id, tracks, "exportify"
+            conn, user.user_id, tracks, "exportify", queue_jobs=queue_jobs
         )
 
     return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
@@ -404,6 +433,7 @@ class SpotifyImportRequest(BaseModel):
 @router.post("/import/spotify", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
 async def import_spotify(
     body: SpotifyImportRequest,
+    queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
 ):
     access_token = await _get_spotify_token(user.user_id)
@@ -429,7 +459,7 @@ async def import_spotify(
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
         inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
-            conn, user.user_id, tracks, "spotify"
+            conn, user.user_id, tracks, "spotify", queue_jobs=queue_jobs
         )
 
     return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
@@ -458,6 +488,33 @@ async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
             params = {}
 
     return playlists
+
+
+@router.delete("/tracks/bulk", response_model=BulkDeleteResult)
+async def bulk_delete_tracks(
+    body: BulkTrackIdsRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Delete candidate tracks the user chose not to download.
+
+    Only deletes tracks with acquisition_status='candidate' owned by the requesting user.
+    Available/downloading/failed tracks are silently ignored.
+    """
+    if not body.track_ids:
+        return BulkDeleteResult(deleted=0)
+
+    pool = await get_pool()
+    async with rls_transaction(pool, user.user_id) as conn:
+        result = await conn.execute(
+            """DELETE FROM tracks
+               WHERE id = ANY($1::bigint[])
+                 AND user_id = $2
+                 AND acquisition_status = 'candidate'""",
+            body.track_ids, user.user_id,
+        )
+    # asyncpg returns "DELETE N" as the command tag
+    deleted = int(result.split()[-1])
+    return BulkDeleteResult(deleted=deleted)
 
 
 @router.post("/tracks/{track_id}/reset", status_code=status.HTTP_204_NO_CONTENT)

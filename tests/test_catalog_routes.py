@@ -309,6 +309,175 @@ async def test_reset_failed_track(db_user):
 
 @_needs_db
 @pytest.mark.asyncio
+async def test_import_csv_queue_jobs_false(db_user):
+    """POST /catalog/import/csv?queue_jobs=false inserts tracks but no pipeline_jobs."""
+    user_id, token = db_user
+    csv_bytes = _MINIMAL_CSV
+    async with _async_client() as c:
+        r = await c.post(
+            "/api/catalog/import/csv?queue_jobs=false",
+            files={"file": ("test.csv", io.BytesIO(csv_bytes), "text/csv")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["imported"] > 0
+    assert data["jobs_created"] == 0
+
+    # Verify no pipeline_jobs were created
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    count = await conn.fetchval(
+        "SELECT count(*) FROM pipeline_jobs WHERE user_id = $1", user_id
+    )
+    await conn.close()
+    assert count == 0
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_import_spotify_queue_jobs_false_skips_jobs(db_user, monkeypatch):
+    """POST /catalog/import/spotify?queue_jobs=false creates no pipeline_jobs."""
+    from djtoolkit.api import catalog_routes
+
+    async def _fake_token(user_id):
+        return "fake-token"
+
+    monkeypatch.setattr(
+        catalog_routes, "_get_spotify_token",
+        _fake_token
+    )
+
+    import respx, httpx as _httpx
+    with respx.mock:
+        respx.get("https://api.spotify.com/v1/playlists/test123/tracks").mock(
+            return_value=_httpx.Response(200, json={
+                "items": [{
+                    "added_by": {"id": "user"},
+                    "added_at": "2024-01-01T00:00:00Z",
+                    "track": {
+                        "uri": "spotify:track:abc123",
+                        "name": "Test Track",
+                        "duration_ms": 240000,
+                        "artists": [{"name": "Test Artist"}],
+                        "album": {"name": "Test Album", "release_date": "2024"},
+                        "explicit": False,
+                        "popularity": 50,
+                        "external_ids": {},
+                    }
+                }],
+                "next": None,
+            })
+        )
+        user_id, token = db_user
+        async with _async_client() as c:
+            r = await c.post(
+                "/api/catalog/import/spotify?queue_jobs=false",
+                json={"playlist_id": "test123"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert r.status_code == 201
+    assert r.json()["imported"] == 1
+    assert r.json()["jobs_created"] == 0
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_list_tracks_already_owned_flag(db_user):
+    """Verify already_owned logic and no self-match bug.
+
+    The tracks table has a global UNIQUE constraint on spotify_uri, so we cannot
+    insert two rows with the same URI.  We therefore test:
+
+    1. SELF-MATCH PREVENTION: an available track must NOT report already_owned=true
+       for itself.  Without the ``AND o.id != t.id`` guard in the LATERAL subquery
+       it would, because the subquery would match the row against itself.
+
+    2. NEGATIVE CASE: a candidate track whose spotify_uri has no available
+       counterpart must report already_owned=false.
+    """
+    user_id, token = db_user
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+
+    uri_available = f"spotify:track:{uuid.uuid4().hex}"
+    uri_candidate = f"spotify:track:{uuid.uuid4().hex}"
+
+    await conn.execute(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist,
+                               spotify_uri, search_string)
+           VALUES ($1, 'available', 'folder', 'Owned Track', 'Artist A', $2, '')""",
+        user_id, uri_available,
+    )
+    await conn.execute(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist,
+                               spotify_uri, search_string)
+           VALUES ($1, 'candidate', 'exportify', 'Candidate Track', 'Artist B', $2, '')""",
+        user_id, uri_candidate,
+    )
+    await conn.close()
+
+    async with _async_client() as c:
+        r = await c.get(
+            "/api/catalog/tracks",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200
+    tracks = r.json()["tracks"]
+
+    # 1. Self-match prevention: the available track must NOT show already_owned=true
+    available_tracks = [t for t in tracks if t["spotify_uri"] == uri_available]
+    assert len(available_tracks) == 1, "available track should appear in listing"
+    assert available_tracks[0]["already_owned"] is False, (
+        "available track must not match itself in the already_owned LATERAL subquery"
+    )
+
+    # 2. Negative case: candidate with no available counterpart → already_owned=false
+    candidate_tracks = [t for t in tracks if t["spotify_uri"] == uri_candidate]
+    assert len(candidate_tracks) == 1, "candidate track should appear in listing"
+    assert candidate_tracks[0]["already_owned"] is False, (
+        "candidate with no available counterpart must report already_owned=false"
+    )
+
+
+@_needs_db
+@pytest.mark.asyncio
+async def test_bulk_delete_tracks_candidates_only(db_user):
+    """DELETE /catalog/tracks/bulk deletes candidates; ignores available tracks."""
+    user_id, token = db_user
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+
+    candidate_id = await conn.fetchval(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+           VALUES ($1, 'candidate', 'spotify', 'To Delete', 'Artist', '') RETURNING id""",
+        user_id,
+    )
+    available_id = await conn.fetchval(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+           VALUES ($1, 'available', 'spotify', 'Keep Me', 'Artist', '') RETURNING id""",
+        user_id,
+    )
+    await conn.close()
+
+    async with _async_client() as c:
+        r = await c.request(
+            "DELETE",
+            "/api/catalog/tracks/bulk",
+            json={"track_ids": [candidate_id, available_id]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200
+    assert r.json()["deleted"] == 1  # only the candidate
+
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    still_there = await conn.fetchval("SELECT id FROM tracks WHERE id = $1", available_id)
+    gone = await conn.fetchval("SELECT id FROM tracks WHERE id = $1", candidate_id)
+    await conn.close()
+    assert still_there is not None
+    assert gone is None
+
+
+@_needs_db
+@pytest.mark.asyncio
 async def test_tenant_isolation(db_user):
     """User A's tracks must not be visible to User B."""
     from djtoolkit.db.postgres import close_pool
