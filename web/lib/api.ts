@@ -1,0 +1,173 @@
+import { createClient } from "./supabase/client";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+async function getToken(): Promise<string | null> {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session?.access_token ?? null;
+}
+
+export async function apiClient(
+  path: string,
+  init?: RequestInit
+): Promise<Response> {
+  const token = await getToken();
+  return fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  });
+}
+
+export async function apiClientForm(
+  path: string,
+  body: FormData
+): Promise<Response> {
+  const token = await getToken();
+  return fetch(`${API_URL}${path}`, {
+    method: "POST",
+    body,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+
+// ─── Catalog ─────────────────────────────────────────────────────────────────
+
+export interface Track {
+  id: number;
+  title: string;
+  artist: string;
+  album: string;
+  acquisition_status: string;
+  fingerprinted: number;
+  enriched_spotify: number;
+  metadata_written: number;
+  in_library: number;
+  local_path?: string;
+  year?: number;
+  genres?: string;
+}
+
+export interface CatalogStats {
+  total: number;
+  by_status: Record<string, number>;
+  flags: Record<string, number>;
+}
+
+export interface ImportResult {
+  imported: number;
+  skipped_duplicates: number;
+  jobs_created: number;
+}
+
+export async function fetchTracks(params: {
+  page?: number;
+  per_page?: number;
+  status?: string;
+  search?: string;
+}): Promise<{ tracks: Track[]; total: number; page: number }> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.per_page) qs.set("per_page", String(params.per_page));
+  if (params.status) qs.set("status", params.status);
+  if (params.search) qs.set("search", params.search);
+  const res = await apiClient(`/catalog/tracks?${qs}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function fetchStats(): Promise<CatalogStats> {
+  const res = await apiClient("/catalog/stats");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function importCsv(file: File): Promise<ImportResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiClientForm("/catalog/import/csv", form);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function fetchSpotifyPlaylists(): Promise<
+  { id: string; name: string; track_count: number }[]
+> {
+  const res = await apiClient("/catalog/import/spotify/playlists");
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.playlists;
+}
+
+export async function importSpotifyPlaylist(
+  playlistId: string
+): Promise<ImportResult> {
+  const res = await apiClient("/catalog/import/spotify", {
+    method: "POST",
+    body: JSON.stringify({ playlist_id: playlistId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function disconnectSpotify(): Promise<void> {
+  await apiClient("/auth/spotify/disconnect", { method: "POST" });
+}
+
+// ─── Pipeline ─────────────────────────────────────────────────────────────────
+
+export interface PipelineStatus {
+  pending: number;
+  running: number;
+  agents: {
+    id: string;
+    machine_name: string;
+    last_seen_at: string;
+    capabilities: string[];
+  }[];
+}
+
+export async function fetchPipelineStatus(): Promise<PipelineStatus> {
+  const res = await apiClient("/pipeline/status");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+// ─── Agents ───────────────────────────────────────────────────────────────────
+
+export interface Agent {
+  id: string;
+  machine_name: string;
+  last_seen_at: string;
+  capabilities: string[];
+  created_at: string;
+}
+
+export async function fetchAgents(): Promise<Agent[]> {
+  const res = await apiClient("/agents");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function registerAgent(
+  machineName: string
+): Promise<{ api_key: string; agent: Agent }> {
+  const res = await apiClient("/agents/register", {
+    method: "POST",
+    body: JSON.stringify({ machine_name: machineName }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteAgent(id: string): Promise<void> {
+  await apiClient(`/agents/${id}`, { method: "DELETE" });
+}
