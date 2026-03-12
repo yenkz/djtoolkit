@@ -338,9 +338,13 @@ async def test_import_csv_queue_jobs_false(db_user):
 async def test_import_spotify_queue_jobs_false_skips_jobs(db_user, monkeypatch):
     """POST /catalog/import/spotify?queue_jobs=false creates no pipeline_jobs."""
     from djtoolkit.api import catalog_routes
+
+    async def _fake_token(user_id):
+        return "fake-token"
+
     monkeypatch.setattr(
         catalog_routes, "_get_spotify_token",
-        lambda user_id: "fake-token"
+        _fake_token
     )
 
     import respx, httpx as _httpx
@@ -373,6 +377,7 @@ async def test_import_spotify_queue_jobs_false_skips_jobs(db_user, monkeypatch):
             )
 
     assert r.status_code == 201
+    assert r.json()["imported"] == 1
     assert r.json()["jobs_created"] == 0
 
 
