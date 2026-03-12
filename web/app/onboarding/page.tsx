@@ -315,3 +315,165 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
     </div>
   );
 }
+
+interface Step2Props {
+  candidates: Track[];
+  onBack: () => void;
+  onComplete: () => void;
+}
+
+function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Record<number, boolean>>(() => {
+    const initial: Record<number, boolean> = {};
+    for (const t of candidates) {
+      initial[t.id] = !t.already_owned;
+    }
+    return initial;
+  });
+  const [loading, setLoading] = useState(false);
+
+  const alreadyOwnedIds = new Set(candidates.filter((t) => t.already_owned).map((t) => t.id));
+
+  const filtered = candidates.filter((t) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (
+      (t.title ?? "").toLowerCase().includes(q) ||
+      (t.artist ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+  const ownedCount = candidates.filter((t) => t.already_owned).length;
+  const allSelected = filtered.length > 0 && filtered.every((t) => selected[t.id]);
+
+  function toggleAll() {
+    const newVal = !allSelected;
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const t of filtered) next[t.id] = newVal;
+      return next;
+    });
+  }
+
+  async function handleConfirm() {
+    const toDownload = candidates.filter((t) => selected[t.id]).map((t) => t.id);
+    const toDelete = candidates
+      .filter((t) => !selected[t.id] && !alreadyOwnedIds.has(t.id))
+      .map((t) => t.id);
+
+    if (toDownload.length === 0) return;
+    setLoading(true);
+    try {
+      await Promise.all([
+        bulkCreateJobs(toDownload),
+        toDelete.length > 0 ? bulkDeleteTracks(toDelete) : Promise.resolve(),
+      ]);
+      onComplete();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to queue downloads");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-6 py-8">
+      <h1 className="text-xl font-bold text-white mb-1">Confirm your download list</h1>
+      <p className="text-sm text-gray-500 mb-5">
+        Deselect any tracks you don&apos;t want. Already-owned tracks are excluded automatically.
+      </p>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[
+          { label: "To download", value: selectedCount },
+          { label: "Already owned", value: ownedCount },
+          { label: "Total imported", value: candidates.length },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-white">{value}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <input
+        type="text"
+        placeholder="Search by title or artist…"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 mb-2 focus:outline-none focus:border-indigo-500"
+      />
+
+      {/* Select all */}
+      <div className="flex items-center gap-2.5 px-3 py-2 bg-gray-800 rounded-t-lg border-b border-gray-900">
+        <input
+          type="checkbox"
+          checked={allSelected}
+          onChange={toggleAll}
+          className="w-3.5 h-3.5 accent-indigo-500"
+        />
+        <span className="text-xs text-gray-300 font-semibold flex-1">Select all</span>
+        <span className="text-xs text-gray-500">{selectedCount} selected</span>
+      </div>
+
+      {/* Track list */}
+      <div
+        className="border border-gray-800 border-t-0 rounded-b-lg overflow-y-auto"
+        style={{ maxHeight: "calc(100vh - 420px)" }}
+      >
+        {filtered.map((t) => {
+          const isOwned = alreadyOwnedIds.has(t.id);
+          const isSelected = selected[t.id];
+          return (
+            <div
+              key={t.id}
+              onClick={() => setSelected((p) => ({ ...p, [t.id]: !p[t.id] }))}
+              className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-900 last:border-0 cursor-pointer transition-colors ${
+                isSelected ? "bg-gray-900 hover:bg-gray-800/60" : "bg-gray-950 opacity-50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => {}}
+                className="w-3.5 h-3.5 accent-indigo-500 flex-shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className="flex-1 min-w-0">
+                <span
+                  className={`text-sm ${isSelected ? "text-white" : "text-gray-500 line-through"}`}
+                >
+                  {t.title}
+                </span>
+              </div>
+              <div className="w-40 text-xs text-gray-500 truncate">{t.artist}</div>
+              {isOwned && (
+                <span className="text-xs bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded flex-shrink-0">
+                  Already owned
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* CTA */}
+      <div className="flex items-center justify-between mt-5">
+        <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-300">
+          ← Back
+        </button>
+        <button
+          onClick={handleConfirm}
+          disabled={selectedCount === 0 || loading}
+          className="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {loading ? "Queuing…" : `Queue ${selectedCount} download${selectedCount !== 1 ? "s" : ""} →`}
+        </button>
+      </div>
+    </div>
+  );
+}
