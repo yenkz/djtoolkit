@@ -1,0 +1,23 @@
+#!/bin/bash
+set -e
+
+mkdir -p ~/.djtoolkit
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║     djtoolkit agent installed successfully!  ║"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+echo "Next steps:"
+echo "  1. Get your API key from https://app.djtoolkit.com/agents"
+echo "  2. Configure the agent:"
+echo "       djtoolkit agent configure --api-key <YOUR_KEY>"
+echo "  3. Start the agent:"
+echo "       djtoolkit agent start"
+echo ""
+echo "The agent will poll the cloud every 30s and execute"
+echo "download, fingerprint, metadata, and cover art jobs"
+echo "on your local machine."
+echo ""
+
+exit 0

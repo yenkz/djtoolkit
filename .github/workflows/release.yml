@@ -1,0 +1,50 @@
+name: Release macOS Installer
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-macos:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-14, macos-13]   # macos-14 = arm64, macos-13 = x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install chromaprint (fpcalc)
+        run: brew install chromaprint
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Install PyInstaller
+        run: poetry run pip install pyinstaller
+
+      - name: Build installer
+        env:
+          VERSION: ${{ github.ref_name }}   # e.g. "v1.0.0"
+        run: |
+          # Strip leading 'v' from tag for VERSION
+          export VERSION="${VERSION#v}"
+          bash packaging/macos/build.sh
+
+      - name: Upload .dmg as release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.dmg"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

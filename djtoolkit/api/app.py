@@ -52,6 +52,11 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
 app.include_router(pipeline_router, prefix="/api")
 
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # Serve the single-page UI
 if _UI_DIR.exists():
     app.mount("/static", StaticFiles(directory=_UI_DIR), name="static")
