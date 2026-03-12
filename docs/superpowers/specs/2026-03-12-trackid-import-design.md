@@ -53,7 +53,7 @@ make import-trackid URL=<youtube_url>
 | --- | --- | --- |
 | `validate_url` | `(url: str) -> str` | Normalize + validate YouTube URL; raise `ValueError` if invalid; return normalized form |
 | `submit_job` | `(url: str, cfg: Config) -> str` | POST `/api/analyze`, return `jobId` |
-| `poll_job` | `(job_id: str, cfg: Config) -> dict` | Poll with interval, Rich progress, return completed job dict |
+| `poll_job` | `(job_id: str, cfg: Config) -> dict` | Poll with interval, Rich progress; raises `PollTimeoutError` on timeout, `RuntimeError` on API `failed` status; returns completed job dict only on success |
 | `import_trackid` | `(url: str, cfg: Config) -> dict` | Orchestrate full flow; handle cache; return stats dict |
 
 ### CLI (`__main__.py`)
@@ -146,7 +146,7 @@ API fields map to existing columns:
 - `timestamp` — position in mix; out of scope
 - `youtubeUrl` (per-track) — out of scope
 
-**Deduplication:** No import-time dedup. The same track can be inserted multiple times (e.g., from two different mixes). This is intentional — the existing Chromaprint pipeline (`make fingerprint`) handles dedup post-download, same as all other flows.
+**Deduplication:** No uniqueness constraint is applied at insert time. The same track can be inserted multiple times (e.g., from two different mixes, or already present from Exportify). This is intentional — cross-source dedup is deferred to `make fingerprint` post-download, same as all other flows. Do not add any UNIQUE index to the `tracks` table for this flow.
 
 ---
 
@@ -180,9 +180,10 @@ This is the intended behavior: `--force` means "re-analyze the mix and add whate
 | --- | --- |
 | Invalid / non-YouTube URL | `ValueError` before any HTTP call; clear error message, exit non-zero |
 | URL already in cache | Warning + skip; `--force` re-submits and updates cache entry |
-| Job status `failed` | Error printed with job ID; exit non-zero; `trackid_jobs.status = 'failed'` |
-| 429 rate limit | Exponential backoff starting at 15s, max 3 retries; abort with message if exhausted |
-| `poll_timeout_sec` exceeded | Abort with timeout message; `trackid_jobs.status` left as `queued` |
+| Job status `failed` | `poll_job()` raises `RuntimeError`; `import_trackid()` catches, sets `trackid_jobs.status='failed'`, exits non-zero |
+| `poll_timeout_sec` exceeded | `poll_job()` raises `PollTimeoutError`; `import_trackid()` catches, leaves `trackid_jobs.status='queued'` (not `'timeout'`), exits non-zero |
+| 429 during initial POST | `submit_job()` applies exponential backoff (15s start, max 3 retries); abort if exhausted |
+| 429 during polling | Same exponential backoff as above |
 | `tracks: []` (empty result) | Warning: "TrackID found 0 tracks in this mix"; job marked done, `tracks_found=0` |
 | All tracks below threshold | Warning: "0 tracks met confidence threshold (lowest: X.XX)"; job marked done in cache |
 | `isUnknown: true` tracks | Counted in `skipped_unknown` stats; not inserted |
