@@ -86,6 +86,14 @@ class SpotifyPlaylist(BaseModel):
     track_count: int
 
 
+class BulkTrackIdsRequest(BaseModel):
+    track_ids: list[int]
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _row_to_track(r) -> TrackOut:
@@ -480,6 +488,33 @@ async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
             params = {}
 
     return playlists
+
+
+@router.delete("/tracks/bulk", response_model=BulkDeleteResult)
+async def bulk_delete_tracks(
+    body: BulkTrackIdsRequest,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Delete candidate tracks the user chose not to download.
+
+    Only deletes tracks with acquisition_status='candidate' owned by the requesting user.
+    Available/downloading/failed tracks are silently ignored.
+    """
+    if not body.track_ids:
+        return BulkDeleteResult(deleted=0)
+
+    pool = await get_pool()
+    async with rls_transaction(pool, user.user_id) as conn:
+        result = await conn.execute(
+            """DELETE FROM tracks
+               WHERE id = ANY($1::bigint[])
+                 AND user_id = $2
+                 AND acquisition_status = 'candidate'""",
+            body.track_ids, user.user_id,
+        )
+    # asyncpg returns "DELETE N" as the command tag
+    deleted = int(result.split()[-1])
+    return BulkDeleteResult(deleted=deleted)
 
 
 @router.post("/tracks/{track_id}/reset", status_code=status.HTTP_204_NO_CONTENT)

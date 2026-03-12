@@ -441,6 +441,43 @@ async def test_list_tracks_already_owned_flag(db_user):
 
 @_needs_db
 @pytest.mark.asyncio
+async def test_bulk_delete_tracks_candidates_only(db_user):
+    """DELETE /catalog/tracks/bulk deletes candidates; ignores available tracks."""
+    user_id, token = db_user
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+
+    candidate_id = await conn.fetchval(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+           VALUES ($1, 'candidate', 'spotify', 'To Delete', 'Artist', '') RETURNING id""",
+        user_id,
+    )
+    available_id = await conn.fetchval(
+        """INSERT INTO tracks (user_id, acquisition_status, source, title, artist, search_string)
+           VALUES ($1, 'available', 'spotify', 'Keep Me', 'Artist', '') RETURNING id""",
+        user_id,
+    )
+    await conn.close()
+
+    async with _async_client() as c:
+        r = await c.request(
+            "DELETE",
+            "/api/catalog/tracks/bulk",
+            json={"track_ids": [candidate_id, available_id]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert r.status_code == 200
+    assert r.json()["deleted"] == 1  # only the candidate
+
+    conn = await asyncpg.connect(os.environ["SUPABASE_DATABASE_URL"])
+    still_there = await conn.fetchval("SELECT id FROM tracks WHERE id = $1", available_id)
+    gone = await conn.fetchval("SELECT id FROM tracks WHERE id = $1", candidate_id)
+    await conn.close()
+    assert still_there is not None
+    assert gone is None
+
+
+@_needs_db
+@pytest.mark.asyncio
 async def test_tenant_isolation(db_user):
     """User A's tracks must not be visible to User B."""
     from djtoolkit.db.postgres import close_pool
