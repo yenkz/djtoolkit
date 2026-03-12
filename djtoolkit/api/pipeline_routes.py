@@ -27,6 +27,16 @@ from djtoolkit.db.postgres import get_pool
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 log = logging.getLogger(__name__)
 
+
+
+def _jsonb(val) -> dict | None:
+    """Safely decode asyncpg JSONB — handles both dict and raw JSON string."""
+    if val is None:
+        return None
+    if isinstance(val, str):
+        return json.loads(val) if val else None
+    return dict(val)
+
 # ─── SSE broadcaster ──────────────────────────────────────────────────────────
 # Simple in-process pub/sub — sufficient for MVP single-process deployment.
 # For multi-process deployment, replace with Redis pub/sub.
@@ -250,7 +260,7 @@ async def fetch_jobs(
             job_type=r["job_type"],
             status=r["status"],
             track_id=r["track_id"],
-            payload=dict(r["payload"]) if r["payload"] else None,
+            payload=_jsonb(r["payload"]),
             created_at=r["created_at"].isoformat(),
         )
         for r in rows
@@ -299,7 +309,7 @@ async def claim_job(
         job_type=row["job_type"],
         status=row["status"],
         track_id=row["track_id"],
-        payload=dict(row["payload"]) if row["payload"] else None,
+        payload=_jsonb(row["payload"]),
         created_at=row["created_at"].isoformat(),
     )
 

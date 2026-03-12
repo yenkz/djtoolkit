@@ -110,7 +110,7 @@ def parse_csv_rows(data: bytes) -> list[dict]:
     reader = csv.DictReader(io.StringIO(text))
     tracks: list[dict] = []
     for row in reader:
-        row = {k.strip(): v.strip() for k, v in row.items()}
+        row = {k.strip(): (v.strip() if v else None) for k, v in row.items() if k is not None}
         record: dict = {}
         for csv_col, db_col in _CSV_TO_DB.items():
             record[db_col] = row.get(csv_col) or None
@@ -122,6 +122,20 @@ def parse_csv_rows(data: bytes) -> list[dict]:
         artist = record.get("artist") or ""
         title = record.get("title") or ""
         record["search_string"] = build_search_string(artist, title) if (artist or title) else None
+        # Cast numeric fields so asyncpg/PostgreSQL gets the right types
+        for int_col in ("duration_ms", "popularity", "key", "mode", "time_signature"):
+            val = record.get(int_col)
+            try:
+                record[int_col] = int(val) if val not in (None, "") else None
+            except (ValueError, TypeError):
+                record[int_col] = None
+        for float_col in ("danceability", "energy", "loudness", "speechiness",
+                          "acousticness", "instrumentalness", "liveness", "valence", "tempo"):
+            val = record.get(float_col)
+            try:
+                record[float_col] = float(val) if val not in (None, "") else None
+            except (ValueError, TypeError):
+                record[float_col] = None
         if record.get("spotify_uri"):
             tracks.append(record)
     return tracks
