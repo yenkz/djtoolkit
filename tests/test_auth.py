@@ -72,16 +72,18 @@ def _make_jwt_with_aud(user_id: str, aud: str) -> str:
 def test_create_agent_key_format():
     """Plain key starts with djt_ and is ~44 chars; bcrypt hash verifies."""
     import bcrypt
-    plain, hashed = create_agent_key()
+    plain, hashed, prefix = create_agent_key()
     assert plain.startswith("djt_")
     assert len(plain) > 20
     assert bcrypt.checkpw(plain.encode(), hashed.encode()), "bcrypt hash must verify against the plain key"
+    assert len(prefix) == 8, "prefix should be first 8 hex chars after djt_"
+    assert plain[4:12] == prefix
 
 
 def test_create_agent_key_unique():
     """Two consecutive calls return different keys."""
-    plain1, _ = create_agent_key()
-    plain2, _ = create_agent_key()
+    plain1, _, _ = create_agent_key()
+    plain2, _, _ = create_agent_key()
     assert plain1 != plain2
 
 

@@ -130,7 +130,7 @@ def test_load_dotenv_ignores_missing_file(tmp_path):
 
 def test_trackid_defaults():
     cfg = TrackIdConfig()
-    assert cfg.confidence_threshold == 0.7
+    assert cfg.confidence_threshold == 0.3
     assert cfg.poll_interval_sec == 7
     assert cfg.poll_timeout_sec == 1800
     assert cfg.base_url == "https://trackid.dev"

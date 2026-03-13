@@ -133,7 +133,7 @@ def test_relevance_unrelated_is_low():
 # ─── _pick_best ───────────────────────────────────────────────────────────────
 
 def test_pick_best_returns_best_match(cfg):
-    track = {"title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+    track = {"id": 1, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
     results = [_make_result("user1", "Big Wild - City of Sound.mp3")]
     user, filename = _pick_best(track, results, cfg)
     assert user == "user1"
@@ -141,7 +141,7 @@ def test_pick_best_returns_best_match(cfg):
 
 
 def test_pick_best_returns_none_when_no_match(cfg):
-    track = {"title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+    track = {"id": 2, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
     results = [_make_result("user1", "totally_unrelated_song.mp3")]
     user, filename = _pick_best(track, results, cfg)
     assert user is None
@@ -149,7 +149,7 @@ def test_pick_best_returns_none_when_no_match(cfg):
 
 
 def test_pick_best_filters_by_duration(cfg):
-    track = {"title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+    track = {"id": 3, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
     # duration = 100s, far outside 2000ms tolerance from 232s
     results = [_make_result("user1", "Big Wild - City of Sound.mp3", duration_sec=100)]
     user, _ = _pick_best(track, results, cfg)
@@ -157,7 +157,7 @@ def test_pick_best_filters_by_duration(cfg):
 
 
 def test_pick_best_prefers_flac_over_mp3(cfg):
-    track = {"title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+    track = {"id": 4, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
     results = [
         _make_result("user1", "Big Wild - City of Sound.mp3"),
         _make_result("user2", "Big Wild - City of Sound.flac"),
@@ -167,7 +167,7 @@ def test_pick_best_prefers_flac_over_mp3(cfg):
 
 
 def test_pick_best_excludes_non_audio(cfg):
-    track = {"title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+    track = {"id": 5, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
     f = _FileData("Big Wild - City of Sound.zip", extension="zip")
     results = [_SearchResult(username="user1", shared_items=[f])]
     user, _ = _pick_best(track, results, cfg)
@@ -175,7 +175,7 @@ def test_pick_best_excludes_non_audio(cfg):
 
 
 def test_pick_best_empty_results(cfg):
-    track = {"title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+    track = {"id": 6, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
     user, filename = _pick_best(track, [], cfg)
     assert user is None
     assert filename is None

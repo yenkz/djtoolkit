@@ -524,8 +524,11 @@ _csv_content = b"Spotify URI,Track Name,Artist Name(s),Album Name,Disc Number,Tr
 
 
 @pytest.mark.asyncio
-async def test_csv_upload_rejects_non_csv_extension():
+async def test_csv_upload_rejects_non_csv_extension(monkeypatch):
     """A file with .txt extension is rejected with 400 even if content is valid CSV."""
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-for-unit-tests")
+    monkeypatch.delenv("SUPABASE_JWT_EC_X", raising=False)
+    monkeypatch.delenv("SUPABASE_JWT_EC_Y", raising=False)
     async with _async_client_no_db() as client:
         resp = await client.post(
             "/api/catalog/import/csv",
@@ -538,8 +541,11 @@ async def test_csv_upload_rejects_non_csv_extension():
 
 
 @pytest.mark.asyncio
-async def test_csv_upload_accepts_csv_extension():
+async def test_csv_upload_accepts_csv_extension(monkeypatch):
     """A file with .csv extension and valid content-type is not rejected at the extension check."""
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-for-unit-tests")
+    monkeypatch.delenv("SUPABASE_JWT_EC_X", raising=False)
+    monkeypatch.delenv("SUPABASE_JWT_EC_Y", raising=False)
     async with _async_client_no_db() as client:
         resp = await client.post(
             "/api/catalog/import/csv",
