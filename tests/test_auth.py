@@ -52,9 +52,18 @@ def _make_jwt(user_id: str, *, expired: bool = False, wrong_secret: bool = False
     now = int(time.time())
     payload = {
         "sub": user_id,
+        "aud": "authenticated",    # Supabase always includes this
         "iat": now - 3600 if expired else now,
         "exp": now - 1 if expired else now + 3600,
     }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def _make_jwt_with_aud(user_id: str, aud: str) -> str:
+    """Create a JWT with a specific audience claim for testing audience validation."""
+    secret = os.environ.get("SUPABASE_JWT_SECRET", "test-secret")
+    now = int(time.time())
+    payload = {"sub": user_id, "aud": aud, "iat": now, "exp": now + 3600}
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -78,9 +87,16 @@ def test_create_agent_key_unique():
 
 # ─── unit tests: verify_jwt ───────────────────────────────────────────────────
 
+@pytest.fixture()
+def hs256_env(monkeypatch):
+    """Clear EC key env vars so verify_jwt uses the HS256 / SUPABASE_JWT_SECRET path."""
+    monkeypatch.delenv("SUPABASE_JWT_EC_X", raising=False)
+    monkeypatch.delenv("SUPABASE_JWT_EC_Y", raising=False)
+
+
 @_needs_jwt
 @pytest.mark.asyncio
-async def test_verify_jwt_valid():
+async def test_verify_jwt_valid(hs256_env):
     """Valid JWT resolves to CurrentUser with correct user_id."""
     user_id = str(uuid.uuid4())
     token = _make_jwt(user_id)
@@ -92,7 +108,7 @@ async def test_verify_jwt_valid():
 
 @_needs_jwt
 @pytest.mark.asyncio
-async def test_verify_jwt_expired():
+async def test_verify_jwt_expired(hs256_env):
     """Expired JWT raises HTTP 401."""
     from fastapi import HTTPException
     user_id = str(uuid.uuid4())
@@ -104,7 +120,7 @@ async def test_verify_jwt_expired():
 
 @_needs_jwt
 @pytest.mark.asyncio
-async def test_verify_jwt_wrong_secret():
+async def test_verify_jwt_wrong_secret(hs256_env):
     """JWT signed with wrong secret raises HTTP 401."""
     from fastapi import HTTPException
     user_id = str(uuid.uuid4())
@@ -114,11 +130,34 @@ async def test_verify_jwt_wrong_secret():
     assert exc_info.value.status_code == 401
 
 
+@_needs_jwt
+@pytest.mark.asyncio
+async def test_verify_jwt_wrong_audience(hs256_env):
+    """JWT with wrong 'aud' claim raises HTTP 401."""
+    from fastapi import HTTPException
+    token = _make_jwt_with_aud(str(uuid.uuid4()), aud="service_role")
+    with pytest.raises(HTTPException) as exc_info:
+        await verify_jwt(token)
+    assert exc_info.value.status_code == 401
+
+
+@_needs_jwt
+@pytest.mark.asyncio
+async def test_verify_jwt_correct_audience(hs256_env):
+    """JWT with aud='authenticated' passes validation."""
+    user_id = str(uuid.uuid4())
+    token = _make_jwt_with_aud(user_id, aud="authenticated")
+    user = await verify_jwt(token)
+    assert user.user_id == user_id
+
+
 # ─── unit tests: get_current_user dispatch (JWT path, no DB) ──────────────────
 
 @_needs_jwt
-def test_get_current_user_jwt_path():
+def test_get_current_user_jwt_path(monkeypatch):
     """A 3-segment token goes through JWT verification (no DB needed)."""
+    monkeypatch.delenv("SUPABASE_JWT_EC_X", raising=False)
+    monkeypatch.delenv("SUPABASE_JWT_EC_Y", raising=False)
     user_id = str(uuid.uuid4())
     token = _make_jwt(user_id)
     with TestClient(app, raise_server_exceptions=True) as client:

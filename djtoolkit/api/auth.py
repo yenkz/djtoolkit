@@ -84,6 +84,9 @@ class CurrentUser:
 _SUPABASE_EC_X = os.environ.get("SUPABASE_JWT_EC_X", "")
 _SUPABASE_EC_Y = os.environ.get("SUPABASE_JWT_EC_Y", "")
 
+# Expected JWT audience — Supabase sets "authenticated" for logged-in users.
+_EXPECTED_AUD = os.environ.get("SUPABASE_JWT_AUDIENCE", "authenticated")
+
 
 def _b64url_to_int(s: str) -> int:
     padded = s + "=" * (-len(s) % 4)
@@ -115,18 +118,39 @@ def _get_public_key() -> EllipticCurvePublicKey:
 
 
 async def verify_jwt(token: str) -> CurrentUser:
-    """Decode and verify a Supabase JWT (ES256).  Raises 401 on any failure."""
+    """Decode and verify a Supabase JWT.
+
+    Algorithm selection (in priority order):
+    - ES256 when SUPABASE_JWT_EC_X + SUPABASE_JWT_EC_Y are set (production)
+    - HS256 when only SUPABASE_JWT_SECRET is set (local dev / tests)
+    Raises 401 on any verification failure, including wrong audience.
+    """
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
+        ec_x = os.environ.get("SUPABASE_JWT_EC_X", "")
+        ec_y = os.environ.get("SUPABASE_JWT_EC_Y", "")
+        if ec_x and ec_y:
+            key: object = _get_public_key()
+            algorithms = ["ES256"]
+        elif jwt_secret:
+            key = jwt_secret
+            algorithms = ["HS256"]
+        else:
+            raise RuntimeError(
+                "No JWT verification keys configured. "
+                "Set SUPABASE_JWT_EC_X + SUPABASE_JWT_EC_Y (production) "
+                "or SUPABASE_JWT_SECRET (dev/test)."
+            )
         payload = jwt.decode(
             token,
-            _get_public_key(),
-            algorithms=["ES256"],
-            options={"verify_aud": False},
+            key,
+            algorithms=algorithms,
+            audience=_EXPECTED_AUD,
         )
         user_id: str | None = payload.get("sub")
         if not user_id:
