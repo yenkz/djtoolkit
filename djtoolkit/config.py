@@ -105,6 +105,14 @@ class AgentConfig:
 
 
 @dataclass
+class TrackIdConfig:
+    confidence_threshold: float = 0.7   # 0.0–1.0; tracks below this are skipped
+    poll_interval_sec: int = 7          # seconds between status polls (clamped to 3–10 in poll_job)
+    poll_timeout_sec: int = 1800        # max total poll duration in seconds; 0 = unlimited
+    base_url: str = "https://trackid.dev"
+
+
+@dataclass
 class SupabaseConfig:
     """Supabase project settings.  All secrets come from env vars — see .env.example."""
 
@@ -125,6 +133,7 @@ class Config:
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
     supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    trackid: TrackIdConfig = field(default_factory=TrackIdConfig)
 
     @property
     def db_path(self) -> Path:
@@ -174,6 +183,7 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
             audio_analysis=_make(AudioAnalysisConfig, "audio_analysis"),
             supabase=_make(SupabaseConfig, "supabase"),
             agent=_make(AgentConfig, "agent"),
+            trackid=_make(TrackIdConfig, "trackid"),
         )
 
     # Env vars override TOML for secrets (env always wins)

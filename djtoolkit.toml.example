@@ -65,3 +65,9 @@ discogs_genre_labels = ""   # path to genre_discogs400-discogs-musicnn-1-labels.
 instrumental_model   = ""   # path to voice_instrumental-audioset-musicnn-1.pb
 genre_top_n          = 3
 genre_threshold      = 0.1
+
+[trackid]
+confidence_threshold = 0.7    # 0.0–1.0; tracks below this are skipped
+poll_interval_sec = 7         # seconds between job status polls (clamped to 3–10 internally)
+poll_timeout_sec = 1800       # max total poll time in seconds; 0 = unlimited
+base_url = "https://trackid.dev"  # override for testing

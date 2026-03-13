@@ -126,3 +126,26 @@ def test_load_dotenv_skips_already_set(tmp_path, monkeypatch):
 
 def test_load_dotenv_ignores_missing_file(tmp_path):
     _load_dotenv(tmp_path / "missing.env")  # must not raise
+
+
+def test_trackid_defaults():
+    from djtoolkit.config import TrackIdConfig
+    cfg = TrackIdConfig()
+    assert cfg.confidence_threshold == 0.7
+    assert cfg.poll_interval_sec == 7
+    assert cfg.poll_timeout_sec == 1800
+    assert cfg.base_url == "https://trackid.dev"
+
+
+def test_config_has_trackid_section(tmp_path):
+    from djtoolkit.config import load
+    cfg_path = tmp_path / "djtoolkit.toml"
+    cfg_path.write_text("""
+[trackid]
+confidence_threshold = 0.5
+poll_interval_sec = 5
+""")
+    cfg = load(cfg_path)
+    assert cfg.trackid.confidence_threshold == 0.5
+    assert cfg.trackid.poll_interval_sec == 5
+    assert cfg.trackid.poll_timeout_sec == 1800  # default
