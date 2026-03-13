@@ -24,13 +24,17 @@ CREATE TABLE IF NOT EXISTS agents (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     api_key_hash    TEXT NOT NULL,       -- bcrypt hash; key shown to user once as djt_xxx
+    api_key_prefix  VARCHAR(8),          -- first 8 chars after djt_ for indexed lookup (non-secret)
     machine_name    TEXT,                -- e.g. "MacBook Pro"
     last_seen_at    TIMESTAMPTZ,
     capabilities    TEXT[],              -- ['aioslsk', 'fpcalc', 'librosa', 'essentia']
+    version         TEXT,                -- agent software version, reported via heartbeat
+    active_jobs     INTEGER DEFAULT 0,   -- number of jobs currently in progress, reported via heartbeat
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
+CREATE INDEX IF NOT EXISTS idx_agents_key_prefix ON agents(api_key_prefix);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Fingerprints  (one per audio file, per user)
@@ -148,6 +152,7 @@ CREATE TABLE IF NOT EXISTS pipeline_jobs (
     payload      JSONB,                         -- job params: search_string, metadata_source, etc.
     result       JSONB,                         -- agent result: local_path, fingerprint, audio features
     error        TEXT,
+    retry_count  INTEGER NOT NULL DEFAULT 0,
     claimed_at   TIMESTAMPTZ,
     started_at   TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
@@ -162,6 +167,56 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_user_status
     ON pipeline_jobs(user_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_pipeline_jobs_agent_status
     ON pipeline_jobs(agent_id, status);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- TrackID import jobs  (async YouTube → track identification)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS trackid_import_jobs (
+    id          TEXT PRIMARY KEY,
+    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    youtube_url TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'queued',
+    progress    INTEGER NOT NULL DEFAULT 0,
+    step        TEXT,
+    error       TEXT,
+    result      JSONB,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW(),
+
+    CONSTRAINT trackid_import_jobs_status_check CHECK (
+        status IN ('queued','running','done','failed')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_trackid_import_jobs_user
+    ON trackid_import_jobs(user_id, created_at DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- TrackID URL cache  (avoid re-identifying the same URL)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS trackid_url_cache (
+    youtube_url  TEXT PRIMARY KEY,
+    tracks       JSONB NOT NULL,
+    track_count  INTEGER NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Audit logs  (fire-and-forget, written by service role, read-only per user)
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES auth.users(id),
+    action      TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    details     JSONB,
+    ip_address  TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user    ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Track embeddings  (optional ML embeddings; isolated via track_id FK)

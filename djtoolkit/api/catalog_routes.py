@@ -11,20 +11,22 @@ GET  /catalog/import/spotify/playlists  List user's Spotify playlists
 POST /catalog/tracks/{id}/reset      Retry a failed track (reset to candidate)
 """
 
-from __future__ import annotations
-
+import asyncio
 import io
 import json
 import os
+import time
 import uuid
 from typing import Optional
 
 import httpx
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile, status
+from pydantic import BaseModel, field_validator
 
+from djtoolkit.api.audit import audit_log
 from djtoolkit.api.auth import CurrentUser, get_current_user
+from djtoolkit.api.rate_limit import limiter
 from djtoolkit.db.postgres import get_pool, rls_transaction
 from djtoolkit.importers.exportify import parse_csv_rows
 from djtoolkit.utils.search_string import build as build_search_string
@@ -32,6 +34,246 @@ from djtoolkit.utils.search_string import build as build_search_string
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
 _MAX_CSV_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# ─── TrackID constants ─────────────────────────────────────────────────────────
+_TRACKID_BASE = "https://trackid.dev"
+_TRACKID_CONFIDENCE = 0.7
+_TRACKID_POLL_INTERVAL = 7    # seconds
+_TRACKID_POLL_TIMEOUT = 1800  # 30 minutes (long DJ sets can take 10-20 min)
+
+
+# ─── JSONB helpers ────────────────────────────────────────────────────────────
+
+def _decode_jsonb(value):
+    """Return a Python object from a JSONB column value.
+
+    asyncpg may return JSONB as a raw JSON string (when the parameter was sent
+    via a ::jsonb text cast) or as an already-parsed Python object, depending on
+    driver version and connection setup.  This helper handles both cases.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes)):
+        return json.loads(value)
+    return value  # already deserialized
+
+
+# ─── TrackID job helpers (Postgres-backed) ────────────────────────────────────
+
+async def _job_create(job_id: str, user_id: str, youtube_url: str) -> None:
+    pool = await get_pool()
+    await pool.execute(
+        """
+        INSERT INTO trackid_import_jobs (id, user_id, youtube_url, status, progress, step)
+        VALUES ($1, $2, $3, 'queued', 0, 'Queued…')
+        """,
+        job_id, user_id, youtube_url,
+    )
+
+
+async def _job_update(job_id: str, *, status: str, progress: int, step: str,
+                      error: str | None = None, result: dict | None = None) -> None:
+    pool = await get_pool()
+    # Serialize to JSON string + explicit cast: asyncpg infers TEXT for $6 in UPDATE
+    # without a cast hint, and rejects a dict.  Pass a JSON string + ::jsonb so
+    # PostgreSQL casts it correctly.
+    await pool.execute(
+        """
+        UPDATE trackid_import_jobs
+        SET status = $2, progress = $3, step = $4, error = $5,
+            result = $6::jsonb, updated_at = NOW()
+        WHERE id = $1
+        """,
+        job_id, status, progress, step, error,
+        json.dumps(result) if result is not None else None,
+    )
+
+
+async def _job_get(job_id: str) -> dict | None:
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT status, progress, step, error, result FROM trackid_import_jobs WHERE id = $1",
+        job_id,
+    )
+    if row is None:
+        return None
+    return {
+        "status": row["status"],
+        "progress": row["progress"],
+        "step": row["step"],
+        "error": row["error"],
+        "result": _decode_jsonb(row["result"]),
+    }
+
+
+async def _save_trackid_cache(normalized_url: str, tracks: list[dict]) -> None:
+    """Persist filtered tracks to the shared trackid_url_cache table."""
+    try:
+        pool = await get_pool()
+        await pool.execute(
+            """
+            INSERT INTO trackid_url_cache (youtube_url, tracks, track_count)
+            VALUES ($1, $2::jsonb, $3)
+            ON CONFLICT (youtube_url) DO UPDATE
+              SET tracks = EXCLUDED.tracks,
+                  track_count = EXCLUDED.track_count,
+                  updated_at = NOW()
+            """,
+            normalized_url, json.dumps(tracks), len(tracks),
+        )
+    except Exception:
+        pass  # Cache write failure is non-fatal
+
+
+async def _load_trackid_cache(normalized_url: str) -> list[dict] | None:
+    """Return cached tracks for this URL, or None if not in cache."""
+    try:
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            "SELECT tracks FROM trackid_url_cache WHERE youtube_url = $1",
+            normalized_url,
+        )
+        if row is None:
+            return None
+        return _decode_jsonb(row["tracks"])
+    except Exception:
+        return None
+
+
+async def _run_trackid_background(
+    local_job_id: str,
+    normalized_url: str,
+    user_id: str,
+    queue_jobs: bool,
+) -> None:
+    """Background task: submit to TrackID.dev, poll for completion, insert tracks."""
+
+    async def _fail(msg: str) -> None:
+        try:
+            await _job_update(local_job_id, status="failed", progress=0, step="", error=msg)
+        except Exception:
+            pass  # Best-effort — don't mask the original error
+
+    try:
+        await _run_trackid_inner(local_job_id, normalized_url, user_id, queue_jobs, _fail)
+    except Exception as exc:
+        await _fail(f"Unexpected error: {exc}")
+
+
+async def _run_trackid_inner(
+    local_job_id: str,
+    normalized_url: str,
+    user_id: str,
+    queue_jobs: bool,
+    _fail,
+) -> None:
+    # 1. Submit
+    await _job_update(local_job_id, status="submitting", progress=5, step="Submitting to TrackID.dev…")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{_TRACKID_BASE}/api/analyze",
+                json={"url": normalized_url},
+                headers={"User-Agent": "djtoolkit/1.0"},
+            )
+            if r.status_code == 429:
+                await _fail("TrackID.dev rate limit reached. Try again in a few minutes.")
+                return
+            if not r.is_success:
+                await _fail(f"TrackID.dev submission failed: {r.status_code}")
+                return
+            trackid_job_id = r.json()["jobId"]
+    except httpx.RequestError as exc:
+        await _fail(f"Could not reach TrackID.dev: {exc}")
+        return
+
+    # 2. Poll
+    poll_url = f"{_TRACKID_BASE}/api/job/{trackid_job_id}"
+    start = time.monotonic()
+    job: dict = {}
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            if time.monotonic() - start > _TRACKID_POLL_TIMEOUT:
+                await _fail("TrackID.dev job timed out after 5 minutes.")
+                return
+
+            try:
+                r = await client.get(poll_url, headers={"User-Agent": "djtoolkit/1.0"})
+                if r.status_code == 429:
+                    await asyncio.sleep(15)
+                    continue
+                if not r.is_success:
+                    await _fail(f"TrackID.dev poll error: {r.status_code}")
+                    return
+                job = r.json()
+            except httpx.RequestError:
+                await asyncio.sleep(10)
+                continue
+
+            job_status = job.get("status", "")
+            pct = min(int(job.get("progress", 0)), 90)  # cap at 90 until we finish inserting
+            step = job.get("currentStep") or job_status
+            await _job_update(local_job_id, status=job_status, progress=pct, step=step)
+
+            if job_status == "completed":
+                break
+            if job_status == "failed":
+                await _fail("TrackID.dev job failed on server.")
+                return
+
+            await asyncio.sleep(_TRACKID_POLL_INTERVAL)
+
+    # 3. Filter and deduplicate tracks
+    # TrackID fingerprints in overlapping 30-second windows, so the same track
+    # can appear many times.  Sort by confidence descending, then keep only the
+    # first occurrence of each (title, artist) pair (case-insensitive).
+    # duration_ms from TrackID is always 30 000 ms (the window size, not the
+    # real track duration), so we store NULL instead.
+    await _job_update(local_job_id, status="inserting", progress=95, step="Saving tracks to your library…")
+    seen_keys: set[tuple[str, str]] = set()
+    raw_tracks = sorted(job.get("tracks", []), key=lambda t: -t.get("confidence", 0))
+    tracks: list[dict] = []
+    for track in raw_tracks:
+        if track.get("isUnknown"):
+            continue
+        if track.get("confidence", 0) < _TRACKID_CONFIDENCE:
+            continue
+        artist = track.get("artist") or ""
+        title = track.get("title") or ""
+        key = (title.lower().strip(), artist.lower().strip())
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        tracks.append({
+            "title": title or None,
+            "artist": artist or None,
+            "artists": artist or None,
+            "duration_ms": None,  # TrackID window size (30s) is not the real duration
+            "search_string": build_search_string(artist, title) if (artist or title) else None,
+        })
+
+    # 4. Save to shared URL cache (before inserting for this user)
+    await _save_trackid_cache(normalized_url, tracks)
+
+    # 5. Insert
+    try:
+        pool = await get_pool()
+        async with rls_transaction(pool, user_id) as conn:
+            inserted, skipped, jobs_created, ids = await _insert_tracks_and_create_jobs(
+                conn, user_id, tracks, "trackid", queue_jobs=queue_jobs
+            )
+    except Exception as exc:
+        await _fail(str(exc))
+        return
+
+    await _job_update(
+        local_job_id,
+        status="completed",
+        progress=100,
+        step=f"Done — {inserted} track{'s' if inserted != 1 else ''} identified",
+        result={"imported": inserted, "skipped_duplicates": skipped, "jobs_created": jobs_created, "track_ids": ids},
+    )
 
 
 # ─── Response models ──────────────────────────────────────────────────────────
@@ -91,8 +333,18 @@ class SpotifyPlaylist(BaseModel):
     is_owner: bool = False
 
 
+_MAX_BULK_ITEMS = 1000
+
+
 class BulkTrackIdsRequest(BaseModel):
     track_ids: list[int]
+
+    @field_validator("track_ids")
+    @classmethod
+    def validate_track_ids_size(cls, v: list[int]) -> list[int]:
+        if len(v) > _MAX_BULK_ITEMS:
+            raise ValueError(f"track_ids cannot exceed {_MAX_BULK_ITEMS} items")
+        return v
 
 
 class BulkDeleteResult(BaseModel):
@@ -194,6 +446,7 @@ async def _refresh_spotify_token(user_id: str, refresh_token: str, f: Fernet) ->
         "UPDATE users SET spotify_access_token = $1, spotify_token_expires_at = $2 WHERE id = $3",
         new_enc, expires_at, user_id,
     )
+    await audit_log(user_id, "spotify.token_refresh", resource_type="spotify")
     return new_access
 
 
@@ -269,6 +522,7 @@ async def _insert_tracks_and_create_jobs(
             skipped += 1
         else:
             inserted += 1
+            inserted_ids.append(result)  # always collect newly-inserted IDs
             if queue_jobs:
                 # Create download job for this new candidate
                 await conn.execute(
@@ -287,8 +541,9 @@ async def _insert_tracks_and_create_jobs(
                 )
                 jobs_created += 1
 
-    # Fetch IDs for all tracks in this batch (new + pre-existing conflicts) so the
-    # caller can show the full set in the review step.
+    # For Spotify/CSV tracks (have spotify_uri): re-fetch to also include any
+    # pre-existing tracks skipped by ON CONFLICT DO NOTHING.
+    # For TrackID tracks (no spotify_uri): the loop already collected all IDs above.
     spotify_uris = [t["spotify_uri"] for t in tracks if t.get("spotify_uri")]
     if spotify_uris:
         rows = await conn.fetch(
@@ -303,7 +558,9 @@ async def _insert_tracks_and_create_jobs(
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/tracks", response_model=TrackListResponse)
+@limiter.limit("300/hour")
 async def list_tracks(
+    request: Request,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=1000),
     status_filter: Optional[str] = Query(None, alias="status"),
@@ -364,7 +621,9 @@ async def list_tracks(
 
 
 @router.get("/tracks/{track_id}", response_model=TrackOut)
+@limiter.limit("300/hour")
 async def get_track(
+    request: Request,
     track_id: int,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -379,7 +638,8 @@ async def get_track(
 
 
 @router.get("/stats", response_model=CatalogStats)
-async def catalog_stats(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit("300/hour")
+async def catalog_stats(request: Request, user: CurrentUser = Depends(get_current_user)):
     pool = await get_pool()
 
     status_rows = await pool.fetch(
@@ -413,7 +673,9 @@ async def catalog_stats(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.post("/import/csv", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/hour")
 async def import_csv(
+    request: Request,
     file: UploadFile = File(...),
     queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
@@ -452,6 +714,12 @@ async def import_csv(
             conn, user.user_id, tracks, "exportify", queue_jobs=queue_jobs
         )
 
+    await audit_log(
+        user.user_id, "track.import.csv",
+        resource_type="track",
+        details={"imported": inserted, "skipped": skipped, "jobs_created": jobs_created, "filename": file.filename},
+        ip_address=request.client.host if request.client else None,
+    )
     return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created, track_ids=ids)
 
 
@@ -461,7 +729,9 @@ class SpotifyImportRequest(BaseModel):
 
 
 @router.post("/import/spotify", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/hour")
 async def import_spotify(
+    request: Request,
     body: SpotifyImportRequest,
     queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
@@ -500,11 +770,18 @@ async def import_spotify(
             conn, user.user_id, tracks, "spotify", queue_jobs=queue_jobs
         )
 
+    await audit_log(
+        user.user_id, "track.import.spotify",
+        resource_type="track",
+        details={"imported": inserted, "skipped": skipped, "jobs_created": jobs_created, "playlist_id": body.playlist_id},
+        ip_address=request.client.host if request.client else None,
+    )
     return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created, track_ids=ids)
 
 
 @router.get("/import/spotify/playlists", response_model=list[SpotifyPlaylist])
-async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit("300/hour")
+async def list_spotify_playlists(request: Request, user: CurrentUser = Depends(get_current_user)):
     access_token = await _get_spotify_token(user.user_id)
 
     # Get the user's Spotify ID to determine playlist ownership
@@ -551,101 +828,85 @@ class TrackIdImportRequest(BaseModel):
     url: str
 
 
-@router.post("/import/trackid", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+@router.post("/import/trackid", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("20/hour")
 async def import_trackid_url(
+    request: Request,
     body: TrackIdImportRequest,
     queue_jobs: bool = Query(True),
+    background_tasks: BackgroundTasks = ...,
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Flow 3: submit a YouTube mix URL to TrackID.dev, poll for results, insert candidates."""
-    import asyncio
-    import time
+    """Flow 3: validate URL, check cache, start background polling job if needed."""
     from djtoolkit.importers.trackid import validate_url
-
-    _BASE = "https://trackid.dev"
-    _CONFIDENCE = 0.3
-    _POLL_INTERVAL = 7   # seconds between polls
-    _POLL_TIMEOUT = 300  # 5 minutes max for onboarding
 
     try:
         normalized = validate_url(body.url)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
-    # Submit job
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.post(
-                f"{_BASE}/api/analyze",
-                json={"url": normalized},
-                headers={"User-Agent": "djtoolkit/1.0"},
-            )
-            if r.status_code == 429:
-                raise HTTPException(status_code=429, detail="TrackID.dev rate limit reached. Try again in a few minutes.")
-            if not r.is_success:
-                raise HTTPException(status_code=502, detail=f"TrackID.dev submission failed: {r.status_code}")
-            job_id = r.json()["jobId"]
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail=f"Could not reach TrackID.dev: {exc}")
+    local_job_id = str(uuid.uuid4())
 
-    # Poll until completed or timeout
-    poll_url = f"{_BASE}/api/job/{job_id}"
-    start = time.monotonic()
+    # Cache hit — insert immediately and return a pre-completed job
+    cached_tracks = await _load_trackid_cache(normalized)
+    if cached_tracks is not None:
+        try:
+            pool = await get_pool()
+            async with rls_transaction(pool, user.user_id) as conn:
+                inserted, skipped, jobs_created, ids = await _insert_tracks_and_create_jobs(
+                    conn, user.user_id, cached_tracks, "trackid", queue_jobs=queue_jobs
+                )
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        while True:
-            if time.monotonic() - start > _POLL_TIMEOUT:
-                raise HTTPException(status_code=504, detail="TrackID.dev job timed out. Try a shorter mix or retry later.")
-
-            try:
-                r = await client.get(poll_url, headers={"User-Agent": "djtoolkit/1.0"})
-                if r.status_code == 429:
-                    await asyncio.sleep(15)
-                    continue
-                if not r.is_success:
-                    raise HTTPException(status_code=502, detail=f"TrackID.dev poll error: {r.status_code}")
-                job = r.json()
-            except httpx.RequestError:
-                await asyncio.sleep(10)
-                continue
-
-            job_status = job.get("status", "")
-            if job_status == "completed":
-                break
-            if job_status == "failed":
-                raise HTTPException(status_code=502, detail="TrackID.dev job failed on server.")
-
-            await asyncio.sleep(_POLL_INTERVAL)
-
-    # Filter by confidence / unknown and build track list
-    tracks: list[dict] = []
-    for track in job.get("tracks", []):
-        if track.get("isUnknown"):
-            continue
-        if track.get("confidence", 0) < _CONFIDENCE:
-            continue
-        artist = track.get("artist") or ""
-        title = track.get("title") or ""
-        duration_sec = track.get("duration")
-        tracks.append({
-            "title": title or None,
-            "artist": artist or None,
-            "artists": artist or None,
-            "duration_ms": int(duration_sec * 1000) if duration_sec is not None else None,
-            "search_string": build_search_string(artist, title) if (artist or title) else None,
-        })
-
-    pool = await get_pool()
-    async with rls_transaction(pool, user.user_id) as conn:
-        inserted, skipped, jobs_created, ids = await _insert_tracks_and_create_jobs(
-            conn, user.user_id, tracks, "trackid", queue_jobs=queue_jobs
+        await _job_create(local_job_id, user.user_id, normalized)
+        await _job_update(
+            local_job_id,
+            status="completed",
+            progress=100,
+            step=f"Done — {inserted} track{'s' if inserted != 1 else ''} identified (cached)",
+            result={"imported": inserted, "skipped_duplicates": skipped, "jobs_created": jobs_created, "track_ids": ids},
         )
+        await audit_log(
+            user.user_id, "track.import.trackid",
+            resource_type="trackid_job",
+            resource_id=local_job_id,
+            details={"url": normalized, "cached": True, "imported": inserted},
+            ip_address=request.client.host if request.client else None,
+        )
+        return {"job_id": local_job_id}
 
-    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created, track_ids=ids)
+    # Cache miss — start background job
+    await _job_create(local_job_id, user.user_id, normalized)
+    background_tasks.add_task(_run_trackid_background, local_job_id, normalized, user.user_id, queue_jobs)
+    await audit_log(
+        user.user_id, "track.import.trackid",
+        resource_type="trackid_job",
+        resource_id=local_job_id,
+        details={"url": normalized},
+        ip_address=request.client.host if request.client else None,
+    )
+    return {"job_id": local_job_id}
+
+
+@router.get("/import/trackid/{job_id}/status")
+@limiter.limit("300/hour")
+async def trackid_job_status(
+    request: Request,
+    job_id: str,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Poll the status of a TrackID background import job."""
+    job = await _job_get(job_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
 
 
 @router.delete("/tracks/bulk", response_model=BulkDeleteResult)
+@limiter.limit("30/hour")
 async def bulk_delete_tracks(
+    request: Request,
     body: BulkTrackIdsRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -668,11 +929,19 @@ async def bulk_delete_tracks(
         )
     # asyncpg returns "DELETE N" as the command tag
     deleted = int(result.split()[-1])
+    await audit_log(
+        user.user_id, "track.bulk_delete",
+        resource_type="track",
+        details={"deleted": deleted, "requested_ids": body.track_ids},
+        ip_address=request.client.host if request.client else None,
+    )
     return BulkDeleteResult(deleted=deleted)
 
 
 @router.post("/tracks/{track_id}/reset", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("300/hour")
 async def reset_track(
+    request: Request,
     track_id: int,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -708,3 +977,9 @@ async def reset_track(
                 "duration_ms": row["duration_ms"] or 0,
             }),
         )
+    await audit_log(
+        user.user_id, "track.reset",
+        resource_type="track",
+        resource_id=str(track_id),
+        ip_address=request.client.host if request.client else None,
+    )

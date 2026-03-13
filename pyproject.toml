@@ -27,8 +27,10 @@ Pillow     = "^10.0"
 # essentia-tensorflow: optional TF genre/instrumental models (Linux/macOS x86_64, Python ≤3.11 only)
 # Install manually: pip install essentia-tensorflow
 asyncpg = "^0.31.0"
+slowapi = "^0.1.9"
 python-jose = {extras = ["cryptography"], version = "^3.5.0"}
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+keyring = "^25.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest       = "^8.0"

@@ -30,10 +30,12 @@ from urllib.parse import urlencode
 
 import httpx
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
+from djtoolkit.api.audit import audit_log
 from djtoolkit.api.auth import verify_jwt, get_current_user, CurrentUser
+from djtoolkit.api.rate_limit import limiter
 from djtoolkit.db.postgres import get_pool
 
 
@@ -94,7 +96,9 @@ def _frontend_url() -> str:
 
 
 @router.get("/connect")
+@limiter.limit("20/hour")
 async def spotify_connect(
+    request: Request,
     token: str = Query(..., description="Supabase JWT"),
     return_to: str = Query("/", description="Frontend path to redirect to after auth"),
 ):
@@ -124,7 +128,9 @@ async def spotify_connect(
 
 
 @router.get("/callback")
+@limiter.limit("20/hour")
 async def spotify_callback(
+    request: Request,
     code: str = Query(None),
     state: str = Query(None),
     error: str = Query(None),
@@ -186,12 +192,19 @@ async def spotify_callback(
         email,
     )
 
+    await audit_log(
+        user_id, "spotify.connect",
+        resource_type="spotify",
+        ip_address=request.client.host if request.client else None,
+    )
+
     sep = "&" if "?" in return_to else "?"
     return RedirectResponse(f"{frontend}{return_to}{sep}spotify=connected")
 
 
 @router.post("/disconnect")
-async def spotify_disconnect(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit("20/hour")
+async def spotify_disconnect(request: Request, user: CurrentUser = Depends(get_current_user)):
     """Remove stored Spotify tokens for the current user."""
     pool = await get_pool()
     await pool.execute(

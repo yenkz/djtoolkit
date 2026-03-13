@@ -16,6 +16,11 @@ jobs:
     strategy:
       matrix:
         os: [macos-14, macos-13]   # macos-14 = arm64, macos-13 = x86_64
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-13
+            arch: x86_64
 
     steps:
       - name: Checkout
@@ -46,9 +51,21 @@ jobs:
           export VERSION="${VERSION#v}"
           bash packaging/macos/build.sh
 
-      - name: Upload .dmg as release asset
+      - name: Create Homebrew tarball
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          VERSION="${VERSION#v}"
+          TAR_NAME="djtoolkit-${VERSION}-${{ matrix.arch }}.tar.gz"
+          tar czf "${TAR_NAME}" -C dist djtoolkit
+          echo "TAR_NAME=${TAR_NAME}" >> "$GITHUB_ENV"
+          echo "Created: ${TAR_NAME} ($(du -sh "${TAR_NAME}" | cut -f1))"
+
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.dmg"
+          files: |
+            *.dmg
+            ${{ env.TAR_NAME }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

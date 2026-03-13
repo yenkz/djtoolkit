@@ -1,6 +1,6 @@
 # djtoolkit/api
 
-FastAPI backend serving the web dashboard and REST API.
+FastAPI backend serving the REST API.
 
 ---
 
@@ -8,7 +8,7 @@ FastAPI backend serving the web dashboard and REST API.
 
 | File | Description |
 |---|---|
-| `app.py` | FastAPI application factory — mounts the API router and serves `ui/index.html` as static |
+| `app.py` | FastAPI application factory — mounts API routers, CORS, lifespan |
 | `routes.py` | All REST endpoint handlers |
 
 ---
@@ -17,8 +17,7 @@ FastAPI backend serving the web dashboard and REST API.
 
 ```
 FastAPI app (app.py)
-  ├── /api/*     → APIRouter (routes.py)
-  └── /          → static files (ui/index.html)
+  └── /api/*     → APIRouter (routes.py)
 ```
 
 The app reads `djtoolkit.toml` from the current working directory on each request via `load_config()`. No global state is held between requests.
@@ -37,7 +36,7 @@ The app reads `djtoolkit.toml` from the current working directory on each reques
 ## Running locally
 
 ```bash
-make ui    # poetry run uvicorn djtoolkit.api.app:app --reload --port 8000
+make api   # poetry run uvicorn djtoolkit.api.app:app --reload --port 8000
 ```
 
 The `--reload` flag restarts the server on code changes during development.

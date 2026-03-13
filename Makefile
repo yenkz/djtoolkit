@@ -1,5 +1,5 @@
 .PHONY: init install setup import-csv download fingerprint apply-metadata move-to-library \
-        import-folder enrich fetch-cover-art migrate-db check-db wipe-db reconcile normalize playlist ui dev \
+        import-folder enrich fetch-cover-art migrate-db check-db wipe-db reconcile normalize playlist api dev \
         test lint import-trackid
 
 .DEFAULT_GOAL := help
@@ -23,7 +23,7 @@ help:
 	@echo "  enrich          ARGS='...' enrich DB only"
 	@echo "  fetch-cover-art embed cover art"
 	@echo ""
-	@echo "  ui              start FastAPI + UI at http://localhost:8000"
+	@echo "  api             start FastAPI API server at http://localhost:8000"
 	@echo "  check-db        DB integrity check"
 	@echo "  wipe-db         drop and recreate DB (destructive)"
 	@echo "  test            run pytest"
@@ -123,12 +123,12 @@ playlist:
 dedup:
 	$(DJ) dedup --config $(CONFIG)
 
-# ── Dev / UI ──────────────────────────────────────────────────────────────────
+# ── Dev ───────────────────────────────────────────────────────────────────────
 
-ui:
+api:
 	$(PYTHON) -m uvicorn djtoolkit.api.app:app --reload --port 8000
 
-dev: ui
+dev: api
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
 

@@ -456,7 +456,7 @@ async def recover_stale_jobs():
 
 ## Web UI (Next.js 14)
 
-Replace `ui/index.html` with a Next.js 14 App Router application:
+Next.js App Router application (implemented in `web/`):
 
 - **Login page** — Supabase Auth UI (`@supabase/ssr`)
 - **Catalog** — per-user track table with filter/pagination

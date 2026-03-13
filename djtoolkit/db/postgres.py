@@ -20,9 +20,12 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, TYPE_CHECKING
 
-import asyncpg
+# Lazy import — asyncpg is server-side only and excluded from the agent binary.
+# TYPE_CHECKING guard prevents import at runtime in agent mode.
+if TYPE_CHECKING:
+    import asyncpg
 
 
 _pool: asyncpg.Pool | None = None
@@ -42,7 +45,8 @@ async def get_pool() -> asyncpg.Pool:
                 "SUPABASE_DATABASE_URL is not set. "
                 "Add it to your .env file (see .env.example)."
             )
-        _pool = await asyncpg.create_pool(url, min_size=1, max_size=10)
+        import asyncpg as _asyncpg
+        _pool = await _asyncpg.create_pool(url, min_size=1, max_size=10)
     return _pool
 
 

@@ -15,10 +15,12 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
+from djtoolkit.api.audit import audit_log
 from djtoolkit.api.auth import CurrentUser, create_agent_key, get_current_user
+from djtoolkit.api.rate_limit import limiter, _get_agent_rate_limit_key
 from djtoolkit.db.postgres import get_pool
 
 
@@ -40,6 +42,8 @@ class AgentRegisterResponse(BaseModel):
 
 class AgentHeartbeatRequest(BaseModel):
     capabilities: Optional[list[str]] = None
+    version: Optional[str] = None
+    active_jobs: Optional[int] = None
 
 
 class AgentOut(BaseModel):
@@ -53,7 +57,9 @@ class AgentOut(BaseModel):
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/register", response_model=AgentRegisterResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/hour")
 async def register_agent(
+    request: Request,
     body: AgentRegisterRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -61,25 +67,35 @@ async def register_agent(
 
     Returns the plain API key once.  Store it in the agent's config.
     """
-    plain_key, key_hash = create_agent_key()
+    plain_key, key_hash, key_prefix = create_agent_key()
     agent_id = str(uuid.uuid4())
     pool = await get_pool()
     await pool.execute(
         """
-        INSERT INTO agents (id, user_id, api_key_hash, machine_name, capabilities)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO agents (id, user_id, api_key_hash, api_key_prefix, machine_name, capabilities)
+        VALUES ($1, $2, $3, $4, $5, $6)
         """,
         agent_id,
         user.user_id,
         key_hash,
+        key_prefix,
         body.machine_name,
         body.capabilities or [],
+    )
+    await audit_log(
+        user.user_id, "agent.register",
+        resource_type="agent",
+        resource_id=agent_id,
+        details={"machine_name": body.machine_name},
+        ip_address=request.client.host if request.client else None,
     )
     return AgentRegisterResponse(agent_id=agent_id, api_key=plain_key)
 
 
 @router.post("/heartbeat", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("200/hour", key_func=_get_agent_rate_limit_key)
 async def agent_heartbeat(
+    request: Request,
     body: AgentHeartbeatRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -100,6 +116,14 @@ async def agent_heartbeat(
         updates.append(f"capabilities = ${len(args) + 1}")
         args.append(body.capabilities)
 
+    if body.version is not None:
+        updates.append(f"version = ${len(args) + 1}")
+        args.append(body.version)
+
+    if body.active_jobs is not None:
+        updates.append(f"active_jobs = ${len(args) + 1}")
+        args.append(body.active_jobs)
+
     await pool.execute(
         f"UPDATE agents SET {', '.join(updates)} WHERE id = $1",
         *args,
@@ -107,7 +131,8 @@ async def agent_heartbeat(
 
 
 @router.get("", response_model=list[AgentOut])
-async def list_agents(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit("300/hour")
+async def list_agents(request: Request, user: CurrentUser = Depends(get_current_user)):
     """List all registered agents for the authenticated user."""
     pool = await get_pool()
     rows = await pool.fetch(
@@ -132,7 +157,9 @@ async def list_agents(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("300/hour")
 async def delete_agent(
+    request: Request,
     agent_id: str,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -150,3 +177,9 @@ async def delete_agent(
     deleted = int(result.split()[-1])
     if deleted == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    await audit_log(
+        user.user_id, "agent.delete",
+        resource_type="agent",
+        resource_id=agent_id,
+        ip_address=request.client.host if request.client else None,
+    )

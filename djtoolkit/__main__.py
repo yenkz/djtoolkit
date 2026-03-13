@@ -464,72 +464,166 @@ def coverart_list(
 
 @agent_app.command("configure")
 def agent_configure(
+    api_key: Annotated[str, typer.Option("--api-key", help="Agent API key (djt_xxx)")],
     cloud_url: Annotated[str, typer.Option("--cloud-url", help="Cloud API base URL")] = "https://api.djtoolkit.com",
-    api_key: Annotated[str, typer.Option("--api-key", help="Agent API key (djt_xxx)")] = "",
-    config: ConfigOpt = "djtoolkit.toml",
 ):
-    """Write [agent] section to djtoolkit.toml."""
-    import tomllib
-    from pathlib import Path as _Path
+    """Configure the local agent — stores credentials in macOS Keychain."""
+    from djtoolkit.agent.keychain import store_agent_credentials, has_secret, API_KEY
 
-    cfg_path = _Path(config)
-    data: dict = {}
-    if cfg_path.exists():
-        with open(cfg_path, "rb") as f:
-            data = tomllib.load(f)
+    if not api_key.startswith("djt_"):
+        console.print("[red]API key must start with 'djt_'[/red]")
+        raise typer.Exit(1)
 
-    data.setdefault("agent", {})
-    data["agent"]["cloud_url"] = cloud_url
-    if api_key:
-        data["agent"]["api_key"] = api_key
+    # Prompt for Soulseek credentials
+    slsk_user = typer.prompt("Soulseek username")
+    slsk_pass = typer.prompt("Soulseek password", hide_input=True)
+    acoustid = typer.prompt("AcoustID API key (optional, press Enter to skip)", default="")
 
-    # Write back as TOML (simple serialiser — sufficient for string/float/int/bool values)
-    def _toml_val(v):
-        if isinstance(v, bool):
-            return "true" if v else "false"
-        if isinstance(v, str):
-            return f'"{v}"'
-        return str(v)
+    store_agent_credentials(
+        api_key=api_key,
+        slsk_username=slsk_user,
+        slsk_password=slsk_pass,
+        acoustid_key=acoustid or None,
+    )
 
-    lines: list[str] = []
-    for section, vals in data.items():
-        if not isinstance(vals, dict):
-            continue
-        lines.append(f"\n[{section}]")
-        for k, v in vals.items():
-            lines.append(f"{k} = {_toml_val(v)}")
+    # Write non-secret config to ~/.djtoolkit/config.toml
+    config_dir = Path.home() / ".djtoolkit"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config.toml"
 
-    cfg_path.write_text("\n".join(lines).lstrip() + "\n")
-    console.print(f"[green]✓[/green] Wrote [bold]{config}[/bold]")
+    config_content = f"""[agent]
+cloud_url = "{cloud_url}"
+poll_interval_sec = 30
+max_concurrent_jobs = 2
+
+[soulseek]
+search_timeout_sec = 15
+download_timeout_sec = 300
+
+[fingerprint]
+enabled = true
+
+[cover_art]
+sources = "coverart itunes deezer"
+"""
+    config_path.write_text(config_content)
+
+    console.print(f"[green]✓[/green] Credentials stored in macOS Keychain")
+    console.print(f"[green]✓[/green] Config written to [bold]{config_path}[/bold]")
     console.print(f"  cloud_url = {cloud_url}")
-    if api_key:
-        console.print(f"  api_key   = {api_key[:8]}…")
+    console.print(f"\nNext: run [bold]djtoolkit agent install[/bold] to start the background daemon.")
+
+
+@agent_app.command("install")
+def agent_install():
+    """Install the agent as a macOS LaunchAgent (runs on login)."""
+    from djtoolkit.agent.launchd import install, is_installed
+    from djtoolkit.agent.keychain import has_secret, API_KEY
+
+    if not has_secret(API_KEY):
+        console.print("[red]Agent not configured.[/red] Run [bold]djtoolkit agent configure --api-key djt_xxx[/bold] first.")
+        raise typer.Exit(1)
+
+    if is_installed():
+        console.print("[yellow]Agent already installed.[/yellow] Use [bold]djtoolkit agent start/stop[/bold] to manage.")
+        return
+
+    plist_path = install()
+    console.print(f"[green]✓[/green] Agent installed and started")
+    console.print(f"  Plist: {plist_path}")
+    console.print(f"  Logs:  ~/Library/Logs/djtoolkit/agent.log")
+
+
+@agent_app.command("uninstall")
+def agent_uninstall():
+    """Uninstall the agent LaunchAgent and clear credentials."""
+    from djtoolkit.agent.launchd import uninstall, is_installed
+    from djtoolkit.agent.keychain import clear_agent_credentials
+
+    if is_installed():
+        uninstall()
+        console.print("[green]✓[/green] LaunchAgent removed")
+    else:
+        console.print("[dim]LaunchAgent was not installed.[/dim]")
+
+    if typer.confirm("Also remove credentials from Keychain?", default=True):
+        clear_agent_credentials()
+        console.print("[green]✓[/green] Keychain entries cleared")
 
 
 @agent_app.command("start")
-def agent_start(config: ConfigOpt = "djtoolkit.toml"):
-    """Start the local agent polling loop."""
+def agent_start():
+    """Resume the agent (launchctl load)."""
+    from djtoolkit.agent.launchd import start
+    try:
+        start()
+        console.print("[green]✓[/green] Agent started")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+
+@agent_app.command("stop")
+def agent_stop():
+    """Temporarily stop the agent (launchctl unload)."""
+    from djtoolkit.agent.launchd import stop
+    try:
+        stop()
+        console.print("[green]✓[/green] Agent stopped")
+    except FileNotFoundError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+
+@agent_app.command("status")
+def agent_status():
+    """Show agent daemon status."""
+    from djtoolkit.agent.launchd import is_installed, is_running
+
+    if not is_installed():
+        console.print("[dim]Agent not installed.[/dim]")
+        return
+
+    running = is_running()
+    status_str = "[green]running[/green]" if running else "[red]stopped[/red]"
+    console.print(f"Agent: {status_str}")
+    console.print(f"  Logs: ~/Library/Logs/djtoolkit/agent.log")
+
+
+@agent_app.command("logs")
+def agent_logs():
+    """Tail the agent log file."""
+    import subprocess
+    log_path = Path.home() / "Library" / "Logs" / "djtoolkit" / "agent.log"
+    if not log_path.exists():
+        console.print(f"[dim]Log file not found: {log_path}[/dim]")
+        raise typer.Exit(1)
+    try:
+        subprocess.run(["tail", "-f", str(log_path)])
+    except KeyboardInterrupt:
+        pass
+
+
+@agent_app.command("run")
+def agent_run(
+    config: ConfigOpt = str(Path.home() / ".djtoolkit" / "config.toml"),
+):
+    """Run the agent daemon directly (used by launchd, not typically run manually)."""
     import asyncio
     import logging
-    from rich.logging import RichHandler
-    from djtoolkit.agent.runner import run_agent
+    from djtoolkit.agent.daemon import run_daemon
 
+    # Use file-based logging for daemon mode
+    log_dir = Path.home() / "Library" / "Logs" / "djtoolkit"
+    log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
-        format="%(message)s",
-        handlers=[RichHandler(console=console, show_path=False, show_time=False)],
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[logging.FileHandler(log_dir / "agent.log")],
     )
 
     cfg = _cfg(config)
-    if not cfg.agent.api_key:
-        console.print("[red]No agent API key configured.[/red] Run [bold]djtoolkit agent configure --api-key djt_xxx[/bold] first.")
-        raise typer.Exit(1)
-
-    console.print(f"Starting agent → {cfg.agent.cloud_url}")
-    try:
-        asyncio.run(run_agent(cfg))
-    except KeyboardInterrupt:
-        console.print("\n[yellow]Agent stopped.[/yellow]")
+    asyncio.run(run_daemon(cfg))
 
 
 if __name__ == "__main__":

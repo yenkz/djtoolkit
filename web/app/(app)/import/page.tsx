@@ -7,7 +7,8 @@ import {
   fetchSpotifyPlaylists,
   importSpotifyPlaylistNoJobs,
   importCsvNoJobs,
-  importTrackIdNoJobs,
+  submitTrackIdJob,
+  getTrackIdJobStatus,
   fetchTracksByIds,
   bulkCreateJobs,
   bulkDeleteTracks,
@@ -16,6 +17,7 @@ import {
   registerAgent,
   disconnectSpotify,
   type Track,
+  type TrackIdJobStatus,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
@@ -109,6 +111,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   const [trackIdUrl, setTrackIdUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [trackIdStatus, setTrackIdStatus] = useState<TrackIdJobStatus | null>(null);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -128,7 +131,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
     const isReturningFromSpotify = searchParams.get("spotify") === "connected";
     if (isReturningFromSpotify) {
       toast.success("Spotify connected! Loading your playlists…");
-      window.history.replaceState({}, "", "/onboarding");
+      window.history.replaceState({}, "", "/import");
       const saved = sessionStorage.getItem(SESSION_KEY);
       if (saved) {
         try {
@@ -142,7 +145,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
     }
     if (searchParams.get("spotify") === "error") {
       toast.error("Spotify connection failed. Please try again.");
-      window.history.replaceState({}, "", "/onboarding");
+      window.history.replaceState({}, "", "/import");
     }
     loadPlaylists();
   }, [loadPlaylists, searchParams]);
@@ -168,42 +171,53 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   async function handleContinue() {
     if (sourcesSelected === 0) return;
     setLoading(true);
+    setTrackIdStatus(null);
     try {
-      // Run Spotify + CSV in parallel
+      // Run Spotify + CSV in parallel (fast, no progress needed)
       const parallelCalls: Promise<{ track_ids: number[] }>[] = [];
       if (selectedPlaylistId) parallelCalls.push(importSpotifyPlaylistNoJobs(selectedPlaylistId));
       if (csvFile) parallelCalls.push(importCsvNoJobs(csvFile));
       const parallelResults = await Promise.all(parallelCalls);
 
-      // Run TrackID separately so we can inspect the result
+      // Submit TrackID job and poll for progress
       let trackIdIds: number[] = [];
       if (trackIdValid) {
-        const result = await importTrackIdNoJobs(trackIdUrl);
-        trackIdIds = result.track_ids;
-        if (result.imported === 0) {
-          toast.warning(
-            "TrackID found no identifiable tracks in this mix — the video may not have enough recognizable tracks above the confidence threshold."
-          );
-          // Only bail out if TrackID was the only source selected
-          if (!selectedPlaylistId && !csvFile) {
-            setLoading(false);
-            return;
+        const { job_id } = await submitTrackIdJob(trackIdUrl);
+
+        // Poll until completed or failed
+        while (true) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const s = await getTrackIdJobStatus(job_id);
+          setTrackIdStatus(s);
+          if (s.status === "completed") {
+            if (s.result!.imported === 0) {
+              toast.warning("TrackID found no identifiable tracks in this mix.");
+              if (!selectedPlaylistId && !csvFile) {
+                setLoading(false);
+                setTrackIdStatus(null);
+                return;
+              }
+            }
+            trackIdIds = s.result!.track_ids;
+            break;
+          }
+          if (s.status === "failed") {
+            throw new Error(s.error ?? "TrackID job failed");
           }
         }
       }
 
-      // Collect all newly imported track IDs across all sources
       const allImportedIds = [
         ...parallelResults.flatMap((r) => r.track_ids),
         ...trackIdIds,
       ];
-
       const tracks = await fetchTracksByIds(allImportedIds);
       onComplete(tracks);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Import failed");
     } finally {
       setLoading(false);
+      setTrackIdStatus(null);
     }
   }
 
@@ -225,7 +239,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? "";
-    window.location.href = `${API_URL}/api/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/onboarding`;
+    window.location.href = `${API_URL}/api/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/import`;
   }
 
   return (
@@ -394,10 +408,24 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
           onChange={(e) => setTrackIdUrl(e.target.value)}
           className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
         />
-        {trackIdValid && (
+        {trackIdValid && !trackIdStatus && (
           <p className="mt-2 text-xs text-yellow-500">
             Track identification runs during import and may take a few minutes.
           </p>
+        )}
+        {trackIdStatus && (
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-indigo-300">{trackIdStatus.step}</span>
+              <span className="text-xs text-gray-500">{trackIdStatus.progress}%</span>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-1.5">
+              <div
+                className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                style={{ width: `${trackIdStatus.progress}%` }}
+              />
+            </div>
+          </div>
         )}
       </div>
 
@@ -415,7 +443,11 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
           disabled={sourcesSelected === 0 || loading}
           className="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {loading ? "Importing…" : "Review tracks →"}
+          {trackIdStatus && loading
+            ? "Identifying tracks…"
+            : loading
+            ? "Importing…"
+            : "Review tracks →"}
         </button>
       </div>
     </div>
@@ -621,9 +653,19 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
 
   useEffect(() => {
     if (apiKey) return;
+    // Check if an agent already exists before registering a new one
     setRegistering(true);
-    registerAgent(machineName)
-      .then((result) => setApiKey(result.api_key))
+    fetchAgents()
+      .then((agents) => {
+        const existing = agents.find((a) => a.machine_name === machineName);
+        if (existing) {
+          // Agent already registered — skip registration, just poll for connection
+          setRegistering(false);
+          return;
+        }
+        return registerAgent(machineName)
+          .then((result) => setApiKey(result.api_key));
+      })
       .catch(() => toast.error("Failed to generate API key. Please try again."))
       .finally(() => setRegistering(false));
   }, [apiKey, machineName, setApiKey]);
@@ -674,19 +716,32 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
         — your files never leave your machine.
       </p>
 
-      {/* Download DMG */}
-      <div className="border border-indigo-500 bg-indigo-950/30 rounded-xl p-4 mb-4 flex items-center gap-3">
+      {/* Homebrew (recommended) */}
+      <div className="border border-indigo-500 bg-indigo-950/30 rounded-xl p-4 mb-3">
+        <div className="flex items-center gap-3 mb-3">
+          <span className="text-2xl">🍺</span>
+          <div className="flex-1">
+            <div className="text-sm font-bold text-white">Homebrew <span className="text-xs font-normal text-indigo-400 ml-1">recommended</span></div>
+            <div className="text-xs text-indigo-300">Automatic updates &middot; includes all dependencies</div>
+          </div>
+        </div>
+        <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
+      </div>
+
+      {/* Direct download */}
+      <div className="border border-gray-700 bg-gray-900 rounded-xl p-4 mb-3 flex items-center gap-3">
         <span className="text-2xl">💿</span>
         <div className="flex-1">
-          <div className="text-sm font-bold text-white">Download for macOS</div>
-          <div className="text-xs text-indigo-300">arm64 + x86_64 · Includes all dependencies</div>
+          <div className="text-sm font-bold text-white">Direct download</div>
+          <div className="text-xs text-gray-500">macOS .dmg &middot; arm64 + x86_64</div>
         </div>
         <a
-          href="https://github.com/YOUR_ORG/djtoolkit/releases/latest/download/djtoolkit-macos.dmg"
-          className="bg-indigo-600 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-indigo-500"
-          download
+          href="https://github.com/yenkz/djtoolkit/releases/latest"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-gray-700 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-gray-600"
         >
-          Download .dmg
+          GitHub Releases
         </a>
       </div>
 
@@ -706,6 +761,7 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
         ) : (
           <>
             <CopyBlock text={`djtoolkit agent configure --api-key ${apiKey}`} />
+            <CopyBlock text="djtoolkit agent install" />
             <CopyBlock text="djtoolkit agent start" />
           </>
         )}

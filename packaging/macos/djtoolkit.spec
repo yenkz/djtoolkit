@@ -40,8 +40,10 @@ a = Analysis(
         "jose.jwt",
         "passlib.handlers.bcrypt",
         "cryptography.hazmat.primitives.kdf.pbkdf2",
-        # asyncpg (server-side only, but imported at module level in some paths)
-        "asyncpg",
+        # macOS Keychain access
+        "keyring",
+        "keyring.backends",
+        "keyring.backends.macOS",
         # typer / click internals
         "typer",
         "typer.main",
@@ -71,6 +73,7 @@ a = Analysis(
         "fastapi",
         "uvicorn",
         "starlette",
+        "asyncpg",
         # Heavy ML deps — optional, skip for base installer
         "essentia",
         "tensorflow",

@@ -1,6 +1,5 @@
-"""FastAPI app — serves REST API and static UI."""
+"""FastAPI app — serves REST API."""
 
-from pathlib import Path
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -8,17 +7,16 @@ load_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-from djtoolkit.api.routes import router
 from djtoolkit.api.auth_routes import router as auth_router
 from djtoolkit.api.catalog_routes import router as catalog_router
 from djtoolkit.api.pipeline_routes import router as pipeline_router, _stale_job_sweeper
+from djtoolkit.api.rate_limit import limiter
 from djtoolkit.api.spotify_auth_routes import router as spotify_auth_router, _cleanup_expired_states
 from djtoolkit.db.postgres import close_pool, get_pool
 
-_UI_DIR = Path(__file__).parent.parent.parent / "ui"
 
 
 @asynccontextmanager
@@ -40,6 +38,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="djtoolkit", version="0.1.0", lifespan=lifespan)
 
+# ─── Rate limiting ───────────────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Allow the Next.js dev server and any deployed UI origin.
 app.add_middleware(
     CORSMiddleware,
@@ -53,7 +55,11 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
-app.include_router(router, prefix="/api")
+# SECURITY: Legacy routes.py (11 unauthenticated SQLite endpoints: /tracks,
+# /pipeline/*, /logs, /soulseek/health, /db/check) removed from the cloud app.
+# These were designed for local-only use with ui/index.html and must not be
+# exposed on the public FastAPI server. The file is kept for local CLI usage
+# (`make ui`) but is no longer mounted here.
 app.include_router(auth_router, prefix="/api")
 app.include_router(spotify_auth_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
@@ -63,11 +69,3 @@ app.include_router(pipeline_router, prefix="/api")
 @app.get("/health")
 async def health():
     return {"status": "ok"}
-
-# Serve the single-page UI
-if _UI_DIR.exists():
-    app.mount("/static", StaticFiles(directory=_UI_DIR), name="static")
-
-    @app.get("/", response_class=FileResponse)
-    async def index():
-        return FileResponse(_UI_DIR / "index.html")

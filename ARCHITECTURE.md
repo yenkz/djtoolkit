@@ -39,9 +39,9 @@ djtoolkit is a Python CLI for managing a DJ music library. It ingests tracks fro
       └── metadata/writer.py ──► audio files on disk
 
 ┌─────────────────────────────────┐
-│  API & UI                       │
+│  API                            │
 │  api/app.py + api/routes.py     │  ◄── FastAPI, port 8000
-│  ui/index.html                  │  ◄── vanilla JS, no build step
+│  web/                           │  ◄── Next.js frontend
 └─────────────────────────────────┘
 ```
 
@@ -165,7 +165,7 @@ Flow 2:  available (on insert) ──► [processing flags]
 | `config.py` | Load `djtoolkit.toml` into typed dataclasses | — | — |
 | `utils/search_string.py` | Build Soulseek query from artist + title | — | — |
 | `api/routes.py` | REST endpoints for UI + pipeline triggering | `tracks`, `fingerprints` | `acquisition_status` (reset-failed) |
-| `api/app.py` | Mount routes, serve `ui/index.html` | — | — |
+| `api/app.py` | Mount routes, CORS, lifespan | — | — |
 
 ---
 
@@ -189,11 +189,9 @@ Config
 
 ## API & UI
 
-FastAPI (`api/app.py`) runs on port 8000 (`make ui`). It serves two things:
+FastAPI (`api/app.py`) runs on port 8000 (`make api`). The Next.js frontend in `web/` communicates with it via REST.
 
-1. **REST API** (`api/routes.py`) — CRUD on tracks, pipeline triggers (download, fingerprint, metadata apply), Soulseek credentials check, DB integrity check. Pipeline steps run in FastAPI `BackgroundTasks` so the HTTP response returns immediately and progress appears in the log stream.
-
-2. **Static UI** (`ui/index.html`) — A single HTML5 file with vanilla JS. No Node.js, no build step. Polls `/api/logs` for the in-memory log buffer (last 200 entries) and `/api/tracks/stats` for status counts.
+**REST API** (`api/routes.py`) — CRUD on tracks, pipeline triggers (download, fingerprint, metadata apply), Soulseek credentials check, DB integrity check. Pipeline steps run as background jobs claimed by the local agent.
 
 ---
 

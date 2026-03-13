@@ -175,8 +175,39 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
 
         {step === 0 && (
           <div className="space-y-3">
-            <p className="text-sm text-gray-300">Install the djtoolkit package on your macOS machine:</p>
-            <CodeBlock code="pip install djtoolkit" />
+            <p className="text-sm text-gray-300">Install the djtoolkit agent on your macOS machine:</p>
+
+            {/* Homebrew (recommended) */}
+            <div className="rounded-lg border border-indigo-600 bg-indigo-950/30 p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium text-white">Homebrew</span>
+                <span className="rounded bg-indigo-600/40 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300 uppercase">recommended</span>
+              </div>
+              <CodeBlock code="brew tap yenkz/djtoolkit && brew install djtoolkit" />
+            </div>
+
+            {/* Direct download */}
+            <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-white">Direct download</span>
+                <a
+                  href="https://github.com/yenkz/djtoolkit/releases/latest"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded bg-gray-700 px-2.5 py-1 text-xs font-medium text-gray-300 hover:bg-gray-600"
+                >
+                  GitHub Releases
+                </a>
+              </div>
+              <p className="text-xs text-gray-500">Download the .dmg from the latest release (arm64 + x86_64)</p>
+            </div>
+
+            {/* pip fallback */}
+            <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-3">
+              <p className="text-xs text-gray-500 mb-1.5">Or install via pip:</p>
+              <CodeBlock code="pip install djtoolkit" />
+            </div>
+
             <button onClick={() => setStep(1)} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500">
               Next: Generate API key
             </button>
@@ -209,8 +240,9 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
               This key is shown <strong>once</strong>. Copy it now — you cannot retrieve it again.
             </div>
             <CodeBlock code={apiKey} />
-            <p className="text-sm text-gray-300">Run this on your machine:</p>
+            <p className="text-sm text-gray-300">Run these on your machine:</p>
             <CodeBlock code={`djtoolkit agent configure --cloud-url ${cloudUrl} --api-key ${apiKey}`} />
+            <CodeBlock code="djtoolkit agent install" />
             <button onClick={startPolling} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500">
               Next: Start agent
             </button>

@@ -2,13 +2,19 @@
 
 [![CI](https://github.com/yenkz/djtoolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/yenkz/djtoolkit/actions/workflows/ci.yml)
 
-A personal CLI tool for managing a DJ music library — download, tag, deduplicate, and organize tracks automatically.
+A full-stack tool for managing a DJ music library — download, tag, deduplicate, and organize tracks automatically.
 
-djtoolkit uses [aioslsk](https://github.com/JurgenR/aioslsk) to download from Soulseek directly (embedded Python client, no external service), matches tracks from Spotify/Exportify playlists, enriches metadata, fingerprints for deduplication, and moves finalized files into a clean library folder. The SQLite database is the single source of truth for all track state.
+djtoolkit uses [aioslsk](https://github.com/JurgenR/aioslsk) to download from Soulseek directly (embedded Python client, no external service), matches tracks from Spotify playlists, enriches metadata, fingerprints for deduplication, and moves finalized files into a clean library folder.
+
+The system has two modes:
+- **CLI** — local SQLite database, run pipeline steps directly via `make` commands
+- **Web** — Next.js frontend + FastAPI backend backed by Supabase (PostgreSQL), with a local agent daemon that processes jobs in the background
 
 ---
 
 ## Prerequisites
+
+### CLI (Python backend)
 
 | Requirement | Notes |
 | --- | --- |
@@ -18,18 +24,22 @@ djtoolkit uses [aioslsk](https://github.com/JurgenR/aioslsk) to download from So
 | **[Poetry](https://python-poetry.org)** | `brew install poetry` |
 | **Soulseek account** | Free account at [slsknet.org](http://www.slsknet.org) — needed for downloading |
 | **Chromaprint** (`fpcalc`) | `brew install chromaprint` — needed for fingerprinting |
-| **Git** | `brew install git` |
-| **[VSCode](https://code.visualstudio.com)** (recommended) | With the Python extension |
 | **Soulseek credentials** | Username in `djtoolkit.toml [soulseek]`, password in `.env` as `SOULSEEK_PASSWORD` |
 
-### API keys (optional but recommended)
+### Web frontend (optional)
 
-Please note, so far only Spotify App for Developers is in use, ignore the others.
+| Requirement | Notes |
+| --- | --- |
+| **Node.js 20+** | `brew install node` |
+| **npm** | Comes with Node.js |
+| **Supabase project** | Auth + PostgreSQL — configure in `web/.env.local` |
+
+### API keys (optional but recommended)
 
 | Key | Used for | How to get |
 | --- | --- | --- |
 | **AcoustID** | Fingerprint → MusicBrainz lookup (deduplication) | Free at [acoustid.org/login](https://acoustid.org/login) |
-| **Spotify Client ID + Secret** | `spotify` cover art source | Create an app at [developer.spotify.com](https://developer.spotify.com/documentation/web-api/concepts/apps) |
+| **Spotify Client ID + Secret** | Spotify metadata enrichment + cover art | Create an app at [developer.spotify.com](https://developer.spotify.com/documentation/web-api/concepts/apps) |
 | **Last.fm API key** | `lastfm` cover art source | Free at [last.fm/api/account/create](https://www.last.fm/api/account/create) |
 
 These go in `.env` (see `.env.example`). The three default cover art sources — Cover Art Archive, iTunes, and Deezer — require no API keys.
@@ -94,11 +104,31 @@ See [docs/flows.md](docs/flows.md#flow-2) for details.
 
 ## Web UI
 
+The web frontend is a Next.js app in `web/` with Supabase auth, backed by the FastAPI API.
+
 ```bash
-make ui    # starts FastAPI + UI at http://localhost:8000
+# Start the API
+make api                   # FastAPI at http://localhost:8000
+
+# Start the web frontend (separate terminal)
+cd web && npm install && npm run dev   # Next.js at http://localhost:3000
 ```
 
-A single-page dashboard for monitoring pipeline status and triggering operations. No build step, no Node.js.
+Pages: import, catalog, pipeline, agents, settings.
+
+---
+
+## Local Agent
+
+The agent daemon runs on your Mac as a background process, polling the cloud API for jobs (download, fingerprint, metadata, cover art) and executing them locally.
+
+```bash
+djtoolkit agent start      # start the background daemon
+djtoolkit agent stop       # stop the daemon
+djtoolkit agent status     # check daemon status
+```
+
+On macOS, the agent can be installed as a launchd service to auto-start on login.
 
 ---
 
@@ -113,15 +143,87 @@ make move-to-library                 # move tagged files into library_dir (requi
 make move-to-library MODE=imported   # move all available tracks (skips metadata_written check)
 
 make import-folder DIR=path/         # scan existing folder (Flow 2)
+make import-trackid URL=https://...  # identify track from YouTube URL
 djtoolkit metadata apply --source spotify --csv path/to.csv  # enrich DB + write tags in one step
 djtoolkit metadata apply --source audio-analysis             # BPM / key / loudness via librosa
 make enrich ARGS='--spotify x.csv'   # enrich DB only (no file writes)
+make fetch-cover-art                 # fetch + embed cover art
 
 make check-db                        # integrity check
 make migrate-db                      # apply schema migrations to existing DB
 ```
 
 See [docs/flows.md](docs/flows.md) for the full pipeline reference.
+
+---
+
+## Project Structure
+
+```text
+djtoolkit/
+├── djtoolkit/
+│   ├── __main__.py             # Typer CLI entry point
+│   ├── config.py               # loads djtoolkit.toml via tomllib
+│   ├── agent/                  # local agent daemon (job polling + execution)
+│   │   ├── daemon.py           # async event loop
+│   │   ├── runner.py           # job dispatcher
+│   │   ├── executor.py         # job executor
+│   │   ├── client.py           # HTTP client for cloud API
+│   │   ├── keychain.py         # credential storage
+│   │   ├── launchd.py          # macOS launchd integration
+│   │   └── jobs/               # download, fingerprint, metadata, cover_art
+│   ├── api/
+│   │   ├── app.py              # FastAPI app + lifespan
+│   │   ├── auth.py             # JWT/Bearer auth
+│   │   ├── auth_routes.py      # auth endpoints
+│   │   ├── catalog_routes.py   # library search + browse
+│   │   ├── pipeline_routes.py  # job management
+│   │   └── spotify_auth_routes.py  # Spotify OAuth
+│   ├── db/
+│   │   ├── database.py         # SQLite connection + helpers
+│   │   ├── schema.sql          # SQLite schema
+│   │   ├── postgres.py         # asyncpg pool (Supabase)
+│   │   └── pg_schema.sql       # PostgreSQL schema + RLS
+│   ├── importers/
+│   │   ├── exportify.py        # Flow 1: Exportify CSV → candidate tracks
+│   │   ├── folder.py           # Flow 2: scan audio files → available tracks
+│   │   └── trackid.py          # YouTube track identification
+│   ├── downloader/
+│   │   └── aioslsk_client.py   # embedded Soulseek client
+│   ├── fingerprint/
+│   │   └── chromaprint.py      # fpcalc wrapper + AcoustID lookup
+│   ├── metadata/
+│   │   └── writer.py           # mutagen tag writer + filename normalizer
+│   ├── enrichment/
+│   │   ├── spotify.py          # Exportify CSV metadata enrichment
+│   │   └── audio_analysis.py   # librosa BPM/key/loudness
+│   ├── coverart/
+│   │   └── art.py              # cover art fetcher + embedder
+│   ├── library/
+│   │   └── mover.py            # move tagged files to library_dir
+│   └── utils/
+│       └── search_string.py    # Soulseek search query builder
+├── web/                        # Next.js 16 frontend
+│   ├── app/                    # App Router (TypeScript)
+│   │   ├── login/              # login page
+│   │   ├── auth/callback/      # OAuth callback
+│   │   └── (app)/              # authenticated pages
+│   │       ├── import/         # import flows
+│   │       ├── catalog/        # library browse
+│   │       ├── pipeline/       # pipeline status
+│   │       ├── agents/         # agent management
+│   │       └── settings/       # settings
+│   ├── components/             # React components
+│   ├── lib/                    # API client + Supabase setup
+│   └── Dockerfile              # multi-stage build
+├── tests/
+├── packaging/macos/            # PyInstaller config
+├── nginx/                      # reverse proxy config
+├── docker-compose.yml          # production deployment
+├── Dockerfile                  # API container
+├── Makefile
+└── pyproject.toml
+```
 
 ---
 
@@ -133,6 +235,16 @@ See [docs/configuration.md](docs/configuration.md) for a full reference.
 
 ---
 
+## Deployment
+
+Production runs via Docker Compose on Hetzner with nginx as a reverse proxy and Let's Encrypt for TLS. GitHub Actions builds images to GHCR on push to master.
+
+```bash
+docker compose up -d    # api (8000) + web (3000) + nginx (80/443)
+```
+
+---
+
 ## Documentation
 
 | Doc | Contents |
@@ -140,9 +252,8 @@ See [docs/configuration.md](docs/configuration.md) for a full reference.
 | [docs/flows.md](docs/flows.md) | Pipeline walkthroughs (Flow 1 & 2) |
 | [docs/configuration.md](docs/configuration.md) | Full `djtoolkit.toml` reference |
 | [docs/database.md](docs/database.md) | Schema, track lifecycle, processing flags |
-| [docs/api.md](docs/api.md) | REST API & web UI endpoints |
+| [docs/api.md](docs/api.md) | REST API endpoints |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design & component overview |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 
 ---
 

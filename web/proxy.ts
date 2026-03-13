@@ -37,8 +37,10 @@ export async function proxy(request: NextRequest) {
   }
 
   // Redirect authenticated users away from /login
+  // First-run users go to /import; returning users go to /catalog
   if (user && pathname === "/login") {
-    return NextResponse.redirect(new URL("/catalog", request.url));
+    const dest = user.user_metadata?.onboarding_completed ? "/catalog" : "/import";
+    return NextResponse.redirect(new URL(dest, request.url));
   }
 
   return supabaseResponse;

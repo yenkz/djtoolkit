@@ -7,7 +7,7 @@ djtoolkit includes a FastAPI backend and a single-page web dashboard for monitor
 ## Starting the server
 
 ```bash
-make ui    # starts at http://localhost:8000
+make api    # starts at http://localhost:8000
 ```
 
 The API is served at `/api/` and the dashboard at `/`.
@@ -77,17 +77,10 @@ The log buffer holds the last 200 lines from all djtoolkit modules.
 
 ## Web UI
 
-The dashboard (`ui/index.html`) is a single HTML5 page with vanilla JS — no build step, no Node.js. It is served as a static file by FastAPI.
-
-Features:
-- Track table with filtering by acquisition status
-- Pipeline status tiles (counts per stage)
-- One-click buttons to trigger pipeline steps
-- Live log tail (polls `/api/logs` every 2 seconds)
-- Soulseek credentials status indicator
+The web frontend is a Next.js app in `web/`, communicating with the FastAPI backend via REST API. See `web/` for details.
 
 ---
 
 ## Configuration
 
-The API server reads `djtoolkit.toml` from the working directory where `make ui` is run. To use a different config file, edit `_CONFIG_PATH` in `djtoolkit/api/routes.py` or set the path before starting.
+The API server reads `djtoolkit.toml` from the working directory where `make api` is run. To use a different config file, edit `_CONFIG_PATH` in `djtoolkit/api/routes.py` or set the path before starting.

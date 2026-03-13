@@ -42,7 +42,7 @@ make normalize                    # ReplayGain/EBU R128 loudness normalization
 make playlist                     # generate M3U playlists grouped by genre/style
 
 # Dev
-make ui                           # start FastAPI + UI at http://localhost:8000
+make api                          # start FastAPI API server at http://localhost:8000
 poetry run pytest                 # run all tests
 poetry run pytest tests/test_X.py # run single test file
 ```
@@ -81,8 +81,6 @@ djtoolkit/
 │   └── api/
 │       ├── app.py              # FastAPI app, mounts static UI
 │       └── routes.py           # REST endpoints for the UI
-├── ui/
-│   └── index.html              # Single-page HTML5 + vanilla JS UI (no build step)
 ├── legacy/
 │   └── spotify_oauth/          # deprecated OAuth-based Spotify import — DO NOT USE
 ├── tests/
@@ -171,7 +169,7 @@ Each module queries only its relevant `acquisition_status` + flag combination �
 - Optional (Linux/macOS x86_64, Python ≤3.11): `essentia-tensorflow` for MusicNN embeddings → Discogs genre + vocal/instrumental classifiers
 - Key algorithm: Krumhansl-Schmuckler on chroma_cqt
 
-**UI**: Single HTML5 page (`ui/index.html`), served as static file by FastAPI. No build step, no Node.js. Vanilla JS only.
+**UI**: Next.js app in `web/`, communicates with the FastAPI backend via REST API.
 
 **Legacy**: `legacy/spotify_oauth/` contains the old rate-unlimited, deprecated-endpoint Spotify OAuth import. Never import from it in new code.
 

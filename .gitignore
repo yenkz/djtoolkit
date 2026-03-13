@@ -63,6 +63,11 @@ htmlcov/
 .postman/
 postman/
 
+# Claude Code / Superpowers
+.claude/
+.mcp.json
+.superpowers/
+
 # Git worktrees
 .worktrees/
 

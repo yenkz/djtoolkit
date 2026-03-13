@@ -196,12 +196,26 @@ export async function importSpotifyPlaylistNoJobs(
   return res.json();
 }
 
-export async function importTrackIdNoJobs(url: string): Promise<ImportResult> {
+export async function submitTrackIdJob(url: string): Promise<{ job_id: string }> {
   const res = await apiClient(
     `/catalog/import/trackid?queue_jobs=false`,
     { method: "POST", body: JSON.stringify({ url }) }
   );
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export interface TrackIdJobStatus {
+  status: string;       // queued | submitting | fingerprinting | matching | inserting | completed | failed
+  progress: number;     // 0–100
+  step: string;         // human-readable current step
+  error: string | null;
+  result: ImportResult | null;
+}
+
+export async function getTrackIdJobStatus(jobId: string): Promise<TrackIdJobStatus> {
+  const res = await apiClient(`/catalog/import/trackid/${jobId}/status`);
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json();
 }
 

@@ -19,9 +19,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
+from djtoolkit.api.audit import audit_log
 from djtoolkit.api.auth import CurrentUser, get_current_user
+from djtoolkit.api.rate_limit import limiter, _get_agent_rate_limit_key
 from djtoolkit.db.postgres import get_pool
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -95,8 +97,18 @@ class PipelineStatusResponse(BaseModel):
     agents: list[AgentStatus]
 
 
+_MAX_BULK_ITEMS = 1000
+
+
 class BulkJobsRequest(BaseModel):
     track_ids: list[int]
+
+    @field_validator("track_ids")
+    @classmethod
+    def validate_track_ids_size(cls, v: list[int]) -> list[int]:
+        if len(v) > _MAX_BULK_ITEMS:
+            raise ValueError(f"track_ids cannot exceed {_MAX_BULK_ITEMS} items")
+        return v
 
 
 class BulkJobsResult(BaseModel):
@@ -200,6 +212,42 @@ async def _apply_job_result(conn, job_id: str, user_id: str, job_type: str, resu
                     "UPDATE tracks SET cover_art_written = TRUE, cover_art_embedded_at = NOW(), updated_at = NOW() WHERE id = $1 AND user_id = $2",
                     track_id, user_id,
                 )
+            # Auto-queue metadata job (regardless of cover_art success)
+            local_path = await conn.fetchval("SELECT local_path FROM tracks WHERE id = $1", track_id)
+            if local_path:
+                row = await conn.fetchrow(
+                    """SELECT title, artist, album, artists, year, release_date,
+                              genres, record_label, isrc, bpm, musical_key,
+                              duration_ms, enriched_spotify, enriched_audio
+                       FROM tracks WHERE id = $1""",
+                    track_id,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
+                    VALUES ($1, $2, 'metadata', $3)
+                    """,
+                    user_id, track_id,
+                    json.dumps({
+                        "track_id": track_id,
+                        "local_path": local_path,
+                        "title": row["title"] or "",
+                        "artist": row["artist"] or "",
+                        "album": row["album"] or "",
+                        "artists": row["artists"] or "",
+                        "year": row["year"],
+                        "release_date": row["release_date"] or "",
+                        "genres": row["genres"] or "",
+                        "record_label": row["record_label"] or "",
+                        "isrc": row["isrc"] or "",
+                        "bpm": row["bpm"],
+                        "musical_key": row["musical_key"] or "",
+                        "duration_ms": row["duration_ms"],
+                        "metadata_source": "spotify" if row["enriched_spotify"] else (
+                            "audio-analysis" if row["enriched_audio"] else None
+                        ),
+                    }),
+                )
 
 
 # ─── Stale job recovery (called during lifespan or background task) ───────────
@@ -246,7 +294,9 @@ def start_background_tasks(app) -> None:
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/jobs/bulk", response_model=BulkJobsResult, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/hour")
 async def bulk_create_jobs(
+    request: Request,
     body: BulkJobsRequest,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -291,11 +341,19 @@ async def bulk_create_jobs(
             )
             created += 1
 
+    await audit_log(
+        user.user_id, "job.bulk_create",
+        resource_type="pipeline_job",
+        details={"created": created, "requested_track_ids": body.track_ids},
+        ip_address=request.client.host if request.client else None,
+    )
     return BulkJobsResult(created=created)
 
 
 @router.get("/jobs", response_model=list[JobOut])
+@limiter.limit("300/hour")
 async def fetch_jobs(
+    request: Request,
     limit: int = Query(2, ge=1, le=10),
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -325,7 +383,9 @@ async def fetch_jobs(
 
 
 @router.post("/jobs/{job_id}/claim", response_model=JobOut)
+@limiter.limit("100/hour")
 async def claim_job(
+    request: Request,
     job_id: str,
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -372,7 +432,9 @@ async def claim_job(
 
 
 @router.put("/jobs/{job_id}/result", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("100/hour")
 async def report_job_result(
+    request: Request,
     job_id: str,
     body: JobResultRequest,
     user: CurrentUser = Depends(get_current_user),
@@ -417,11 +479,27 @@ async def report_job_result(
             if body.status == "done" and body.result:
                 await _apply_job_result(conn, job_id, user.user_id, job["job_type"], body.result)
             elif body.status == "failed" and job["job_type"] == "download":
-                # Mark track as failed
-                await conn.execute(
-                    "UPDATE tracks SET acquisition_status = 'failed', updated_at = NOW() WHERE id = $1 AND user_id = $2",
-                    job["track_id"], user.user_id,
-                )
+                retry_count = await conn.fetchval(
+                    "SELECT retry_count FROM pipeline_jobs WHERE id = $1", job_id,
+                ) or 0
+                if retry_count < 3:
+                    # Re-queue with incremented retry count
+                    payload = await conn.fetchval(
+                        "SELECT payload FROM pipeline_jobs WHERE id = $1", job_id,
+                    )
+                    await conn.execute(
+                        """
+                        INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload, retry_count)
+                        VALUES ($1, $2, 'download', $3, $4)
+                        """,
+                        user.user_id, job["track_id"], payload, retry_count + 1,
+                    )
+                else:
+                    # Max retries exceeded — mark track as failed
+                    await conn.execute(
+                        "UPDATE tracks SET acquisition_status = 'failed', updated_at = NOW() WHERE id = $1 AND user_id = $2",
+                        job["track_id"], user.user_id,
+                    )
 
     # Broadcast job update to any listening SSE connections
     broadcast(user.user_id, "job_update", {
@@ -431,9 +509,18 @@ async def report_job_result(
         "track_id": job["track_id"],
     })
 
+    await audit_log(
+        user.user_id, "job.result",
+        resource_type="pipeline_job",
+        resource_id=job_id,
+        details={"job_type": job["job_type"], "status": body.status, "track_id": job["track_id"]},
+        ip_address=request.client.host if request.client else None,
+    )
+
 
 @router.get("/status", response_model=PipelineStatusResponse)
-async def pipeline_status(user: CurrentUser = Depends(get_current_user)):
+@limiter.limit("300/hour")
+async def pipeline_status(request: Request, user: CurrentUser = Depends(get_current_user)):
     pool = await get_pool()
 
     pending = await pool.fetchval(
@@ -465,8 +552,9 @@ async def pipeline_status(user: CurrentUser = Depends(get_current_user)):
 
 
 @router.get("/events")
+@limiter.limit("300/hour")
 async def pipeline_events(
-    request: Request,
+    request: Request,  # also used by limiter
     token: Optional[str] = Query(None),
     user: CurrentUser = Depends(get_current_user),
 ):

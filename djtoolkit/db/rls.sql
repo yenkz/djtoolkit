@@ -15,6 +15,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON fingerprints   TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON pipeline_jobs  TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON agents         TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON track_embeddings TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON trackid_import_jobs TO authenticated;
+GRANT SELECT, INSERT                 ON trackid_url_cache   TO authenticated;
+GRANT SELECT                         ON audit_logs          TO authenticated;
 
 GRANT USAGE ON SEQUENCE tracks_id_seq        TO authenticated;
 GRANT USAGE ON SEQUENCE fingerprints_id_seq  TO authenticated;
@@ -69,6 +72,46 @@ CREATE POLICY track_embeddings_isolation ON track_embeddings
               AND t.user_id = current_setting('app.current_user_id', true)::UUID
         )
     );
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- trackid_import_jobs
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE trackid_import_jobs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY trackid_import_jobs_isolation ON trackid_import_jobs
+    USING (user_id = current_setting('app.current_user_id', true)::UUID)
+    WITH CHECK (user_id = current_setting('app.current_user_id', true)::UUID);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- trackid_url_cache  (shared cache — no user_id column)
+-- Intentionally shared across all users: caching YouTube URL identification
+-- results benefits everyone and the data contains no user-specific information.
+-- Authenticated users may read any row and insert new rows.
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE trackid_url_cache ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY trackid_url_cache_read ON trackid_url_cache
+    FOR SELECT
+    TO authenticated
+    USING (true);
+
+CREATE POLICY trackid_url_cache_insert ON trackid_url_cache
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (true);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- audit_logs  (service_role inserts; users can only read their own rows)
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY audit_logs_select ON audit_logs
+    FOR SELECT
+    TO authenticated
+    USING (user_id = current_setting('app.current_user_id', true)::UUID);
+
+-- Inserts go through the service_role pool connection (bypasses RLS).
+-- No INSERT policy needed for authenticated — prevents users from forging logs.
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- users table — service_role only; no RLS policy

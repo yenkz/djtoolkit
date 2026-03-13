@@ -32,7 +32,11 @@ from cryptography.hazmat.primitives.asymmetric.ec import (
 )
 from cryptography.hazmat.backends import default_backend
 
+import logging
+
 from djtoolkit.db.postgres import get_pool
+
+_auth_log = logging.getLogger(__name__)
 
 
 # ─── Password / key hashing ───────────────────────────────────────────────────
@@ -47,21 +51,25 @@ def _verify_key(plain: str, hashed: str) -> bool:
     return _bcrypt_lib.checkpw(plain.encode(), hashed.encode())
 
 
-def create_agent_key() -> tuple[str, str]:
-    """Return ``(plain_key, bcrypt_hash)`` for a new agent API key.
+def create_agent_key() -> tuple[str, str, str]:
+    """Return ``(plain_key, bcrypt_hash, key_prefix)`` for a new agent API key.
 
     The plain key is displayed to the user once and never stored.
     The hash is stored in ``agents.api_key_hash``.
+    The prefix (first 8 hex chars after ``djt_``) is stored in
+    ``agents.api_key_prefix`` for indexed lookup.
 
     Example::
 
-        plain, hashed = create_agent_key()
+        plain, hashed, prefix = create_agent_key()
         # plain  → "djt_a3f1c2..."   (shown to user once)
         # hashed → "$2b$12$..."       (stored in DB)
+        # prefix → "a3f1c2d4"         (stored for indexed lookup)
     """
     plain = "djt_" + secrets.token_hex(20)
     hashed = _hash_key(plain)
-    return plain, hashed
+    prefix = plain[4:12]  # first 8 chars after djt_
+    return plain, hashed, prefix
 
 
 # ─── Current user context ─────────────────────────────────────────────────────
@@ -166,18 +174,23 @@ async def verify_jwt(token: str) -> CurrentUser:
 async def verify_agent_key(token: str) -> CurrentUser:
     """Verify a ``djt_`` agent API key against ``agents.api_key_hash`` in the DB.
 
-    Raises 401 if the key is not found or does not match any stored hash.
+    Uses the key prefix (first 8 chars after ``djt_``) for an indexed lookup,
+    then bcrypt-verifies only the matching row(s).  Raises 401 if no match.
     """
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid agent API key",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token.startswith("djt_") or len(token) < 12:
+        raise credentials_exc
+
+    prefix = token[4:12]
     pool = await get_pool()
-    # Fetch all agents; bcrypt verification is the slow step — do it in Python.
-    # For MVP scale (each user has ≤ ~5 agents) a full-table scan is fine.
+    # Index-backed lookup by prefix, then bcrypt-verify the matching row(s)
     rows = await pool.fetch(
-        "SELECT id, user_id, api_key_hash FROM agents"
+        "SELECT id, user_id, api_key_hash FROM agents WHERE api_key_prefix = $1",
+        prefix,
     )
     for row in rows:
         try:
@@ -211,5 +224,27 @@ async def get_current_user(
     token = authorization[len("Bearer "):]
 
     if token.count(".") == 2:
-        return await verify_jwt(token)
-    return await verify_agent_key(token)
+        try:
+            return await verify_jwt(token)
+        except HTTPException:
+            await _audit_failed_auth("auth.failed.jwt")
+            raise
+    try:
+        return await verify_agent_key(token)
+    except HTTPException:
+        await _audit_failed_auth("auth.failed.agent_key", key_prefix=token[4:12] if token.startswith("djt_") and len(token) >= 12 else None)
+        raise
+
+
+async def _audit_failed_auth(action: str, *, key_prefix: str | None = None) -> None:
+    """Log a failed authentication attempt.  Fire-and-forget."""
+    try:
+        from djtoolkit.api.audit import audit_log
+        # Use a zeroed UUID since we don't know who attempted the auth
+        await audit_log(
+            "00000000-0000-0000-0000-000000000000",
+            action,
+            details={"key_prefix": key_prefix} if key_prefix else None,
+        )
+    except Exception:
+        _auth_log.debug("Failed to audit log auth failure", exc_info=True)
