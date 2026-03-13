@@ -66,6 +66,13 @@ instrumental_model   = ""   # path to voice_instrumental-audioset-musicnn-1.pb
 genre_top_n          = 3
 genre_threshold      = 0.1
 
+[agent]
+cloud_url               = "https://api.djtoolkit.com"
+# api_key is loaded from DJTOOLKIT_AGENT_KEY in .env — omit here
+poll_interval_sec       = 30.0      # seconds between job polls
+max_concurrent_jobs     = 2         # max parallel background jobs
+local_db_path           = "~/.djtoolkit/agent.db"
+
 [trackid]
 confidence_threshold = 0.7    # 0.0–1.0; tracks below this are skipped
 poll_interval_sec = 7         # seconds between job status polls (clamped to 3–10 internally)
