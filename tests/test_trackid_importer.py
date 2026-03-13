@@ -5,7 +5,7 @@ import urllib.error
 import pytest
 from unittest.mock import patch, MagicMock
 from djtoolkit.importers.trackid import validate_url, submit_job, poll_job, PollTimeoutError
-from djtoolkit.config import Config, TrackIdConfig
+from djtoolkit.config import Config
 
 
 # ─── validate_url ─────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ def test_submit_job_raises_after_max_retries():
 # ─── poll_job ─────────────────────────────────────────────────────────────────
 
 def test_poll_job_returns_on_completed():
-    cfg = _cfg(poll_interval_sec=1, poll_timeout_sec=60)
+    cfg = _cfg(poll_interval_sec=1, poll_timeout_sec=60)  # 1 is clamped to 3 internally; sleep is mocked
     completed = {
         "id": "job_123",
         "status": "completed",
@@ -120,7 +120,7 @@ def test_poll_job_returns_on_completed():
 
 
 def test_poll_job_raises_on_api_failed():
-    cfg = _cfg(poll_interval_sec=1, poll_timeout_sec=60)
+    cfg = _cfg(poll_interval_sec=1, poll_timeout_sec=60)  # 1 is clamped to 3 internally; sleep is mocked
     failed = {"id": "job_123", "status": "failed"}
     mock_resp = _mock_response(failed)
     with patch("urllib.request.urlopen", return_value=mock_resp), \
