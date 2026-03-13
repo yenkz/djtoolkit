@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     acquisition_status TEXT    NOT NULL DEFAULT 'candidate',
                                         -- candidate | downloading | available | failed | duplicate
-    source             TEXT    NOT NULL, -- 'exportify' | 'folder'
+    source             TEXT    NOT NULL, -- 'exportify' | 'folder' | 'trackid'
 
     -- Core metadata
     title            TEXT,
@@ -93,3 +93,23 @@ CREATE TABLE IF NOT EXISTS track_embeddings (
     embedding  BLOB    NOT NULL,       -- float32 numpy array as raw bytes
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS trackid_jobs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    youtube_url    TEXT UNIQUE NOT NULL,  -- normalized canonical URL
+    job_id         TEXT UNIQUE,           -- TrackID.dev job ID
+    status         TEXT NOT NULL DEFAULT 'queued',
+                                          -- queued | completed | failed
+    tracks_found   INTEGER,               -- total tracks returned by API
+    tracks_imported INTEGER,              -- tracks inserted into tracks table
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TRIGGER IF NOT EXISTS trackid_jobs_updated_at
+AFTER UPDATE ON trackid_jobs
+BEGIN
+    UPDATE trackid_jobs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;

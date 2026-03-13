@@ -95,3 +95,51 @@ def test_wipe_drops_and_recreates(db):
 
     assert "tracks" in tables
     assert count == 0
+
+
+def test_setup_creates_trackid_jobs(tmp_path):
+    db_path = tmp_path / "test.db"
+    setup(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='trackid_jobs'"
+        ).fetchone()
+    assert row is not None, "trackid_jobs table was not created by setup()"
+
+
+def test_migrate_creates_trackid_jobs(tmp_path):
+    """migrate() must create trackid_jobs even on a DB that predates it."""
+    db_path = tmp_path / "old.db"
+    # Create DB without trackid_jobs (simulate pre-feature DB)
+    with connect(db_path) as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                acquisition_status TEXT NOT NULL DEFAULT 'candidate',
+                source TEXT NOT NULL
+            );
+        """)
+        conn.commit()
+    migrate(db_path)
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='trackid_jobs'"
+        ).fetchone()
+    assert row is not None, "migrate() did not create trackid_jobs"
+
+
+def test_wipe_drops_trackid_jobs(tmp_path):
+    db_path = tmp_path / "test.db"
+    setup(db_path)
+    # Insert a row so the table is populated
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO trackid_jobs (youtube_url) VALUES (?)",
+            ("https://www.youtube.com/watch?v=test123",)
+        )
+        conn.commit()
+    wipe(db_path)
+    # After wipe, table should exist (recreated by setup) but be empty
+    with connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM trackid_jobs").fetchone()[0]
+    assert count == 0

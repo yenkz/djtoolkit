@@ -90,6 +90,27 @@ def migrate(db_path: str | Path) -> None:
         if "slskd_job_id" in existing and "download_job_id" not in existing:
             conn.execute("ALTER TABLE tracks RENAME COLUMN slskd_job_id TO download_job_id")
 
+        # Create trackid_jobs cache table if not present (idempotent)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS trackid_jobs (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                youtube_url    TEXT UNIQUE NOT NULL,
+                job_id         TEXT UNIQUE,
+                status         TEXT NOT NULL DEFAULT 'queued',
+                tracks_found   INTEGER,
+                tracks_imported INTEGER,
+                created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TRIGGER IF NOT EXISTS trackid_jobs_updated_at
+            AFTER UPDATE ON trackid_jobs
+            BEGIN
+                UPDATE trackid_jobs SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+            END
+        """)
+
         conn.commit()
 
 
@@ -99,6 +120,7 @@ def wipe(db_path: str | Path) -> None:
         conn.executescript("""
             DROP TABLE IF EXISTS track_embeddings;
             DROP TABLE IF EXISTS fingerprints;
+            DROP TABLE IF EXISTS trackid_jobs;
             DROP TABLE IF EXISTS tracks;
         """)
     setup(db_path)
