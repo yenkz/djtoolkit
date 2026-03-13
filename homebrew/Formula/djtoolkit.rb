@@ -4,18 +4,11 @@ class Djtoolkit < Formula
   license "MIT"
   version "__VERSION__"
 
+  url "https://github.com/yenkz/djtoolkit/releases/download/v__VERSION__/djtoolkit-__VERSION__-arm64.tar.gz"
+  sha256 "__SHA256_ARM64__"
+
   depends_on "chromaprint"
   depends_on :macos
-
-  on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/yenkz/djtoolkit/releases/download/v__VERSION__/djtoolkit-__VERSION__-arm64.tar.gz"
-      sha256 "__SHA256_ARM64__"
-    else
-      url "https://github.com/yenkz/djtoolkit/releases/download/v__VERSION__/djtoolkit-__VERSION__-x86_64.tar.gz"
-      sha256 "__SHA256_X86_64__"
-    end
-  end
 
   def install
     bin.install "djtoolkit"
