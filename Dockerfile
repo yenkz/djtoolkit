@@ -19,11 +19,11 @@ RUN curl -sSL https://install.python-poetry.org | python3 - \
 WORKDIR /app
 
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-dev --no-root
+RUN poetry install --without dev --no-root
 
 COPY djtoolkit/ ./djtoolkit/
 COPY ui/ ./ui/
-RUN poetry install --no-dev
+RUN poetry install --without dev
 
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
