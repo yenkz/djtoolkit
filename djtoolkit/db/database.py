@@ -31,7 +31,7 @@ def check(db_path: str | Path) -> list[str]:
 
 
 def migrate(db_path: str | Path) -> None:
-    """Migrate existing DB from single status column to acquisition_status + flags."""
+    """Migrate existing DB: add new columns, rename legacy columns, and create new tables (idempotent)."""
     new_cols = [
         ("acquisition_status", "TEXT"),
         ("fingerprinted",      "INTEGER NOT NULL DEFAULT 0"),

@@ -25,6 +25,7 @@ def test_setup_creates_tables(db):
     assert "tracks" in tables
     assert "fingerprints" in tables
     assert "track_embeddings" in tables
+    assert "trackid_jobs" in tables
 
 
 def test_connect_returns_row_factory(db):
@@ -142,4 +143,8 @@ def test_wipe_drops_trackid_jobs(tmp_path):
     # After wipe, table should exist (recreated by setup) but be empty
     with connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM trackid_jobs").fetchone()[0]
+        table_row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='trackid_jobs'"
+        ).fetchone()
     assert count == 0
+    assert table_row is not None, "trackid_jobs table was not recreated by wipe()"
