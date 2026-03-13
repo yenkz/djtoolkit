@@ -28,7 +28,7 @@ chmod +x packaging/macos/scripts/postinstall
 
 # ── 3. PyInstaller — single-file executable ────────────────────────────────
 echo "Running PyInstaller..."
-pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
+poetry run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
 
 BINARY="dist/djtoolkit"
 if [ ! -f "$BINARY" ]; then
