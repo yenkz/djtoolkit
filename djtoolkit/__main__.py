@@ -202,6 +202,49 @@ def import_folder(
     )
 
 
+@import_app.command("trackid")
+def import_trackid_cmd(
+    url: Annotated[str, typer.Option("--url", help="YouTube URL of DJ mix to identify")],
+    force: Annotated[bool, typer.Option("--force", help="Re-submit even if URL is cached")] = False,
+    config: ConfigOpt = "djtoolkit.toml",
+):
+    """Identify tracks in a YouTube DJ mix via TrackID.dev (Flow 3)."""
+    from djtoolkit.importers.trackid import import_trackid, validate_url
+
+    try:
+        normalized = validate_url(url)
+    except ValueError as e:
+        console.print(f"[red]Invalid URL:[/red] {e}")
+        raise typer.Exit(1)
+
+    cfg = _cfg(config)
+    console.print(f"Submitting to TrackID.dev: [bold]{normalized}[/bold]")
+
+    try:
+        stats = import_trackid(normalized, cfg, force=force)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+    if stats.get("skipped_cached"):
+        console.print(
+            "[yellow]URL already processed.[/yellow] Use [bold]--force[/bold] to re-submit."
+        )
+        return
+
+    if stats["failed"]:
+        console.print("[red]✗[/red] TrackID.dev job failed or timed out.")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]✓[/green] Imported [bold]{stats['imported']}[/bold] tracks  "
+        f"[yellow]{stats['skipped_low_confidence']}[/yellow] low-confidence  "
+        f"{stats['skipped_unknown']} unknown"
+    )
+    if stats["identified"] == 0:
+        console.print("[yellow]Warning: TrackID found 0 identifiable tracks in this mix.[/yellow]")
+
+
 # ─── pipeline commands ────────────────────────────────────────────────────────
 
 @app.command()
