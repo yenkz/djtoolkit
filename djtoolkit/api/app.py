@@ -15,7 +15,7 @@ from djtoolkit.api.routes import router
 from djtoolkit.api.auth_routes import router as auth_router
 from djtoolkit.api.catalog_routes import router as catalog_router
 from djtoolkit.api.pipeline_routes import router as pipeline_router, _stale_job_sweeper
-from djtoolkit.api.spotify_auth_routes import router as spotify_auth_router
+from djtoolkit.api.spotify_auth_routes import router as spotify_auth_router, _cleanup_expired_states
 from djtoolkit.db.postgres import close_pool, get_pool
 
 _UI_DIR = Path(__file__).parent.parent.parent / "ui"
@@ -31,8 +31,10 @@ async def lifespan(app: FastAPI):
         pass  # local-only mode without Supabase — pool stays None
     # Start stale job recovery background task
     sweeper = asyncio.create_task(_stale_job_sweeper())
+    state_cleaner = asyncio.create_task(_cleanup_expired_states())
     yield
     sweeper.cancel()
+    state_cleaner.cancel()
     await close_pool()
 
 
