@@ -3,6 +3,9 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +15,7 @@ from djtoolkit.api.routes import router
 from djtoolkit.api.auth_routes import router as auth_router
 from djtoolkit.api.catalog_routes import router as catalog_router
 from djtoolkit.api.pipeline_routes import router as pipeline_router, _stale_job_sweeper
+from djtoolkit.api.spotify_auth_routes import router as spotify_auth_router
 from djtoolkit.db.postgres import close_pool, get_pool
 
 _UI_DIR = Path(__file__).parent.parent.parent / "ui"
@@ -43,12 +47,13 @@ app.add_middleware(
         "https://djtoolkit.com",   # production UI (update when deployed)
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(spotify_auth_router, prefix="/api")
 app.include_router(catalog_router, prefix="/api")
 app.include_router(pipeline_router, prefix="/api")
 
