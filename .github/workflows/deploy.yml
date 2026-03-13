@@ -1,12 +1,80 @@
 name: Deploy to Hetzner
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [master]
 
+permissions:
+  contents: read
+  packages: write    # required to push images to GHCR
+
 jobs:
-  deploy:
+  build-and-push:
+    # CRITICAL: only run if CI succeeded. workflow_run fires for any conclusion.
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for API image
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/djtoolkit-api
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+
+      - name: Extract metadata for web image
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/djtoolkit-web
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v5
+        with:
+          context: web
+          file: web/Dockerfile
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+
+  deploy:
+    needs: build-and-push
+    # Inherits the skip from build-and-push via `needs` — if build-and-push is
+    # skipped, deploy is also skipped (not failed).
+    runs-on: ubuntu-latest
+
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
@@ -14,9 +82,16 @@ jobs:
           host: ${{ secrets.HETZNER_HOST }}
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
+          envs: GITHUB_REPOSITORY,SHA
           script: |
             cd /opt/djtoolkit
-            git pull origin master
-            docker compose build --no-cache
-            docker compose up -d --remove-orphans
+            # Write deployment config: which image tag and repo to pull from.
+            echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}" > .deploy.env
+            echo "IMAGE_TAG=sha-${SHA:0:7}" >> .deploy.env
+            # Pull new images and restart containers.
+            docker compose --env-file .deploy.env pull
+            docker compose --env-file .deploy.env up -d --remove-orphans
             docker system prune -f
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
