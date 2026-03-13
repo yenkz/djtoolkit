@@ -20,12 +20,17 @@ from __future__ import annotations
 
 import os
 import secrets
+import base64
 from dataclasses import dataclass
 
 import bcrypt as _bcrypt_lib
 
 from fastapi import Header, HTTPException, status
 from jose import JWTError, jwt
+from cryptography.hazmat.primitives.asymmetric.ec import (
+    EllipticCurvePublicKey, SECP256R1, EllipticCurvePublicNumbers,
+)
+from cryptography.hazmat.backends import default_backend
 
 from djtoolkit.db.postgres import get_pool
 
@@ -66,22 +71,51 @@ class CurrentUser:
     """Authenticated identity attached to a request."""
 
     user_id: str               # UUID from JWT sub / agents.user_id
+    email: str | None = None   # from JWT email claim (None for agent keys)
     agent_id: str | None = None  # set when authenticated via agent API key
 
 
 # ─── JWT verification ─────────────────────────────────────────────────────────
 
-def _jwt_secret() -> str:
-    secret = os.environ.get("SUPABASE_JWT_SECRET")
-    if not secret:
+# Supabase ES256 public key — x/y coordinates from your project's JWKS endpoint:
+#   GET https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+# Set SUPABASE_JWT_EC_X and SUPABASE_JWT_EC_Y in .env (see .env.example).
+# These are public key components (not secrets), but are project-specific.
+_SUPABASE_EC_X = os.environ.get("SUPABASE_JWT_EC_X", "")
+_SUPABASE_EC_Y = os.environ.get("SUPABASE_JWT_EC_Y", "")
+
+
+def _b64url_to_int(s: str) -> int:
+    padded = s + "=" * (-len(s) % 4)
+    return int.from_bytes(base64.urlsafe_b64decode(padded), "big")
+
+
+def _supabase_public_key() -> EllipticCurvePublicKey:
+    if not _SUPABASE_EC_X or not _SUPABASE_EC_Y:
         raise RuntimeError(
-            "SUPABASE_JWT_SECRET is not set. Add it to your .env file."
+            "SUPABASE_JWT_EC_X and SUPABASE_JWT_EC_Y must be set. "
+            "Get these from: GET https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json"
         )
-    return secret
+    nums = EllipticCurvePublicNumbers(
+        x=_b64url_to_int(_SUPABASE_EC_X),
+        y=_b64url_to_int(_SUPABASE_EC_Y),
+        curve=SECP256R1(),
+    )
+    return nums.public_key(default_backend())
+
+
+_public_key: EllipticCurvePublicKey | None = None
+
+
+def _get_public_key() -> EllipticCurvePublicKey:
+    global _public_key
+    if _public_key is None:
+        _public_key = _supabase_public_key()
+    return _public_key
 
 
 async def verify_jwt(token: str) -> CurrentUser:
-    """Decode and verify a Supabase JWT.  Raises 401 on any failure."""
+    """Decode and verify a Supabase JWT (ES256).  Raises 401 on any failure."""
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
@@ -90,16 +124,17 @@ async def verify_jwt(token: str) -> CurrentUser:
     try:
         payload = jwt.decode(
             token,
-            _jwt_secret(),
-            algorithms=["HS256"],
+            _get_public_key(),
+            algorithms=["ES256"],
             options={"verify_aud": False},
         )
         user_id: str | None = payload.get("sub")
         if not user_id:
             raise credentials_exc
+        email: str | None = payload.get("email")
     except JWTError:
         raise credentials_exc
-    return CurrentUser(user_id=user_id)
+    return CurrentUser(user_id=user_id, email=email)
 
 
 # ─── Agent key verification ───────────────────────────────────────────────────

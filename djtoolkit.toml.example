@@ -55,7 +55,7 @@ quality        = 90      # JPEG quality when re-encoding after resize
 
 [supabase]
 # Supabase project URL (no trailing slash).  Secrets go in .env — see .env.example.
-project_url = "https://wpjrzpsfssyzjgfzcmvf.supabase.co"
+project_url = ""   # https://<project-ref>.supabase.co — see .env.example for SUPABASE_PROJECT_URL
 
 [audio_analysis]
 models_dir           = "~/.djtoolkit/models"

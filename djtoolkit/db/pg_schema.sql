@@ -1,5 +1,5 @@
 -- djtoolkit PostgreSQL schema (multi-tenant / cloud)
--- Run once via Supabase SQL editor on project wpjrzpsfssyzjgfzcmvf
+-- Run once via Supabase SQL editor (Settings → SQL Editor)
 -- SQLite schema (schema.sql) remains for the local agent.
 
 -- ─────────────────────────────────────────────────────────────────────────────

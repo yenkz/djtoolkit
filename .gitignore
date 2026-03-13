@@ -1,3 +1,12 @@
+# ─── Secrets & local env files (NEVER commit these) ──────────────────────────
+.env
+.env.*
+!.env.example
+!.env.*.example
+web/.env.local
+web/.env.local.*
+!web/.env.local.example
+
 # Python
 __pycache__/
 *.py[cod]
@@ -14,7 +23,6 @@ build/
 .venv/
 venv/
 env/
-.env
 
 # Poetry
 # poetry.lock is intentionally tracked (reproducible installs)

@@ -108,7 +108,7 @@ class AgentConfig:
 class SupabaseConfig:
     """Supabase project settings.  All secrets come from env vars — see .env.example."""
 
-    project_url: str = ""        # https://wpjrzpsfssyzjgfzcmvf.supabase.co
+    project_url: str = ""        # set via SUPABASE_PROJECT_URL env var or djtoolkit.toml [supabase]
     # Secrets loaded from env: SUPABASE_DATABASE_URL, SUPABASE_JWT_SECRET,
     # SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
 

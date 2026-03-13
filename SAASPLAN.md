@@ -438,7 +438,7 @@ async def recover_stale_jobs():
 |-------|---------|-----------|
 | Auth | **Supabase Auth** | Already in stack; JWT, email+Google, webhooks |
 | API | FastAPI (Python) | Extends existing codebase directly |
-| Database | **Supabase PostgreSQL** | Project: wpjrzpsfssyzjgfzcmvf; RLS, JSONB |
+| Database | **Supabase PostgreSQL** | RLS, JSONB |
 | Job Queue | DB-backed (`pipeline_jobs` table) | Durable, no extra infra; `FOR UPDATE SKIP LOCKED` |
 | File Storage | **Supabase Storage** | CSV uploads in bucket `imports`; eliminates S3/R2 |
 | Hosting | **Hetzner Cloud CX23** | 2 vCPU, 4GB RAM; Docker + Nginx; ~€4/mo |
