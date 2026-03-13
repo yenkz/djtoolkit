@@ -5,6 +5,8 @@ import urllib.error
 import pytest
 from unittest.mock import patch, MagicMock
 from djtoolkit.importers.trackid import validate_url, submit_job, poll_job, PollTimeoutError
+from djtoolkit.importers.trackid import import_trackid
+from djtoolkit.db.database import setup, connect
 from djtoolkit.config import Config
 
 
@@ -138,3 +140,153 @@ def test_poll_job_raises_on_timeout():
          patch("time.monotonic", side_effect=[0.0, 0.0, 2.0]):  # start, check, elapsed > timeout
         with pytest.raises(PollTimeoutError):
             poll_job("job_123", cfg)
+
+
+# ─── import_trackid ───────────────────────────────────────────────────────────
+
+@pytest.fixture
+def db(tmp_path):
+    db_path = tmp_path / "test.db"
+    setup(db_path)
+    return db_path
+
+
+def _job_completed(tracks: list) -> dict:
+    return {"id": "job_abc", "status": "completed", "tracks": tracks}
+
+
+_track_counter = 0
+
+def _make_track(artist="Bonobo", title="Kong", confidence=0.95,
+                duration=180, is_unknown=False):
+    global _track_counter
+    _track_counter += 1
+    return {
+        "id": f"t{_track_counter}", "timestamp": 0, "duration": duration,
+        "artist": artist, "title": title, "confidence": confidence,
+        "acoustidId": f"aid{_track_counter}", "youtubeUrl": "", "isUnknown": is_unknown,
+    }
+
+
+def test_import_trackid_inserts_tracks(db, tmp_path):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([_make_track(), _make_track("Aphex Twin", "Windowlicker", 0.88)])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc"), \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        stats = import_trackid(url, cfg)
+
+    assert stats["imported"] == 2
+    assert stats["skipped_low_confidence"] == 0
+    assert stats["skipped_unknown"] == 0
+    with connect(db) as conn:
+        rows = conn.execute("SELECT * FROM tracks").fetchall()
+    assert len(rows) == 2
+    assert rows[0]["source"] == "trackid"
+    assert rows[0]["acquisition_status"] == "candidate"
+    assert rows[0]["duration_ms"] == 180 * 1000
+
+
+def test_import_trackid_filters_low_confidence(db):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    cfg.trackid.confidence_threshold = 0.8
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([
+        _make_track(confidence=0.9),   # passes
+        _make_track("Low", "Score", confidence=0.5),  # filtered
+    ])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc"), \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        stats = import_trackid(url, cfg)
+
+    assert stats["imported"] == 1
+    assert stats["skipped_low_confidence"] == 1
+
+
+def test_import_trackid_filters_unknown(db):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([
+        _make_track(),
+        _make_track(is_unknown=True),
+    ])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc"), \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        stats = import_trackid(url, cfg)
+
+    assert stats["imported"] == 1
+    assert stats["skipped_unknown"] == 1
+
+
+def test_import_trackid_cache_skips_duplicate_url(db):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([_make_track()])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc") as mock_submit, \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        import_trackid(url, cfg)
+        stats = import_trackid(url, cfg)
+
+    # submit_job called only once — cache skipped on second call
+    assert mock_submit.call_count == 1
+    assert "cached" in stats or stats.get("skipped_cached") == 1
+
+
+def test_import_trackid_force_bypasses_cache(db):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([_make_track()])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc") as mock_submit, \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        import_trackid(url, cfg)
+        import_trackid(url, cfg, force=True)
+
+    assert mock_submit.call_count == 2
+
+
+def test_import_trackid_empty_tracks(db):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc"), \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        stats = import_trackid(url, cfg)
+
+    assert stats["identified"] == 0
+    assert stats["imported"] == 0
+
+
+def test_import_trackid_records_job_in_cache(db):
+    cfg = _cfg()
+    cfg.db.path = str(db)
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    completed = _job_completed([_make_track()])
+
+    with patch("djtoolkit.importers.trackid.submit_job", return_value="job_abc"), \
+         patch("djtoolkit.importers.trackid.poll_job", return_value=completed):
+        import_trackid(url, cfg)
+
+    with connect(db) as conn:
+        row = conn.execute("SELECT * FROM trackid_jobs WHERE youtube_url = ?", (url,)).fetchone()
+    assert row is not None
+    assert row["status"] == "completed"
+    assert row["tracks_imported"] == 1
