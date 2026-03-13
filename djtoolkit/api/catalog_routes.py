@@ -78,6 +78,7 @@ class ImportResult(BaseModel):
     imported: int
     skipped_duplicates: int
     jobs_created: int
+    track_ids: list[int] = []
 
 
 class SpotifyPlaylist(BaseModel):
@@ -196,7 +197,8 @@ async def _refresh_spotify_token(user_id: str, refresh_token: str, f: Fernet) ->
 
 def _map_spotify_track(item: dict) -> dict:
     """Map a Spotify playlist track item to our tracks schema."""
-    track = item.get("track") or {}
+    # Spotify API uses "track" in the old format and "item" in the new format
+    track = item.get("track") or item.get("item") or {}
     artists_list = track.get("artists") or []
     primary_artist = artists_list[0]["name"] if artists_list else ""
     all_artists = "|".join(a["name"] for a in artists_list)
@@ -225,15 +227,16 @@ def _map_spotify_track(item: dict) -> dict:
 
 async def _insert_tracks_and_create_jobs(
     conn, user_id: str, tracks: list[dict], source: str, *, queue_jobs: bool = True
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, list[int]]:
     """Insert tracks (ON CONFLICT DO NOTHING) and optionally create download jobs.
 
-    Returns (inserted, skipped_duplicates, jobs_created).
+    Returns (inserted, skipped_duplicates, jobs_created, inserted_ids).
     When queue_jobs=False, tracks are inserted but no pipeline_jobs rows are created.
     """
     inserted = 0
     skipped = 0
     jobs_created = 0
+    inserted_ids: list[int] = []
 
     for t in tracks:
         result = await conn.fetchval(
@@ -282,7 +285,17 @@ async def _insert_tracks_and_create_jobs(
                 )
                 jobs_created += 1
 
-    return inserted, skipped, jobs_created
+    # Fetch IDs for all tracks in this batch (new + pre-existing conflicts) so the
+    # caller can show the full set in the review step.
+    spotify_uris = [t["spotify_uri"] for t in tracks if t.get("spotify_uri")]
+    if spotify_uris:
+        rows = await conn.fetch(
+            "SELECT id FROM tracks WHERE user_id = $1 AND spotify_uri = ANY($2)",
+            user_id, spotify_uris,
+        )
+        inserted_ids = [r["id"] for r in rows]
+
+    return inserted, skipped, jobs_created, inserted_ids
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -293,25 +306,30 @@ async def list_tracks(
     per_page: int = Query(50, ge=1, le=1000),
     status_filter: Optional[str] = Query(None, alias="status"),
     search: Optional[str] = Query(None),
+    id: Optional[list[int]] = Query(None),
     user: CurrentUser = Depends(get_current_user),
 ):
     pool = await get_pool()
     offset = (page - 1) * per_page
 
-    conditions = ["user_id = $1"]
+    conditions = ["t.user_id = $1"]
     args: list = [user.user_id]
+
+    if id:
+        args.append(id)
+        conditions.append(f"t.id = ANY(${len(args)})")
 
     if status_filter:
         args.append(status_filter)
-        conditions.append(f"acquisition_status = ${len(args)}")
+        conditions.append(f"t.acquisition_status = ${len(args)}")
 
     if search:
         args.append(f"%{search}%")
-        conditions.append(f"(title ILIKE ${len(args)} OR artist ILIKE ${len(args)})")
+        conditions.append(f"(t.title ILIKE ${len(args)} OR t.artist ILIKE ${len(args)})")
 
     where = " AND ".join(conditions)
 
-    total = await pool.fetchval(f"SELECT COUNT(*) FROM tracks WHERE {where}", *args)
+    total = await pool.fetchval(f"SELECT COUNT(*) FROM tracks t WHERE {where}", *args)
 
     args_page = args + [per_page, offset]
     rows = await pool.fetch(
@@ -428,15 +446,16 @@ async def import_csv(
 
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
-        inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
+        inserted, skipped, jobs_created, ids = await _insert_tracks_and_create_jobs(
             conn, user.user_id, tracks, "exportify", queue_jobs=queue_jobs
         )
 
-    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
+    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created, track_ids=ids)
 
 
 class SpotifyImportRequest(BaseModel):
     playlist_id: str
+
 
 
 @router.post("/import/spotify", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
@@ -449,8 +468,8 @@ async def import_spotify(
 
     # Paginate through the full playlist
     tracks: list[dict] = []
-    url = f"https://api.spotify.com/v1/playlists/{body.playlist_id}/tracks"
-    params = {"limit": 100, "fields": "items(added_by,added_at,track),next"}
+    url = f"https://api.spotify.com/v1/playlists/{body.playlist_id}/items"
+    params: dict = {"limit": 100}
 
     async with httpx.AsyncClient() as client:
         while url:
@@ -458,32 +477,28 @@ async def import_spotify(
             if r.status_code == 401:
                 raise HTTPException(status_code=400, detail="Spotify token expired or revoked. Please reconnect Spotify in Settings.")
             if r.status_code == 403:
-                try:
-                    err_body = r.json()
-                    err_msg = (err_body.get("error") or {}).get("message", r.text)
-                except Exception:
-                    err_msg = r.text
-                scopes = r.headers.get("X-OAuth-Scopes", "unknown")
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Spotify denied access: {err_msg}. Token scopes: [{scopes}]. Try disconnecting and reconnecting Spotify.",
+                    detail="This playlist can't be imported — Spotify restricts API access to it. Try a different playlist.",
                 )
             if not r.is_success:
                 raise HTTPException(status_code=502, detail=f"Spotify API error: {r.status_code}")
             data = r.json()
             for item in data.get("items", []):
-                if item.get("track") and item["track"].get("uri"):
+                # Spotify uses "track" (old API) or "item" (new API)
+                track_data = item.get("track") or item.get("item")
+                if track_data and track_data.get("uri"):
                     tracks.append(_map_spotify_track(item))
             url = data.get("next")
             params = {}  # next URL already has params
 
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
-        inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
+        inserted, skipped, jobs_created, ids = await _insert_tracks_and_create_jobs(
             conn, user.user_id, tracks, "spotify", queue_jobs=queue_jobs
         )
 
-    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
+    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created, track_ids=ids)
 
 
 @router.get("/import/spotify/playlists", response_model=list[SpotifyPlaylist])
@@ -510,7 +525,7 @@ async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
                     playlists.append(SpotifyPlaylist(
                         id=p["id"],
                         name=p["name"],
-                        track_count=(p.get("tracks") or {}).get("total"),
+                        track_count=(p.get("tracks") or p.get("items") or {}).get("total"),
                         owner=(p.get("owner") or {}).get("display_name"),
                         image_url=images[0]["url"] if images else None,
                     ))
@@ -610,11 +625,11 @@ async def import_trackid_url(
 
     pool = await get_pool()
     async with rls_transaction(pool, user.user_id) as conn:
-        inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
+        inserted, skipped, jobs_created, ids = await _insert_tracks_and_create_jobs(
             conn, user.user_id, tracks, "trackid", queue_jobs=queue_jobs
         )
 
-    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
+    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created, track_ids=ids)
 
 
 @router.delete("/tracks/bulk", response_model=BulkDeleteResult)

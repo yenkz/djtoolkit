@@ -7,12 +7,14 @@ import {
   fetchSpotifyPlaylists,
   importSpotifyPlaylistNoJobs,
   importCsvNoJobs,
-  fetchCandidateTracks,
+  importTrackIdNoJobs,
+  fetchTracksByIds,
   bulkCreateJobs,
   bulkDeleteTracks,
   fetchAgents,
   fetchPipelineStatus,
   registerAgent,
+  disconnectSpotify,
   type Track,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
@@ -98,12 +100,13 @@ interface Step1Props {
 
 function Step1Import({ searchParams, onComplete }: Step1Props) {
   const [playlists, setPlaylists] = useState<
-    { id: string; name: string; track_count: number }[]
+    { id: string; name: string; track_count?: number | null; owner?: string; image_url?: string }[]
   >([]);
   const [spotifyConnected, setSpotifyConnected] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvRowCount, setCsvRowCount] = useState(0);
+  const [trackIdUrl, setTrackIdUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
 
@@ -112,14 +115,20 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       const data = await fetchSpotifyPlaylists();
       setPlaylists(data);
       setSpotifyConnected(true);
-    } catch {
+    } catch (err: unknown) {
       setSpotifyConnected(false);
+      // Only show error if we expected to be connected
+      if (err instanceof Error && !err.message.includes("not connected")) {
+        toast.error(`Couldn't load playlists: ${err.message}`);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadPlaylists();
-    if (searchParams.get("spotify") === "connected") {
+    const isReturningFromSpotify = searchParams.get("spotify") === "connected";
+    if (isReturningFromSpotify) {
+      toast.success("Spotify connected! Loading your playlists…");
+      window.history.replaceState({}, "", "/onboarding");
       const saved = sessionStorage.getItem(SESSION_KEY);
       if (saved) {
         try {
@@ -131,6 +140,11 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
         sessionStorage.removeItem(SESSION_KEY);
       }
     }
+    if (searchParams.get("spotify") === "error") {
+      toast.error("Spotify connection failed. Please try again.");
+      window.history.replaceState({}, "", "/onboarding");
+    }
+    loadPlaylists();
   }, [loadPlaylists, searchParams]);
 
   function handleCsvFile(file: File) {
@@ -145,18 +159,46 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   }
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedPlaylistId);
-  const totalTracks = (selectedPlaylist?.track_count ?? 0) + csvRowCount;
-  const sourcesSelected = (selectedPlaylistId ? 1 : 0) + (csvFile ? 1 : 0);
+  const totalTracks = (selectedPlaylist?.track_count ?? null) !== null
+    ? (selectedPlaylist!.track_count! + csvRowCount)
+    : csvRowCount;
+  const trackIdValid = /youtu\.?be/.test(trackIdUrl) || trackIdUrl.includes("youtube.com/watch");
+  const sourcesSelected = (selectedPlaylistId ? 1 : 0) + (csvFile ? 1 : 0) + (trackIdValid ? 1 : 0);
 
   async function handleContinue() {
-    if (!selectedPlaylistId && !csvFile) return;
+    if (sourcesSelected === 0) return;
     setLoading(true);
     try {
-      const calls: Promise<unknown>[] = [];
-      if (selectedPlaylistId) calls.push(importSpotifyPlaylistNoJobs(selectedPlaylistId));
-      if (csvFile) calls.push(importCsvNoJobs(csvFile));
-      await Promise.all(calls);
-      const tracks = await fetchCandidateTracks();
+      // Run Spotify + CSV in parallel
+      const parallelCalls: Promise<{ track_ids: number[] }>[] = [];
+      if (selectedPlaylistId) parallelCalls.push(importSpotifyPlaylistNoJobs(selectedPlaylistId));
+      if (csvFile) parallelCalls.push(importCsvNoJobs(csvFile));
+      const parallelResults = await Promise.all(parallelCalls);
+
+      // Run TrackID separately so we can inspect the result
+      let trackIdIds: number[] = [];
+      if (trackIdValid) {
+        const result = await importTrackIdNoJobs(trackIdUrl);
+        trackIdIds = result.track_ids;
+        if (result.imported === 0) {
+          toast.warning(
+            "TrackID found no identifiable tracks in this mix — the video may not have enough recognizable tracks above the confidence threshold."
+          );
+          // Only bail out if TrackID was the only source selected
+          if (!selectedPlaylistId && !csvFile) {
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      // Collect all newly imported track IDs across all sources
+      const allImportedIds = [
+        ...parallelResults.flatMap((r) => r.track_ids),
+        ...trackIdIds,
+      ];
+
+      const tracks = await fetchTracksByIds(allImportedIds);
       onComplete(tracks);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Import failed");
@@ -165,11 +207,25 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
     }
   }
 
-  function handleSpotifyConnect() {
+  async function handleSpotifyDisconnect() {
+    try {
+      await disconnectSpotify();
+      setSpotifyConnected(false);
+      setPlaylists([]);
+      setSelectedPlaylistId(null);
+    } catch {
+      toast.error("Failed to disconnect Spotify");
+    }
+  }
+
+  async function handleSpotifyConnect() {
     if (csvFile) {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({ csvName: csvFile.name }));
     }
-    window.location.href = `${API_URL}/api/auth/spotify/connect?return_to=/onboarding`;
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token ?? "";
+    window.location.href = `${API_URL}/api/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/onboarding`;
   }
 
   return (
@@ -196,9 +252,17 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
             )}
           </div>
           {spotifyConnected ? (
-            <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-semibold">
-              ✓ Connected
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-semibold">
+                ✓ Connected
+              </span>
+              <button
+                onClick={handleSpotifyDisconnect}
+                className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
           ) : (
             <button
               onClick={handleSpotifyConnect}
@@ -213,25 +277,49 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
             <div className="px-3 py-2 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
               Select playlist
             </div>
-            {playlists.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b border-gray-800 last:border-0 transition-colors ${
-                  selectedPlaylistId === p.id ? "bg-indigo-950/60" : "hover:bg-gray-900"
-                }`}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
-                    selectedPlaylistId === p.id
-                      ? "bg-indigo-500 border-indigo-500"
-                      : "border-gray-600"
+            <div className="max-h-64 overflow-y-auto">
+            {playlists.map((p) => {
+              const isSpotifyCurated = p.owner?.toLowerCase() === "spotify";
+              const isDisabled = isSpotifyCurated;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => !isDisabled && setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
+                  disabled={isDisabled}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b border-gray-800 last:border-0 transition-colors ${
+                    isDisabled
+                      ? "opacity-40 cursor-not-allowed"
+                      : selectedPlaylistId === p.id
+                      ? "bg-indigo-950/60"
+                      : "hover:bg-gray-900"
                   }`}
-                />
-                <span className="flex-1 text-sm text-white">{p.name}</span>
-                <span className="text-xs text-gray-500">{p.track_count} tracks</span>
-              </button>
-            ))}
+                >
+                  <div
+                    className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
+                      selectedPlaylistId === p.id
+                        ? "bg-indigo-500 border-indigo-500"
+                        : "border-gray-600"
+                    }`}
+                  />
+                  {p.image_url ? (
+                    <img src={p.image_url} alt="" className="w-8 h-8 rounded flex-shrink-0 object-cover" />
+                  ) : (
+                    <div className="w-8 h-8 rounded flex-shrink-0 bg-gray-800" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm text-white truncate">{p.name}</div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {p.owner ? `by ${p.owner}` : ""}
+                      {isSpotifyCurated && <span className="ml-1 text-gray-600">(can't import via API)</span>}
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-500 flex-shrink-0">
+                    {p.track_count != null ? `${p.track_count} tracks` : "—"}
+                  </span>
+                </button>
+              );
+            })}
+            </div>
           </div>
         )}
       </div>
@@ -281,32 +369,48 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
         </div>
       </div>
 
-      {/* TrackID — coming soon */}
-      <div className="border border-gray-800 rounded-xl p-4 mb-8 bg-gray-950 opacity-40">
-        <div className="flex items-center gap-3">
+      {/* TrackID */}
+      <div className={`border rounded-xl p-4 mb-8 ${trackIdValid ? "border-indigo-500 bg-indigo-950/40" : "border-gray-700 bg-gray-900"}`}>
+        <div className="flex items-center gap-3 mb-3">
           <span className="text-2xl">🎧</span>
           <div className="flex-1">
-            <div className="text-sm font-bold text-gray-400">TrackID</div>
-            <div className="text-xs text-gray-600">
-              Identify tracks from a YouTube, SoundCloud, or Mixcloud set
+            <div className="text-sm font-bold text-white">TrackID</div>
+            <div className="text-xs text-gray-500">
+              Identify tracks from a YouTube DJ set or mix
             </div>
           </div>
-          <span className="text-xs bg-gray-800 text-gray-600 px-2 py-0.5 rounded">
-            Coming soon
-          </span>
+          {trackIdValid && (
+            <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-semibold">
+              ✓ URL set
+            </span>
+          )}
         </div>
+        <input
+          type="url"
+          placeholder="https://www.youtube.com/watch?v=..."
+          value={trackIdUrl}
+          onChange={(e) => setTrackIdUrl(e.target.value)}
+          className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+        />
+        {trackIdValid && (
+          <p className="mt-2 text-xs text-yellow-500">
+            Track identification runs during import and may take a few minutes.
+          </p>
+        )}
       </div>
 
       {/* CTA */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-gray-500">
           {sourcesSelected > 0
-            ? `${sourcesSelected} source${sourcesSelected > 1 ? "s" : ""} selected · ${totalTracks} tracks`
+            ? `${sourcesSelected} source${sourcesSelected > 1 ? "s" : ""} selected` +
+              (totalTracks > 0 ? ` · ${totalTracks} tracks` : "") +
+              (trackIdValid ? " + YouTube mix" : "")
             : "Select at least one source"}
         </span>
         <button
           onClick={handleContinue}
-          disabled={totalTracks === 0 || loading}
+          disabled={sourcesSelected === 0 || loading}
           className="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {loading ? "Importing…" : "Review tracks →"}

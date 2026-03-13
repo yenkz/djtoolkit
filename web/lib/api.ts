@@ -1,6 +1,6 @@
 import { createClient } from "./supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api`;
 
 async function getToken(): Promise<string | null> {
   const supabase = createClient();
@@ -8,6 +8,16 @@ async function getToken(): Promise<string | null> {
     data: { session },
   } = await supabase.auth.getSession();
   return session?.access_token ?? null;
+}
+
+async function extractError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    return json.detail ?? text;
+  } catch {
+    return text;
+  }
 }
 
 export async function apiClient(
@@ -67,6 +77,7 @@ export interface ImportResult {
   imported: number;
   skipped_duplicates: number;
   jobs_created: number;
+  track_ids: number[];
 }
 
 export async function fetchTracks(params: {
@@ -100,12 +111,11 @@ export async function importCsv(file: File): Promise<ImportResult> {
 }
 
 export async function fetchSpotifyPlaylists(): Promise<
-  { id: string; name: string; track_count: number }[]
+  { id: string; name: string; track_count: number; owner?: string; image_url?: string }[]
 > {
   const res = await apiClient("/catalog/import/spotify/playlists");
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.playlists;
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
 }
 
 export async function importSpotifyPlaylist(
@@ -186,6 +196,15 @@ export async function importSpotifyPlaylistNoJobs(
   return res.json();
 }
 
+export async function importTrackIdNoJobs(url: string): Promise<ImportResult> {
+  const res = await apiClient(
+    `/catalog/import/trackid?queue_jobs=false`,
+    { method: "POST", body: JSON.stringify({ url }) }
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export async function importCsvNoJobs(file: File): Promise<ImportResult> {
   const form = new FormData();
   form.append("file", file);
@@ -217,6 +236,15 @@ export async function bulkDeleteTracks(trackIds: number[]): Promise<{ deleted: n
 
 export async function fetchCandidateTracks(): Promise<Track[]> {
   const res = await apiClient("/catalog/tracks?status=candidate&per_page=1000");
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.tracks as Track[];
+}
+
+export async function fetchTracksByIds(ids: number[]): Promise<Track[]> {
+  if (ids.length === 0) return [];
+  const params = ids.map((id) => `id=${id}`).join("&");
+  const res = await apiClient(`/catalog/tracks?${params}&per_page=1000`);
   if (!res.ok) throw new Error(await res.text());
   const data = await res.json();
   return data.tracks as Track[];
