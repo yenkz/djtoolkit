@@ -83,7 +83,9 @@ class ImportResult(BaseModel):
 class SpotifyPlaylist(BaseModel):
     id: str
     name: str
-    track_count: int
+    track_count: Optional[int] = None
+    owner: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class BulkTrackIdsRequest(BaseModel):
@@ -164,8 +166,8 @@ async def _get_spotify_token(user_id: str) -> str:
 
 
 async def _refresh_spotify_token(user_id: str, refresh_token: str, f: Fernet) -> str:
-    client_id = os.environ.get("PLATFORM_SPOTIFY_CLIENT_ID", "")
-    client_secret = os.environ.get("PLATFORM_SPOTIFY_CLIENT_SECRET", "")
+    client_id = os.environ.get("PLATFORM_SPOTIFY_CLIENT_ID") or os.environ.get("SPOTIFY_CLIENT_ID", "")
+    client_secret = os.environ.get("PLATFORM_SPOTIFY_CLIENT_SECRET") or os.environ.get("SPOTIFY_CLIENT_SECRET", "")
     async with httpx.AsyncClient() as client:
         r = await client.post(
             "https://accounts.spotify.com/api/token",
@@ -402,6 +404,13 @@ async def import_csv(
             detail="File must be a CSV",
         )
 
+    # Extension check — content-type can be spoofed; filename provides a second signal.
+    if file.filename and not file.filename.lower().endswith(".csv"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must have a .csv extension.",
+        )
+
     raw = await file.read()
     if len(raw) > _MAX_CSV_BYTES:
         raise HTTPException(
@@ -447,8 +456,20 @@ async def import_spotify(
         while url:
             r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
             if r.status_code == 401:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Spotify token expired")
-            r.raise_for_status()
+                raise HTTPException(status_code=400, detail="Spotify token expired or revoked. Please reconnect Spotify in Settings.")
+            if r.status_code == 403:
+                try:
+                    err_body = r.json()
+                    err_msg = (err_body.get("error") or {}).get("message", r.text)
+                except Exception:
+                    err_msg = r.text
+                scopes = r.headers.get("X-OAuth-Scopes", "unknown")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Spotify denied access: {err_msg}. Token scopes: [{scopes}]. Try disconnecting and reconnecting Spotify.",
+                )
+            if not r.is_success:
+                raise HTTPException(status_code=502, detail=f"Spotify API error: {r.status_code}")
             data = r.json()
             for item in data.get("items", []):
                 if item.get("track") and item["track"].get("uri"):
@@ -469,6 +490,7 @@ async def import_spotify(
 async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
     access_token = await _get_spotify_token(user.user_id)
 
+    seen_ids: set[str] = set()
     playlists: list[SpotifyPlaylist] = []
     url = "https://api.spotify.com/v1/me/playlists"
     params = {"limit": 50}
@@ -476,18 +498,123 @@ async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
     async with httpx.AsyncClient() as client:
         while url:
             r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
-            r.raise_for_status()
+            if r.status_code == 401:
+                raise HTTPException(status_code=400, detail="Spotify token expired or revoked. Please reconnect Spotify in Settings.")
+            if not r.is_success:
+                raise HTTPException(status_code=502, detail=f"Spotify API error: {r.status_code}")
             data = r.json()
-            for p in data.get("items", []):
-                playlists.append(SpotifyPlaylist(
-                    id=p["id"],
-                    name=p["name"],
-                    track_count=p["tracks"]["total"],
-                ))
+            for p in (data.get("items") or []):
+                if p and p["id"] not in seen_ids:
+                    seen_ids.add(p["id"])
+                    images = p.get("images") or []
+                    playlists.append(SpotifyPlaylist(
+                        id=p["id"],
+                        name=p["name"],
+                        track_count=(p.get("tracks") or {}).get("total"),
+                        owner=(p.get("owner") or {}).get("display_name"),
+                        image_url=images[0]["url"] if images else None,
+                    ))
             url = data.get("next")
             params = {}
 
     return playlists
+
+
+class TrackIdImportRequest(BaseModel):
+    url: str
+
+
+@router.post("/import/trackid", response_model=ImportResult, status_code=status.HTTP_201_CREATED)
+async def import_trackid_url(
+    body: TrackIdImportRequest,
+    queue_jobs: bool = Query(True),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Flow 3: submit a YouTube mix URL to TrackID.dev, poll for results, insert candidates."""
+    import asyncio
+    import time
+    from djtoolkit.importers.trackid import validate_url
+
+    _BASE = "https://trackid.dev"
+    _CONFIDENCE = 0.3
+    _POLL_INTERVAL = 7   # seconds between polls
+    _POLL_TIMEOUT = 300  # 5 minutes max for onboarding
+
+    try:
+        normalized = validate_url(body.url)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+    # Submit job
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{_BASE}/api/analyze",
+                json={"url": normalized},
+                headers={"User-Agent": "djtoolkit/1.0"},
+            )
+            if r.status_code == 429:
+                raise HTTPException(status_code=429, detail="TrackID.dev rate limit reached. Try again in a few minutes.")
+            if not r.is_success:
+                raise HTTPException(status_code=502, detail=f"TrackID.dev submission failed: {r.status_code}")
+            job_id = r.json()["jobId"]
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach TrackID.dev: {exc}")
+
+    # Poll until completed or timeout
+    poll_url = f"{_BASE}/api/job/{job_id}"
+    start = time.monotonic()
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            if time.monotonic() - start > _POLL_TIMEOUT:
+                raise HTTPException(status_code=504, detail="TrackID.dev job timed out. Try a shorter mix or retry later.")
+
+            try:
+                r = await client.get(poll_url, headers={"User-Agent": "djtoolkit/1.0"})
+                if r.status_code == 429:
+                    await asyncio.sleep(15)
+                    continue
+                if not r.is_success:
+                    raise HTTPException(status_code=502, detail=f"TrackID.dev poll error: {r.status_code}")
+                job = r.json()
+            except httpx.RequestError:
+                await asyncio.sleep(10)
+                continue
+
+            job_status = job.get("status", "")
+            if job_status == "completed":
+                break
+            if job_status == "failed":
+                raise HTTPException(status_code=502, detail="TrackID.dev job failed on server.")
+
+            await asyncio.sleep(_POLL_INTERVAL)
+
+    # Filter by confidence / unknown and build track list
+    tracks: list[dict] = []
+    for track in job.get("tracks", []):
+        if track.get("isUnknown"):
+            continue
+        if track.get("confidence", 0) < _CONFIDENCE:
+            continue
+        artist = track.get("artist") or ""
+        title = track.get("title") or ""
+        duration_sec = track.get("duration")
+        tracks.append({
+            "title": title or None,
+            "artist": artist or None,
+            "artists": artist or None,
+            "duration_ms": int(duration_sec * 1000) if duration_sec is not None else None,
+            "search_string": build_search_string(artist, title) if (artist or title) else None,
+        })
+
+    pool = await get_pool()
+    async with rls_transaction(pool, user.user_id) as conn:
+        inserted, skipped, jobs_created = await _insert_tracks_and_create_jobs(
+            conn, user.user_id, tracks, "trackid", queue_jobs=queue_jobs
+        )
+
+    return ImportResult(imported=inserted, skipped_duplicates=skipped, jobs_created=jobs_created)
 
 
 @router.delete("/tracks/bulk", response_model=BulkDeleteResult)
