@@ -2,6 +2,7 @@
 
 import json
 import urllib.error
+import uuid
 import pytest
 from unittest.mock import patch, MagicMock
 from djtoolkit.importers.trackid import validate_url, submit_job, poll_job, PollTimeoutError
@@ -155,20 +156,17 @@ def _job_completed(tracks: list) -> dict:
     return {"id": "job_abc", "status": "completed", "tracks": tracks}
 
 
-_track_counter = 0
-
 def _make_track(artist="Bonobo", title="Kong", confidence=0.95,
                 duration=180, is_unknown=False):
-    global _track_counter
-    _track_counter += 1
+    uid = uuid.uuid4().hex[:8]
     return {
-        "id": f"t{_track_counter}", "timestamp": 0, "duration": duration,
+        "id": uid, "timestamp": 0, "duration": duration,
         "artist": artist, "title": title, "confidence": confidence,
-        "acoustidId": f"aid{_track_counter}", "youtubeUrl": "", "isUnknown": is_unknown,
+        "acoustidId": uid, "youtubeUrl": "", "isUnknown": is_unknown,
     }
 
 
-def test_import_trackid_inserts_tracks(db, tmp_path):
+def test_import_trackid_inserts_tracks(db):
     cfg = _cfg()
     cfg.db.path = str(db)
     url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"

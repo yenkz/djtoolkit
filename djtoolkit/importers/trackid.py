@@ -200,8 +200,8 @@ def import_trackid(url: str, cfg: Config, force: bool = False) -> dict:
     # 1. Validate + normalize URL
     normalized_url = validate_url(url)
 
+    # 2. Check cache + submit job (short-lived connection)
     with connect(cfg.db_path) as conn:
-        # 2. Check cache
         cached = conn.execute(
             "SELECT job_id, status FROM trackid_jobs WHERE youtube_url = ?",
             (normalized_url,),
@@ -211,14 +211,12 @@ def import_trackid(url: str, cfg: Config, force: bool = False) -> dict:
             stats["skipped_cached"] = 1
             return stats
 
-        # 3. Submit job
         try:
             job_id = submit_job(normalized_url, cfg)
         except RuntimeError:
             stats["failed"] = 1
             return stats
 
-        # Upsert into trackid_jobs (INSERT or UPDATE for --force)
         if cached:
             conn.execute(
                 "UPDATE trackid_jobs SET job_id=?, status='queued', "
@@ -232,24 +230,30 @@ def import_trackid(url: str, cfg: Config, force: bool = False) -> dict:
             )
         conn.commit()
 
-        # 4. Poll for results
-        try:
-            job = poll_job(job_id, cfg)
-        except PollTimeoutError:
-            # Job stays 'queued' in cache
-            conn.commit()
-            stats["failed"] = 1
-            return stats
-        except RuntimeError:
+    # 3. Poll for results (outside DB connection — can block for minutes)
+    try:
+        job = poll_job(job_id, cfg)
+    except PollTimeoutError:
+        with connect(cfg.db_path) as conn:
             conn.execute(
                 "UPDATE trackid_jobs SET status='failed' WHERE youtube_url=?",
                 (normalized_url,),
             )
             conn.commit()
-            stats["failed"] = 1
-            return stats
+        stats["failed"] = 1
+        return stats
+    except RuntimeError:
+        with connect(cfg.db_path) as conn:
+            conn.execute(
+                "UPDATE trackid_jobs SET status='failed' WHERE youtube_url=?",
+                (normalized_url,),
+            )
+            conn.commit()
+        stats["failed"] = 1
+        return stats
 
-        # 5. Filter and insert tracks
+    # 4. Filter and insert tracks (second short-lived connection)
+    with connect(cfg.db_path) as conn:
         all_tracks = job.get("tracks", [])
         threshold = cfg.trackid.confidence_threshold
 
@@ -287,11 +291,11 @@ def import_trackid(url: str, cfg: Config, force: bool = False) -> dict:
                 )
                 stats["imported"] += 1
             except sqlite3.IntegrityError:
-                pass  # shouldn't happen (no UNIQUE constraint), but be safe
+                pass
 
         conn.commit()
 
-        # 6. Update cache
+        # 5. Update cache
         conn.execute(
             "UPDATE trackid_jobs SET status='completed', tracks_found=?, tracks_imported=? "
             "WHERE youtube_url=?",
