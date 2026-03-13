@@ -105,20 +105,20 @@ class AgentConfig:
 
 
 @dataclass
-class TrackIdConfig:
-    confidence_threshold: float = 0.7   # 0.0–1.0; tracks below this are skipped
-    poll_interval_sec: int = 7          # seconds between status polls (clamped to 3–10 in poll_job)
-    poll_timeout_sec: int = 1800        # max total poll duration in seconds; 0 = unlimited
-    base_url: str = "https://trackid.dev"
-
-
-@dataclass
 class SupabaseConfig:
     """Supabase project settings.  All secrets come from env vars — see .env.example."""
 
     project_url: str = ""        # https://wpjrzpsfssyzjgfzcmvf.supabase.co
     # Secrets loaded from env: SUPABASE_DATABASE_URL, SUPABASE_JWT_SECRET,
     # SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+
+
+@dataclass
+class TrackIdConfig:
+    confidence_threshold: float = 0.7   # 0.0–1.0; tracks below this are skipped
+    poll_interval_sec: int = 7          # seconds between status polls (clamped to 3–10 in poll_job)
+    poll_timeout_sec: int = 1800        # max total poll duration in seconds; 0 = unlimited
+    base_url: str = "https://trackid.dev"
 
 
 @dataclass
@@ -131,8 +131,8 @@ class Config:
     loudnorm: LoudnormConfig = field(default_factory=LoudnormConfig)
     cover_art: CoverArtConfig = field(default_factory=CoverArtConfig)
     audio_analysis: AudioAnalysisConfig = field(default_factory=AudioAnalysisConfig)
-    supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
     agent: AgentConfig = field(default_factory=AgentConfig)
+    supabase: SupabaseConfig = field(default_factory=SupabaseConfig)
     trackid: TrackIdConfig = field(default_factory=TrackIdConfig)
 
     @property
@@ -181,8 +181,8 @@ def load(config_path: str | Path = "djtoolkit.toml") -> Config:
             loudnorm=_make(LoudnormConfig, "loudnorm"),
             cover_art=_make(CoverArtConfig, "cover_art"),
             audio_analysis=_make(AudioAnalysisConfig, "audio_analysis"),
-            supabase=_make(SupabaseConfig, "supabase"),
             agent=_make(AgentConfig, "agent"),
+            supabase=_make(SupabaseConfig, "supabase"),
             trackid=_make(TrackIdConfig, "trackid"),
         )
 

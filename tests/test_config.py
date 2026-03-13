@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from djtoolkit.config import Config, _load_dotenv, load
+from djtoolkit.config import Config, TrackIdConfig, _load_dotenv, load
 
 
 @pytest.fixture(autouse=True)
@@ -129,7 +129,6 @@ def test_load_dotenv_ignores_missing_file(tmp_path):
 
 
 def test_trackid_defaults():
-    from djtoolkit.config import TrackIdConfig
     cfg = TrackIdConfig()
     assert cfg.confidence_threshold == 0.7
     assert cfg.poll_interval_sec == 7
@@ -138,7 +137,6 @@ def test_trackid_defaults():
 
 
 def test_config_has_trackid_section(tmp_path):
-    from djtoolkit.config import load
     cfg_path = tmp_path / "djtoolkit.toml"
     cfg_path.write_text("""
 [trackid]
