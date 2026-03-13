@@ -100,7 +100,7 @@ interface Step1Props {
 
 function Step1Import({ searchParams, onComplete }: Step1Props) {
   const [playlists, setPlaylists] = useState<
-    { id: string; name: string; track_count?: number | null; owner?: string; image_url?: string }[]
+    { id: string; name: string; track_count?: number | null; owner?: string; image_url?: string; is_owner?: boolean }[]
   >([]);
   const [spotifyConnected, setSpotifyConnected] = useState(false);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
@@ -280,6 +280,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
             <div className="max-h-64 overflow-y-auto">
             {playlists.map((p) => {
               const isSpotifyCurated = p.owner?.toLowerCase() === "spotify";
+              const isNotOwned = p.is_owner === false && !isSpotifyCurated;
               const isDisabled = isSpotifyCurated;
               return (
                 <button
@@ -310,7 +311,8 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
                     <div className="text-sm text-white truncate">{p.name}</div>
                     <div className="text-xs text-gray-500 truncate">
                       {p.owner ? `by ${p.owner}` : ""}
-                      {isSpotifyCurated && <span className="ml-1 text-gray-600">(can't import via API)</span>}
+                      {isSpotifyCurated && <span className="ml-1 text-gray-600">(can&apos;t import via API)</span>}
+                      {isNotOwned && <span className="ml-1 text-yellow-700">· may be restricted</span>}
                     </div>
                   </div>
                   <span className="text-xs text-gray-500 flex-shrink-0">

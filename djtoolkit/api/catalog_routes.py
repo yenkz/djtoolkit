@@ -86,7 +86,9 @@ class SpotifyPlaylist(BaseModel):
     name: str
     track_count: Optional[int] = None
     owner: Optional[str] = None
+    owner_id: Optional[str] = None
     image_url: Optional[str] = None
+    is_owner: bool = False
 
 
 class BulkTrackIdsRequest(BaseModel):
@@ -505,12 +507,18 @@ async def import_spotify(
 async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
     access_token = await _get_spotify_token(user.user_id)
 
+    # Get the user's Spotify ID to determine playlist ownership
+    spotify_user_id: str | None = None
     seen_ids: set[str] = set()
     playlists: list[SpotifyPlaylist] = []
     url = "https://api.spotify.com/v1/me/playlists"
     params = {"limit": 50}
 
     async with httpx.AsyncClient() as client:
+        me = await client.get("https://api.spotify.com/v1/me", headers={"Authorization": f"Bearer {access_token}"})
+        if me.is_success:
+            spotify_user_id = me.json().get("id")
+
         while url:
             r = await client.get(url, headers={"Authorization": f"Bearer {access_token}"}, params=params)
             if r.status_code == 401:
@@ -522,12 +530,16 @@ async def list_spotify_playlists(user: CurrentUser = Depends(get_current_user)):
                 if p and p["id"] not in seen_ids:
                     seen_ids.add(p["id"])
                     images = p.get("images") or []
+                    owner_obj = p.get("owner") or {}
+                    owner_id = owner_obj.get("id")
                     playlists.append(SpotifyPlaylist(
                         id=p["id"],
                         name=p["name"],
                         track_count=(p.get("tracks") or p.get("items") or {}).get("total"),
-                        owner=(p.get("owner") or {}).get("display_name"),
+                        owner=owner_obj.get("display_name"),
+                        owner_id=owner_id,
                         image_url=images[0]["url"] if images else None,
+                        is_owner=(owner_id == spotify_user_id) if spotify_user_id and owner_id else False,
                     ))
             url = data.get("next")
             params = {}

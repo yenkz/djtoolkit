@@ -111,7 +111,7 @@ export async function importCsv(file: File): Promise<ImportResult> {
 }
 
 export async function fetchSpotifyPlaylists(): Promise<
-  { id: string; name: string; track_count: number; owner?: string; image_url?: string }[]
+  { id: string; name: string; track_count?: number | null; owner?: string; image_url?: string; is_owner?: boolean }[]
 > {
   const res = await apiClient("/catalog/import/spotify/playlists");
   if (!res.ok) throw new Error(await extractError(res));
