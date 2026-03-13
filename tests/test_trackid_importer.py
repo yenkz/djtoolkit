@@ -294,17 +294,14 @@ def test_import_trackid_records_job_in_cache(db):
 
 # ─── CLI smoke tests ──────────────────────────────────────────────────────────
 
-runner = CliRunner()
-
-
 def test_cli_import_trackid_invalid_url():
     """CLI exits non-zero and prints error on invalid URL."""
-    result = runner.invoke(app, ["import", "trackid", "--url", "https://vimeo.com/123"])
+    result = CliRunner().invoke(app, ["import", "trackid", "--url", "https://vimeo.com/123"])
     assert result.exit_code != 0
     assert "YouTube" in result.output or "valid" in result.output.lower()
 
 
 def test_cli_import_trackid_missing_url():
     """CLI exits non-zero when --url is not provided."""
-    result = runner.invoke(app, ["import", "trackid"])
+    result = CliRunner().invoke(app, ["import", "trackid"])
     assert result.exit_code != 0
