@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import {
   fetchTracks,
@@ -20,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
   duplicate: "bg-gray-700 text-gray-400",
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api`;
 
 export default function CatalogPage() {
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -65,12 +66,17 @@ export default function CatalogPage() {
           >
             Import CSV
           </button>
-          <a
-            href={`${API_URL}/auth/spotify/connect`}
+          <button
+            onClick={async () => {
+              const supabase = createClient();
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token ?? "";
+              window.location.href = `${API_URL}/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/catalog`;
+            }}
             className="rounded-lg border border-green-600 px-3 py-1.5 text-sm font-medium text-green-400 hover:bg-green-900/30"
           >
             Connect Spotify
-          </a>
+          </button>
           <button
             onClick={() => setShowSpotifyModal(true)}
             className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-800"

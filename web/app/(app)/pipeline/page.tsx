@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { fetchPipelineStatus, type PipelineStatus } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api`;
 
 function agentStatusColor(lastSeen: string): string {
   const diff = Date.now() - new Date(lastSeen).getTime();
