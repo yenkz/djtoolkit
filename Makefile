@@ -1,6 +1,6 @@
 .PHONY: init install setup import-csv download fingerprint apply-metadata move-to-library \
         import-folder enrich fetch-cover-art migrate-db check-db wipe-db reconcile normalize playlist ui dev \
-        test lint
+        test lint import-trackid
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +19,7 @@ help:
 	@echo "  move-to-library move tagged files into library_dir"
 	@echo ""
 	@echo "  import-folder   DIR=path  scan existing folder"
+	@echo "  import-trackid  URL=<youtube_url>  identify tracks in a YouTube mix"
 	@echo "  enrich          ARGS='...' enrich DB only"
 	@echo "  fetch-cover-art embed cover art"
 	@echo ""
@@ -32,6 +33,7 @@ DJ      := $(PYTHON) -m djtoolkit
 CONFIG  ?= djtoolkit.toml
 CSV     ?=
 DIR     ?=
+URL     ?=
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -87,6 +89,12 @@ enrich:
 
 fetch-cover-art:
 	$(DJ) coverart fetch --config $(CONFIG)
+
+# ── Flow 3: YouTube mix → Identified tracks ───────────────────────────────────
+
+import-trackid:
+	@test -n "$(URL)" || (echo "Usage: make import-trackid URL=https://youtu.be/..." && exit 1)
+	$(DJ) import trackid --url "$(URL)" --config $(CONFIG)
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 
