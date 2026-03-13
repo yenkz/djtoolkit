@@ -1,17 +1,7 @@
 """Flow 3 — identify tracks in a YouTube DJ mix via TrackID.dev API."""
 
 import re
-import sqlite3
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
-import json
-from datetime import datetime, timezone
-
-from djtoolkit.config import Config
-from djtoolkit.db.database import connect
-from djtoolkit.utils.search_string import build as build_search_string
 
 
 # ─── Exceptions ───────────────────────────────────────────────────────────────
@@ -28,7 +18,9 @@ _YOUTUBE_ID_RE = re.compile(r'^[A-Za-z0-9_-]{11}$')
 def _extract_video_id(url: str) -> str | None:
     """Return the 11-char YouTube video ID from a URL, or None if not found."""
     parsed = urllib.parse.urlparse(url)
-    host = parsed.netloc.lower().lstrip("www.")
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host.removeprefix("www.")
 
     if host == "youtu.be":
         vid = parsed.path.lstrip("/").split("/")[0]
