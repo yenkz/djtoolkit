@@ -75,13 +75,13 @@ async def _run_job(
                     raise ValueError(f"Unknown job_type: {job_type!r}")
 
             local_db.mark_done(conn, job_id)
-            await client.report_result(job_id, result=result, error=None)
+            await client.report_result(job_id, success=True, result=result)
             log.info("[job:%s] done — %s", job_id, job_type)
 
         except Exception as exc:
             log.exception("[job:%s] failed — %s", job_id, exc)
             local_db.mark_failed(conn, job_id)
-            await client.report_result(job_id, result=None, error=str(exc))
+            await client.report_result(job_id, success=False, error=str(exc))
 
 
 async def run_agent(cfg: Config) -> None:

@@ -92,8 +92,7 @@ async def execute_download(
         for query in queries:
             request = await client.searches.search(query)
             await asyncio.sleep(cfg.soulseek.search_timeout_sec)
-            responses = request.responses
-            all_results.extend(responses)
+            all_results.extend(request.results)
 
         if not all_results:
             raise RuntimeError(f"No search results for: {search_string}")
