@@ -1,4 +1,4 @@
-name: Release macOS Installer
+name: Release
 
 on:
   push:
@@ -77,9 +77,72 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Install PyInstaller
+        run: poetry run pip install pyinstaller
+
+      - name: Download fpcalc.exe
+        run: |
+          $chromaprintVersion = "1.5.1"
+          $url = "https://github.com/acoustid/chromaprint/releases/download/v${chromaprintVersion}/chromaprint-fpcalc-${chromaprintVersion}-windows-x86_64.zip"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile "dist\fpcalc.zip"
+          Expand-Archive -Path "dist\fpcalc.zip" -DestinationPath "dist\fpcalc-tmp" -Force
+          Get-ChildItem -Path "dist\fpcalc-tmp" -Recurse -Filter "fpcalc.exe" |
+            Copy-Item -Destination "dist\fpcalc.exe"
+          Remove-Item -Recurse "dist\fpcalc-tmp", "dist\fpcalc.zip"
+        shell: pwsh
+
+      - name: Build CLI binary
+        env:
+          FPCALC_PATH: dist\fpcalc.exe
+        run: poetry run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
+
+      - name: Install WiX 4
+        run: dotnet tool install --global wix
+        shell: pwsh
+
+      - name: Build MSI
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          $v = "$env:VERSION" -replace '^v',''
+          wix build packaging/windows/djtoolkit.wxs `
+            -o "dist/djtoolkit-${v}-windows.msi" `
+            -d Version=$v `
+            -d BinaryPath="dist/djtoolkit.exe" `
+            -d FpcalcPath="dist/fpcalc.exe"
+        shell: pwsh
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          files: dist/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   update-homebrew:
     name: Update Homebrew tap
-    needs: build-macos
+    needs: [build-macos, build-windows]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
