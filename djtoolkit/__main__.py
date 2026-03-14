@@ -755,6 +755,18 @@ def agent_run(
         pass
 
 
+@agent_app.command("service-entry", hidden=True)
+def agent_service_entry():
+    """Entry point for the Windows Service. Not for manual use."""
+    import sys as _sys
+    if _sys.platform != "win32":
+        console.print("[red]This command is only available on Windows.[/red]")
+        raise typer.Exit(1)
+
+    from djtoolkit.agent.windows_service import service_main
+    service_main()
+
+
 # ─── setup command ────────────────────────────────────────────────────────────
 
 @app.command("setup")
