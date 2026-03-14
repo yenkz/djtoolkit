@@ -4,6 +4,8 @@
 
 The djtoolkit local agent requires five terminal commands to configure: register an agent in the web UI, copy the API key, run `djtoolkit agent configure --api-key ...`, enter Soulseek credentials, then run `djtoolkit agent install`. Most users won't complete this. The Setup Assistant is a native SwiftUI macOS app that replaces all of these steps with a guided wizard — no terminal, no web UI visit.
 
+**Minimum macOS version:** macOS 14 (Sonoma). Required by SwiftUI `@Observable` macro used in `SetupState`. `ASWebAuthenticationSession` requires macOS 10.15+, so this is not the binding constraint.
+
 ---
 
 ## Architecture
@@ -245,6 +247,7 @@ This command:
 - Stores credentials in macOS Keychain (same as interactive `configure`)
 - Writes `~/.djtoolkit/config.toml` with all settings
 - Exits with code 0 on success, non-zero on failure
+- Validates the JSON input: if malformed (invalid JSON syntax, missing required fields, wrong types), exits with code 1 and outputs `{"status": "error", "message": "Invalid input: <detail>"}`
 - Outputs JSON to stdout for the Setup Assistant to parse:
   - Success: `{"status": "ok", "config_path": "~/.djtoolkit/config.toml", "downloads_dir": "/Users/x/Music/djtoolkit/downloads"}`
   - Error: `{"status": "error", "message": "..."}`
@@ -418,6 +421,7 @@ The Setup Assistant opens the Supabase hosted auth page, which supports whatever
 
 | Scenario | Handling |
 |---|---|
+| No internet connectivity | Check reachability on launch (NWPathMonitor). If offline, show "No internet connection. Connect to the internet and try again." before Step 2. |
 | OAuth cancelled by user | Return to Sign In step, "Sign-in was cancelled" message |
 | OAuth token expired | Show error, prompt to sign in again |
 | Agent registration fails (network) | Show retry button with error message |
