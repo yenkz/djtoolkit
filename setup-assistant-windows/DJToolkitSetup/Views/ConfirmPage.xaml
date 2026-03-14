@@ -1,0 +1,36 @@
+<Page
+    x:Class="DJToolkitSetup.Views.ConfirmPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" Padding="40" MaxWidth="480">
+        <TextBlock Text="Confirm Settings" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" />
+
+        <StackPanel Spacing="8" Margin="0,8,0,0">
+            <TextBlock x:Name="ApiKeySummary" TextWrapping="Wrap" />
+            <TextBlock x:Name="SlskSummary" TextWrapping="Wrap" />
+            <TextBlock x:Name="AcoustidSummary" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <TextBlock Text="Downloads Folder" Margin="0,8,0,0" />
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBox x:Name="DownloadsDirBox" PlaceholderText="Select downloads folder..." IsReadOnly="True"
+                     HorizontalAlignment="Stretch" MinWidth="280" />
+            <Button x:Name="BrowseButton" Content="Browse..." Click="BrowseButton_Click" />
+        </StackPanel>
+
+        <TextBlock Text="Agent Poll Interval (seconds)" Margin="0,8,0,0" />
+        <StackPanel Orientation="Horizontal" Spacing="12">
+            <Slider x:Name="PollSlider" Minimum="5" Maximum="120" Value="30" Width="280"
+                    ValueChanged="PollSlider_ValueChanged" />
+            <TextBlock x:Name="PollValueText" Text="30" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button x:Name="BackButton" Content="Back" Click="BackButton_Click" />
+            <Button x:Name="InstallButton" Content="Install &amp; Start Agent"
+                    Style="{StaticResource AccentButtonStyle}" Click="InstallButton_Click" />
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText" Foreground="Gray" TextWrapping="Wrap" />
+    </StackPanel>
+</Page>

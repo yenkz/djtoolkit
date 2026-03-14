@@ -1,0 +1,12 @@
+<Page
+    x:Class="DJToolkitSetup.Views.WelcomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="24" Padding="40">
+        <TextBlock Text="Welcome to djtoolkit" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" />
+        <TextBlock Text="This assistant will help you configure djtoolkit on your machine. You'll set up your account, Soulseek credentials, and optional AcoustID fingerprinting."
+                   TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="400" />
+        <Button x:Name="GetStartedButton" Content="Get Started" HorizontalAlignment="Center"
+                Style="{StaticResource AccentButtonStyle}" Click="GetStartedButton_Click" />
+    </StackPanel>
+</Page>
