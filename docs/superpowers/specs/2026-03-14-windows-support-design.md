@@ -102,7 +102,7 @@ Both `launchd.py` and `windows_service.py` expose the same interface:
 
 | Function | Description |
 |---|---|
-| `install()` | Register the service/agent to start at boot |
+| `install() -> Path \| None` | Register the service/agent to start at boot. Returns the config path (plist on macOS, `None` on Windows) |
 | `uninstall()` | Remove the service/agent registration |
 | `start()` | Start the service/agent now |
 | `stop()` | Stop the service/agent |
@@ -115,11 +115,13 @@ This matches the existing `launchd.py` signatures (no `cfg` parameter — each m
 
 All agent commands in `__main__.py` currently import from `launchd` directly. These must change to use `get_service_manager()`:
 
-- `agent_install` — `launchd.install()`
-- `agent_uninstall` — `launchd.uninstall()`
+- `agent_install` — `launchd.install()`. Also prints macOS-specific output (`"Plist: {path}"`); must use platform-aware messaging (e.g. "Service registered" on Windows)
+- `agent_uninstall` — `launchd.uninstall()`. Also prints "Remove credentials from Keychain?" — "Keychain" must become platform-aware ("credential store")
 - `agent_start` — `launchd.start()`
 - `agent_stop` — `launchd.stop()`
-- `agent_status` — `launchd.is_installed()` / `launchd.is_running()`
+- `agent_status` — `launchd.is_installed()` / `launchd.is_running()`. Prints "LaunchAgent" — must use generic "service" terminology
+- `agent_configure` — hardcodes `Path.home() / ".djtoolkit"` and prints "Credentials stored in macOS Keychain" — both need platform-aware equivalents
+- `agent_configure_headless` — hardcodes `Path.home() / ".djtoolkit"` and defaults `downloads_dir` to `~/Music/djtoolkit/downloads` — must use `paths.config_dir()` and `paths.default_downloads_dir()`
 - `agent_logs` — hardcodes `~/Library/Logs/djtoolkit`; needs platform-aware log path (see below)
 - `agent_run` — hardcodes `~/Library/Logs/djtoolkit` for file logging; needs platform-aware log path
 - `setup_wizard` — currently rejects non-Darwin; must also support Windows, launching `DJToolkit Setup.exe` from `%ProgramFiles%\djtoolkit\`
@@ -144,8 +146,6 @@ def log_dir() -> Path:
     return Path.home() / "Library" / "Logs" / "djtoolkit"
 
 def default_downloads_dir() -> Path:
-    if sys.platform == "win32":
-        return Path.home() / "Music" / "djtoolkit" / "downloads"
     return Path.home() / "Music" / "djtoolkit" / "downloads"
 ```
 
@@ -168,17 +168,18 @@ The `agent_logs` command runs `tail -f` which does not exist on Windows. On Wind
 
 A `win32serviceutil.ServiceFramework` subclass that wraps the existing `daemon.py` event loop:
 
-- `SvcDoRun()`: creates an asyncio event loop, runs `daemon.run_loop(cfg)`
-- `SvcStop()`: sets a threading event that the daemon checks, triggering graceful shutdown (replaces the Unix `SIGTERM` handler)
+- `SvcDoRun()`: creates an asyncio event loop, runs `daemon.run_daemon(cfg)`. Stores a reference to the loop for cross-thread shutdown.
+- `SvcStop()`: calls `loop.call_soon_threadsafe(shutdown_event.set)` to trigger graceful shutdown from the service control thread
 
 ### Signal Handling
 
 `daemon.py` already uses an `asyncio.Event` (`shutdown_event`) for loop control, with Unix signal handlers calling `shutdown_event.set()`. The platform branch:
 
 - **Unix (existing):** `loop.add_signal_handler(SIGTERM/SIGINT, handler)` calls `shutdown_event.set()`
-- **Windows:** `loop.add_signal_handler` is not available. Instead, the Windows Service's `SvcStop()` calls `loop.call_soon_threadsafe(shutdown_event.set)` to safely set the asyncio event from the service control thread. No `threading.Event` needed — the existing `asyncio.Event` is reused, just triggered from a different thread via the thread-safe trampoline.
+- **Windows (as service):** `loop.add_signal_handler` is not available on Windows, and `SIGTERM` does not exist. The Windows Service's `SvcStop()` calls `loop.call_soon_threadsafe(shutdown_event.set)` to safely set the asyncio event from the service control thread. No `threading.Event` needed — the existing `asyncio.Event` is reused, just triggered from a different thread via the thread-safe trampoline. Signal handlers are skipped entirely.
+- **Windows (as `agent run` in terminal):** `SIGINT` (Ctrl+C) is handled via a `try/except KeyboardInterrupt` wrapper around the event loop, which calls `shutdown_event.set()` on catch.
 
-The `run_daemon()` function needs a small refactor: extract the signal handler setup into a platform-conditional block, and accept an optional `loop` parameter so the Windows service can pass in the event loop reference for `call_soon_threadsafe`.
+The `run_daemon()` function needs a small refactor: extract the signal handler setup into a platform-conditional block (`sys.platform != "win32"`), and accept an optional `shutdown_callback` parameter. On Windows, the service passes a callable that the daemon stores so `SvcStop()` can trigger shutdown via `loop.call_soon_threadsafe`.
 
 ### Service Configuration
 
@@ -409,7 +410,9 @@ After this change, each release produces:
 - **Windows SmartScreen:** Unsigned executables trigger SmartScreen warnings that are more aggressive than macOS Gatekeeper. Users must click "More info" → "Run anyway" on first launch. This is acceptable for an early-stage tool with a technical audience. Code signing is out of scope for the initial release.
 - **PATH propagation delay:** MSI adds the install directory to PATH, but this only takes effect for new processes. The Setup Assistant (launched as a post-install action) uses the direct `%ProgramFiles%\djtoolkit\djtoolkit.exe` path instead of relying on PATH resolution.
 - **`fpcalc.exe` extension:** `shutil.which("fpcalc")` handles `.exe` resolution automatically on Windows. The `fpcalc_path` config key also works with `.exe` — no code changes needed.
-- **WinUI 3 unpackaged mode:** The Setup Assistant uses the unpackaged WinUI 3 deployment model (no MSIX). Protocol registration is handled entirely by the MSI via registry keys, not by the app manifest.
+- **WinUI 3 unpackaged mode:** The Setup Assistant uses the unpackaged WinUI 3 deployment model (no MSIX). Protocol registration is handled entirely by the MSI via registry keys, not by the app manifest. The MSI must bundle the Windows App SDK runtime redistributable (or install it as a prerequisite), since unpackaged WinUI 3 apps require it at runtime.
+- **Windows Defender false positives:** PyInstaller-generated executables are frequently flagged by Windows Defender as suspicious (separate from SmartScreen). Code signing (out of scope for initial release) is the long-term fix.
+- **pywin32 service packaging:** When running as an NT service from a PyInstaller-frozen executable, the service binary path registered with SCM should point to `djtoolkit.exe` with a `service` subcommand (e.g. `djtoolkit.exe agent service-entry`), avoiding the need to ship a separate `pythonservice.exe`.
 
 ---
 
