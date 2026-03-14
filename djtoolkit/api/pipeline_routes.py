@@ -216,11 +216,18 @@ async def _apply_job_result(conn, job_id: str, user_id: str, job_type: str, resu
             if local_path:
                 row = await conn.fetchrow(
                     """SELECT title, artist, album, artists, year, release_date,
-                              genres, record_label, isrc, bpm, musical_key,
+                              genres, record_label, isrc, tempo, key, mode,
                               duration_ms, enriched_spotify, enriched_audio
                        FROM tracks WHERE id = $1""",
                     track_id,
                 )
+                # Reconstruct musical_key from key + mode columns
+                musical_key = ""
+                if row["key"] is not None and row["mode"] is not None:
+                    key_names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+                    k = int(row["key"])
+                    if 0 <= k < 12:
+                        musical_key = f"{key_names[k]}{'m' if row['mode'] == 0 else ''}"
                 await conn.execute(
                     """
                     INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload)
@@ -239,8 +246,8 @@ async def _apply_job_result(conn, job_id: str, user_id: str, job_type: str, resu
                         "genres": row["genres"] or "",
                         "record_label": row["record_label"] or "",
                         "isrc": row["isrc"] or "",
-                        "bpm": row["bpm"],
-                        "musical_key": row["musical_key"] or "",
+                        "bpm": row["tempo"],
+                        "musical_key": musical_key,
                         "duration_ms": row["duration_ms"],
                         "metadata_source": "spotify" if row["enriched_spotify"] else (
                             "audio-analysis" if row["enriched_audio"] else None
@@ -507,47 +514,53 @@ async def report_job_result(
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute(
-                """
-                UPDATE pipeline_jobs
-                SET status = $1,
-                    result = $2,
-                    error  = $3,
-                    completed_at = NOW()
-                WHERE id = $4
-                """,
-                body.status,
-                json.dumps(body.result) if body.result else None,
-                body.error,
-                job_id,
-            )
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    UPDATE pipeline_jobs
+                    SET status = $1,
+                        result = $2,
+                        error  = $3,
+                        completed_at = NOW()
+                    WHERE id = $4
+                    """,
+                    body.status,
+                    json.dumps(body.result) if body.result else None,
+                    body.error,
+                    job_id,
+                )
 
-            if body.status == "done" and body.result:
-                await _apply_job_result(conn, job_id, user.user_id, job["job_type"], body.result)
-            elif body.status == "failed" and job["job_type"] == "download":
-                retry_count = await conn.fetchval(
-                    "SELECT retry_count FROM pipeline_jobs WHERE id = $1", job_id,
-                ) or 0
-                if retry_count < 3:
-                    # Re-queue with incremented retry count
-                    payload = await conn.fetchval(
-                        "SELECT payload FROM pipeline_jobs WHERE id = $1", job_id,
-                    )
-                    await conn.execute(
-                        """
-                        INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload, retry_count)
-                        VALUES ($1, $2, 'download', $3, $4)
-                        """,
-                        user.user_id, job["track_id"], payload, retry_count + 1,
-                    )
-                else:
-                    # Max retries exceeded — mark track as failed
-                    await conn.execute(
-                        "UPDATE tracks SET acquisition_status = 'failed', updated_at = NOW() WHERE id = $1 AND user_id = $2",
-                        job["track_id"], user.user_id,
-                    )
+                if body.status == "done" and body.result:
+                    await _apply_job_result(conn, job_id, user.user_id, job["job_type"], body.result)
+                elif body.status == "failed" and job["job_type"] == "download":
+                    retry_count = await conn.fetchval(
+                        "SELECT retry_count FROM pipeline_jobs WHERE id = $1", job_id,
+                    ) or 0
+                    if retry_count < 3:
+                        # Re-queue with incremented retry count
+                        payload = await conn.fetchval(
+                            "SELECT payload FROM pipeline_jobs WHERE id = $1", job_id,
+                        )
+                        await conn.execute(
+                            """
+                            INSERT INTO pipeline_jobs (user_id, track_id, job_type, payload, retry_count)
+                            VALUES ($1, $2, 'download', $3, $4)
+                            """,
+                            user.user_id, job["track_id"], payload, retry_count + 1,
+                        )
+                    else:
+                        # Max retries exceeded — mark track as failed
+                        await conn.execute(
+                            "UPDATE tracks SET acquisition_status = 'failed', updated_at = NOW() WHERE id = $1 AND user_id = $2",
+                            job["track_id"], user.user_id,
+                        )
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("report_job_result failed for job %s (type=%s)", job_id, job.get("job_type"))
+        raise
 
     # Broadcast job update to any listening SSE connections
     broadcast(user.user_id, "job_update", {

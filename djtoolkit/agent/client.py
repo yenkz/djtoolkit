@@ -133,6 +133,11 @@ class AgentClient:
             resp = await self._request(
                 "PUT", f"/pipeline/jobs/{job_id}/result", json=body,
             )
+            if resp.status_code != 204:
+                log.warning(
+                    "Result report for %s returned %d: %s",
+                    job_id, resp.status_code, resp.text[:200],
+                )
             return resp.status_code == 204
         except httpx.HTTPError:
             return False
