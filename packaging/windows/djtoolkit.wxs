@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- packaging/windows/djtoolkit.wxs — WiX 4+ MSI installer for djtoolkit -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="djtoolkit"
+           Version="$(var.Version)"
+           Manufacturer="djtoolkit"
+           UpgradeCode="E7A3F1D2-8B4C-4A5E-9D6F-1C2B3A4D5E6F">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of djtoolkit is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Install directory -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="djtoolkit">
+
+        <Component Id="MainExecutable" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+          <File Id="DjtoolkitExe" Source="$(var.BinaryPath)" KeyPath="yes" />
+        </Component>
+
+        <Component Id="FpcalcExecutable" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+          <File Id="FpcalcExe" Source="$(var.FpcalcPath)" KeyPath="yes" />
+        </Component>
+
+        <Component Id="SetupAssistant" Guid="E5F6A7B8-C9D0-1234-EF01-345678901234">
+          <File Id="SetupExe" Source="$(var.SetupPath)" KeyPath="yes" Name="DJToolkit Setup.exe" />
+        </Component>
+
+        <!-- Add install dir to PATH -->
+        <Component Id="PathEntry" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+          <Environment Id="PATH"
+                       Name="PATH"
+                       Value="[INSTALLFOLDER]"
+                       Permanent="no"
+                       Part="last"
+                       Action="set"
+                       System="yes" />
+        </Component>
+
+        <!-- Register djtoolkit:// protocol -->
+        <Component Id="ProtocolHandler" Guid="D4E5F6A7-B8C9-0123-DEF0-234567890123">
+          <RegistryKey Root="HKCU" Key="Software\Classes\djtoolkit">
+            <RegistryValue Type="string" Value="URL:djtoolkit Protocol" />
+            <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          </RegistryKey>
+          <RegistryKey Root="HKCU" Key="Software\Classes\djtoolkit\shell\open\command">
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]DJToolkit Setup.exe&quot; &quot;%1&quot;" />
+          </RegistryKey>
+        </Component>
+
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="djtoolkit" Level="1">
+      <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="FpcalcExecutable" />
+      <ComponentRef Id="SetupAssistant" />
+      <ComponentRef Id="PathEntry" />
+      <ComponentRef Id="ProtocolHandler" />
+    </Feature>
+
+  </Package>
+</Wix>
