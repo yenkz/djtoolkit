@@ -136,3 +136,16 @@ class AgentClient:
             return resp.status_code == 204
         except httpx.HTTPError:
             return False
+
+    async def batch_claim_downloads(self, limit: int = 50) -> list[dict]:
+        """Batch-claim all pending download jobs. Returns pre-claimed job dicts."""
+        try:
+            resp = await self._request(
+                "POST", "/pipeline/jobs/batch/claim",
+                params={"type": "download", "limit": limit},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            return []
+        except httpx.HTTPError:
+            return []
