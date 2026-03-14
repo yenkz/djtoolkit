@@ -130,7 +130,14 @@ def is_running() -> bool:
 
 # ── Service Framework (entry point for SCM) ────────────────────────────────
 
-class DJToolkitAgentService:
+try:
+    import win32serviceutil as _win32serviceutil
+    _ServiceBase = _win32serviceutil.ServiceFramework
+except ImportError:
+    _ServiceBase = object  # type: ignore[assignment,misc]
+
+
+class DJToolkitAgentService(_ServiceBase):
     """Windows Service entry point.
 
     Called by the SCM when the service starts/stops. Wraps the asyncio
@@ -192,7 +199,8 @@ class DJToolkitAgentService:
 
 def service_main():
     """Entry point called by `djtoolkit agent service-entry`."""
-    import win32serviceutil
     import servicemanager
 
-    win32serviceutil.HandleCommandLine(DJToolkitAgentService)
+    servicemanager.Initialize()
+    servicemanager.PrepareToHostSingle(DJToolkitAgentService)
+    servicemanager.StartServiceCtrlDispatcher()

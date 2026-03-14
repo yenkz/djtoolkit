@@ -563,7 +563,7 @@ def agent_configure_headless(
         }) + "\n")
         raise typer.Exit(1)
 
-    # Store credentials in Keychain
+    # Store credentials in system credential store
     store_agent_credentials(
         api_key=api_key,
         slsk_username=data["slsk_user"],
@@ -572,14 +572,14 @@ def agent_configure_headless(
     )
 
     # Write config file
+    from djtoolkit.agent.paths import config_dir, default_downloads_dir
     cloud_url = data.get("cloud_url", "https://api.djtoolkit.com")
-    downloads_dir = data.get("downloads_dir", "~/Music/djtoolkit/downloads")
+    downloads_dir = data.get("downloads_dir", str(default_downloads_dir()))
     poll_interval = data.get("poll_interval", 30)
 
     # Expand ~ for the response but keep unexpanded in config if user passed ~
     expanded_downloads = str(Path(downloads_dir).expanduser())
 
-    from djtoolkit.agent.paths import config_dir
     cfg_dir = config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_path = cfg_dir / "config.toml"
@@ -801,7 +801,7 @@ def setup_wizard():
         import os
         # Search for the .exe on Windows
         search_paths = [
-            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "djtoolkit" / "DJToolkit Setup.exe",
+            Path(os.environ.get("PROGRAMFILES", "C:\\Program Files")) / "djtoolkit" / "DJToolkit Setup.exe",
             Path(__file__).parent.parent / "DJToolkit Setup.exe",
         ]
 
