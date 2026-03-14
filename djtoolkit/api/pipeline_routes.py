@@ -2,11 +2,12 @@
 
 Routes
 ------
-GET  /pipeline/jobs              Fetch pending jobs (agent polls)
-POST /pipeline/jobs/{id}/claim   Atomically claim a job (FOR UPDATE SKIP LOCKED)
-PUT  /pipeline/jobs/{id}/result  Agent reports result + cloud updates track flags
-GET  /pipeline/status            Queue depth + agent health summary
-GET  /pipeline/events            SSE stream for real-time UI updates
+GET  /pipeline/jobs                Fetch pending jobs (agent polls)
+POST /pipeline/jobs/batch/claim    Batch-claim all pending jobs of a type
+POST /pipeline/jobs/{id}/claim     Atomically claim a single job
+PUT  /pipeline/jobs/{id}/result    Agent reports result + cloud updates track flags
+GET  /pipeline/status              Queue depth + agent health summary
+GET  /pipeline/events              SSE stream for real-time UI updates
 """
 
 import asyncio
@@ -367,6 +368,55 @@ async def fetch_jobs(
         """,
         user.user_id, limit,
     )
+    return [
+        JobOut(
+            id=str(r["id"]),
+            job_type=r["job_type"],
+            status=r["status"],
+            track_id=r["track_id"],
+            payload=_jsonb(r["payload"]),
+            created_at=r["created_at"].isoformat(),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/jobs/batch/claim", response_model=list[JobOut])
+@limiter.limit("60/hour")
+async def batch_claim_jobs(
+    request: Request,
+    type: str = Query(..., description="Job type to claim"),
+    limit: int = Query(50, ge=1, le=100),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Atomically claim all pending jobs of a given type.
+
+    Returns pre-claimed jobs — caller skips the separate claim step.
+    Uses FOR UPDATE SKIP LOCKED to avoid races with other agents.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch(
+                """
+                UPDATE pipeline_jobs
+                SET status = 'claimed',
+                    claimed_at = NOW(),
+                    agent_id = $1
+                WHERE id = ANY(
+                    SELECT id FROM pipeline_jobs
+                    WHERE user_id = $2
+                      AND status = 'pending'
+                      AND job_type = $3
+                    ORDER BY priority DESC, created_at ASC
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT $4
+                )
+                RETURNING id, job_type, status, track_id, payload, created_at
+                """,
+                user.agent_id, user.user_id, type, limit,
+            )
+
     return [
         JobOut(
             id=str(r["id"]),
