@@ -514,6 +514,99 @@ sources = "coverart itunes deezer"
     console.print(f"\nNext: run [bold]djtoolkit agent install[/bold] to start the background daemon.")
 
 
+@agent_app.command("configure-headless")
+def agent_configure_headless(
+    stdin: Annotated[bool, typer.Option("--stdin", help="Read JSON config from stdin")] = False,
+):
+    """Non-interactive agent configuration — reads credentials from stdin JSON.
+
+    Used by the Setup Assistant GUI. Outputs JSON to stdout.
+    """
+    import json as _json
+    import sys as _sys
+    from djtoolkit.agent.keychain import store_agent_credentials
+
+    if not stdin:
+        _sys.stdout.write(_json.dumps({
+            "status": "error",
+            "message": "Use --stdin to pipe JSON credentials via stdin",
+        }) + "\n")
+        raise typer.Exit(1)
+
+    raw = _sys.stdin.read()
+
+    try:
+        data = _json.loads(raw)
+    except _json.JSONDecodeError as e:
+        _sys.stdout.write(_json.dumps({
+            "status": "error",
+            "message": f"Invalid input: malformed JSON — {e}",
+        }) + "\n")
+        raise typer.Exit(1)
+
+    # Validate required fields
+    required = ["api_key", "slsk_user", "slsk_pass"]
+    for field in required:
+        if field not in data or not data[field]:
+            _sys.stdout.write(_json.dumps({
+                "status": "error",
+                "message": f"Invalid input: missing required field '{field}'",
+            }) + "\n")
+            raise typer.Exit(1)
+
+    api_key = data["api_key"]
+    if not api_key.startswith("djt_"):
+        _sys.stdout.write(_json.dumps({
+            "status": "error",
+            "message": "Invalid input: api_key must start with 'djt_'",
+        }) + "\n")
+        raise typer.Exit(1)
+
+    # Store credentials in Keychain
+    store_agent_credentials(
+        api_key=api_key,
+        slsk_username=data["slsk_user"],
+        slsk_password=data["slsk_pass"],
+        acoustid_key=data.get("acoustid_key"),
+    )
+
+    # Write config file
+    cloud_url = data.get("cloud_url", "https://api.djtoolkit.com")
+    downloads_dir = data.get("downloads_dir", "~/Music/djtoolkit/downloads")
+    poll_interval = data.get("poll_interval", 30)
+
+    # Expand ~ for the response but keep unexpanded in config if user passed ~
+    expanded_downloads = str(Path(downloads_dir).expanduser())
+
+    config_dir = Path.home() / ".djtoolkit"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config.toml"
+
+    config_content = f"""[agent]
+cloud_url = "{cloud_url}"
+poll_interval_sec = {poll_interval}
+max_concurrent_jobs = 2
+downloads_dir = "{downloads_dir}"
+
+[soulseek]
+search_timeout_sec = 15
+download_timeout_sec = 300
+
+[fingerprint]
+enabled = true
+
+[cover_art]
+sources = "coverart itunes deezer"
+"""
+    config_path.write_text(config_content)
+
+    _sys.stdout.write(_json.dumps({
+        "status": "ok",
+        "config_path": str(config_path),
+        "downloads_dir": expanded_downloads,
+    }) + "\n")
+
+
 @agent_app.command("install")
 def agent_install():
     """Install the agent as a macOS LaunchAgent (runs on login)."""
