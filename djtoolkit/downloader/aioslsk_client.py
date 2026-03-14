@@ -55,7 +55,11 @@ def _terminal_failed_states():
 # ─── aioslsk Settings factory ─────────────────────────────────────────────────
 
 def _make_settings(cfg: Config):
-    from aioslsk.settings import Settings, CredentialsSettings, SharesSettings
+    from aioslsk.settings import (
+        Settings, CredentialsSettings, SharesSettings,
+        NetworkSettings, ListeningSettings,
+    )
+    from aioslsk.network.network import ListeningConnectionErrorMode
     return Settings(
         credentials=CredentialsSettings(
             username=cfg.soulseek.username,
@@ -63,6 +67,11 @@ def _make_settings(cfg: Config):
         ),
         shares=SharesSettings(
             download=str(cfg.downloads_dir),
+        ),
+        network=NetworkSettings(
+            listening=ListeningSettings(
+                error_mode=ListeningConnectionErrorMode.ALL,
+            ),
         ),
     )
 

@@ -13,7 +13,7 @@ import sys
 from typing import Any
 
 from djtoolkit.agent.client import AgentClient, AgentRevoked
-from djtoolkit.agent.executor import execute_job
+from djtoolkit.agent.executor import execute_job, execute_download_batch, shutdown_slsk_client
 from djtoolkit.agent.keychain import load_agent_credentials
 from djtoolkit.agent.state import (
     save_job_state, load_orphaned_jobs, cleanup_job,
@@ -165,6 +165,50 @@ async def run_daemon(
             else:
                 log.warning("Job %s failure report failed; saved locally", job_id)
 
+    # ── Batch download wrapper ────────────────────────────────────────────
+    async def _run_download_batch(jobs: list[dict]) -> None:
+        """Execute a batch of download jobs and report results individually."""
+        job_ids = [j["id"] for j in jobs]
+        log.info("Starting download batch: %d jobs (%s...)", len(jobs), job_ids[0][:8])
+
+        for job in jobs:
+            save_job_state(job["id"], "claimed", job.get("payload") or {})
+
+        async def _report(job_id, success, result, error):
+            if success:
+                save_job_state(job_id, "completed", {}, result)
+            else:
+                save_job_state(job_id, "failed", {}, {"error": error})
+
+            reported = await client.report_result(
+                job_id, success=success, result=result, error=error,
+            )
+            if reported:
+                cleanup_job(job_id)
+                log.info("Job %s: %s", job_id, "ok" if success else "failed")
+            else:
+                log.warning("Job %s result report failed; saved locally", job_id)
+
+        reported_ids: set[str] = set()
+
+        async def _tracking_report(job_id, success, result, error):
+            reported_ids.add(job_id)
+            await _report(job_id, success, result, error)
+
+        try:
+            await execute_download_batch(jobs, cfg, creds, report_fn=_tracking_report)
+        except Exception:
+            log.exception("Download batch failed entirely")
+            for job in jobs:
+                jid = job["id"]
+                if jid in reported_ids:
+                    continue
+                save_job_state(jid, "failed", {}, {"error": "Batch execution failed"})
+                await client.report_result(jid, success=False, error="Batch execution failed")
+                cleanup_job(jid)
+
+        log.info("Download batch finished: %d jobs", len(jobs))
+
     # ── Heartbeat loop ───────────────────────────────────────────────────
     async def _heartbeat_loop() -> None:
         while not shutdown_event.is_set():
@@ -203,6 +247,22 @@ async def run_daemon(
             done = {t for t in active_tasks if t.done()}
             active_tasks.difference_update(done)
 
+            # ── Batch-claim download jobs ─────────────────────────────────
+            download_batch_running = any(
+                t.get_name() == "download-batch" for t in active_tasks
+            )
+            if not download_batch_running:
+                download_jobs = await client.batch_claim_downloads(
+                    limit=cfg.agent.max_download_batch,
+                )
+                if download_jobs:
+                    task = asyncio.create_task(
+                        _run_download_batch(download_jobs),
+                        name="download-batch",
+                    )
+                    active_tasks.add(task)
+
+            # ── Individual jobs (non-download) ────────────────────────────
             slots = max_concurrent - len(active_tasks)
             if slots > 0:
                 try:
@@ -213,6 +273,8 @@ async def run_daemon(
                     return
 
                 for job in jobs:
+                    if job.get("job_type") == "download":
+                        continue  # handled by batch path
                     claimed = await client.claim_job(job["id"])
                     if claimed:
                         task = asyncio.create_task(_run_job(claimed))
@@ -241,5 +303,6 @@ async def run_daemon(
             for t in pending:
                 t.cancel()
 
+        await shutdown_slsk_client()
         await client.close()
         log.info("Agent stopped.")

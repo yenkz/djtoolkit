@@ -17,6 +17,58 @@ from djtoolkit.config import Config
 log = logging.getLogger(__name__)
 
 
+# ─── Shared Soulseek client ──────────────────────────────────────────────────
+
+_slsk_client = None
+_slsk_lock = asyncio.Lock()
+
+
+async def get_slsk_client(cfg: Config, credentials: dict):
+    """Return a shared, persistent SoulSeekClient. Created on first call."""
+    global _slsk_client
+
+    async with _slsk_lock:
+        if _slsk_client is not None:
+            return _slsk_client
+
+        from djtoolkit.downloader.aioslsk_client import _make_settings
+        from aioslsk.client import SoulSeekClient
+
+        cfg.soulseek.username = credentials["slsk_username"]
+        cfg.soulseek.password = credentials["slsk_password"]
+
+        settings = _make_settings(cfg)
+
+        # Suppress noisy aioslsk logs
+        for _noisy in (
+            "aioslsk.network.network", "aioslsk.network.connection",
+            "aioslsk.network.peer", "aioslsk.transfer",
+            "aioslsk.network.distributed", "aioslsk.distributed",
+        ):
+            logging.getLogger(_noisy).setLevel(logging.CRITICAL)
+
+        client = SoulSeekClient(settings)
+        await client.start()
+        await client.login()
+        log.info("Soulseek client connected (persistent)")
+        _slsk_client = client
+        return client
+
+
+async def shutdown_slsk_client():
+    """Shut down the shared Soulseek client if active."""
+    global _slsk_client
+    if _slsk_client is not None:
+        try:
+            await _slsk_client.stop()
+        except Exception:
+            log.debug("Error stopping Soulseek client", exc_info=True)
+        _slsk_client = None
+        log.info("Soulseek client disconnected")
+
+
+# ─── Job dispatch ────────────────────────────────────────────────────────────
+
 async def execute_job(
     job_type: str, payload: dict, cfg: Config, credentials: dict,
 ) -> dict[str, Any]:
@@ -46,10 +98,7 @@ async def execute_download(
     """
     from djtoolkit.downloader.aioslsk_client import (
         _build_search_queries,
-        _make_settings,
-        _rank_candidates,
         _download_track,
-        _wait_for_transfer,
     )
 
     search_string = payload.get("search_string", "")
@@ -57,7 +106,6 @@ async def execute_download(
     title = payload.get("title", "")
     duration_ms = payload.get("duration_ms")
 
-    # Build a track-like dict for the existing functions
     track = {
         "id": payload.get("track_id", 0),
         "artist": artist,
@@ -66,75 +114,27 @@ async def execute_download(
         "search_string": search_string,
     }
 
-    # Override config with agent credentials
-    cfg.soulseek.username = credentials["slsk_username"]
-    cfg.soulseek.password = credentials["slsk_password"]
-
     queries = _build_search_queries(track)
+    client = await get_slsk_client(cfg, credentials)
 
-    settings = _make_settings(cfg)
+    # Search with all query variants
+    all_results = []
+    for query in queries:
+        request = await client.searches.search(query)
+        await asyncio.sleep(cfg.soulseek.search_timeout_sec)
+        all_results.extend(request.results)
 
-    # Suppress noisy aioslsk logs
-    for _noisy in (
-        "aioslsk.network.network", "aioslsk.network.connection",
-        "aioslsk.network.peer", "aioslsk.transfer",
-        "aioslsk.network.distributed", "aioslsk.distributed",
-    ):
-        logging.getLogger(_noisy).setLevel(logging.CRITICAL)
+    if not all_results:
+        raise RuntimeError(f"No search results for: {search_string}")
 
-    from aioslsk.client import SoulSeekClient
+    local_path = await _download_track(
+        client, cfg, track, all_results, queries[0],
+    )
 
-    async with SoulSeekClient(settings) as client:
-        await client.login()
+    if not local_path:
+        raise RuntimeError(f"No matching file found for: {search_string}")
 
-        # Search with all query variants
-        all_results = []
-        for query in queries:
-            request = await client.searches.search(query)
-            await asyncio.sleep(cfg.soulseek.search_timeout_sec)
-            all_results.extend(request.results)
-
-        if not all_results:
-            raise RuntimeError(f"No search results for: {search_string}")
-
-        local_path = await _download_track(
-            client, cfg, track, all_results, queries[0],
-        )
-
-        if not local_path:
-            raise RuntimeError(f"No matching file found for: {search_string}")
-
-        return {"local_path": local_path}
-
-
-# ─── Persistent Soulseek client (shared within a batch) ──────────────────────
-
-async def get_slsk_client(cfg: Config, credentials: dict):
-    """Create, connect, and return a logged-in SoulSeekClient.
-
-    The caller is responsible for closing the client when done.
-    Credentials from the agent override the config-level values.
-    """
-    from djtoolkit.downloader.aioslsk_client import _make_settings
-
-    cfg.soulseek.username = credentials["slsk_username"]
-    cfg.soulseek.password = credentials["slsk_password"]
-
-    # Suppress noisy aioslsk logs
-    for _noisy in (
-        "aioslsk.network.network", "aioslsk.network.connection",
-        "aioslsk.network.peer", "aioslsk.transfer",
-        "aioslsk.network.distributed", "aioslsk.distributed",
-    ):
-        logging.getLogger(_noisy).setLevel(logging.CRITICAL)
-
-    from aioslsk.client import SoulSeekClient
-
-    settings = _make_settings(cfg)
-    client = SoulSeekClient(settings)
-    await client.start()
-    await client.login()
-    return client
+    return {"local_path": local_path}
 
 
 async def execute_download_batch(
@@ -378,8 +378,6 @@ async def execute_metadata(
     # Parse musical_key back to key/mode if present
     musical_key = payload.get("musical_key", "")
     if musical_key:
-        # _key_str produces e.g. "Am", "F#", "C" — reverse that
-        # For now, just set the tag string directly; _write_tags handles int key/mode
         pass
 
     loop = asyncio.get_running_loop()
