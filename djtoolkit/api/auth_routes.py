@@ -10,12 +10,10 @@ GET    /agents                  List all agents for the authenticated user.
 DELETE /agents/{agent_id}       Remove an agent (and revoke its key).
 """
 
-from __future__ import annotations
-
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from djtoolkit.api.audit import audit_log
@@ -60,7 +58,7 @@ class AgentOut(BaseModel):
 @limiter.limit("10/hour")
 async def register_agent(
     request: Request,
-    body: AgentRegisterRequest,
+    body: AgentRegisterRequest = Body(...),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Register a new local agent for the authenticated user.
@@ -96,7 +94,7 @@ async def register_agent(
 @limiter.limit("200/hour", key_func=_get_agent_rate_limit_key)
 async def agent_heartbeat(
     request: Request,
-    body: AgentHeartbeatRequest,
+    body: AgentHeartbeatRequest = Body(...),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Update ``last_seen_at`` for the authenticated agent.

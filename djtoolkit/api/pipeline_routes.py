@@ -9,20 +9,18 @@ GET  /pipeline/status            Queue depth + agent health summary
 GET  /pipeline/events            SSE stream for real-time UI updates
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
 from djtoolkit.api.audit import audit_log
-from djtoolkit.api.auth import CurrentUser, get_current_user
+from djtoolkit.api.auth import CurrentUser, get_current_user, verify_jwt
 from djtoolkit.api.rate_limit import limiter, _get_agent_rate_limit_key
 from djtoolkit.db.postgres import get_pool
 
@@ -79,8 +77,8 @@ class JobOut(BaseModel):
 
 
 class JobResultRequest(BaseModel):
-    result: Optional[dict]
-    error: Optional[str]
+    result: Optional[dict] = None
+    error: Optional[str] = None
     status: str  # 'done' | 'failed'
 
 
@@ -297,7 +295,7 @@ def start_background_tasks(app) -> None:
 @limiter.limit("30/hour")
 async def bulk_create_jobs(
     request: Request,
-    body: BulkJobsRequest,
+    body: BulkJobsRequest = Body(...),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Create one download job per track_id. Skips tracks the user doesn't own,
@@ -436,7 +434,7 @@ async def claim_job(
 async def report_job_result(
     request: Request,
     job_id: str,
-    body: JobResultRequest,
+    body: JobResultRequest = Body(...),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Agent reports completion or failure of a job.
@@ -554,15 +552,17 @@ async def pipeline_status(request: Request, user: CurrentUser = Depends(get_curr
 @router.get("/events")
 @limiter.limit("300/hour")
 async def pipeline_events(
-    request: Request,  # also used by limiter
+    request: Request,
     token: Optional[str] = Query(None),
-    user: CurrentUser = Depends(get_current_user),
 ):
     """Server-Sent Events stream for real-time pipeline updates.
 
-    EventSource doesn't support custom headers, so the JWT can be passed
+    EventSource doesn't support custom headers, so the JWT is passed
     as the ``token`` query parameter instead of Authorization header.
     """
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
+    user = await verify_jwt(token)
     async def event_generator():
         q = _subscribe(user.user_id)
         try:

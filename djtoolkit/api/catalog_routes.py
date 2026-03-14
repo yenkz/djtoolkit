@@ -21,7 +21,7 @@ from typing import Optional
 
 import httpx
 from cryptography.fernet import Fernet
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, field_validator
 
 from djtoolkit.api.audit import audit_log
@@ -732,7 +732,7 @@ class SpotifyImportRequest(BaseModel):
 @limiter.limit("20/hour")
 async def import_spotify(
     request: Request,
-    body: SpotifyImportRequest,
+    body: SpotifyImportRequest = Body(...),
     queue_jobs: bool = Query(True),
     user: CurrentUser = Depends(get_current_user),
 ):
@@ -832,7 +832,7 @@ class TrackIdImportRequest(BaseModel):
 @limiter.limit("20/hour")
 async def import_trackid_url(
     request: Request,
-    body: TrackIdImportRequest,
+    body: TrackIdImportRequest = Body(...),
     queue_jobs: bool = Query(True),
     background_tasks: BackgroundTasks = ...,
     user: CurrentUser = Depends(get_current_user),
@@ -907,7 +907,7 @@ async def trackid_job_status(
 @limiter.limit("30/hour")
 async def bulk_delete_tracks(
     request: Request,
-    body: BulkTrackIdsRequest,
+    body: BulkTrackIdsRequest = Body(...),
     user: CurrentUser = Depends(get_current_user),
 ):
     """Delete candidate tracks the user chose not to download.
