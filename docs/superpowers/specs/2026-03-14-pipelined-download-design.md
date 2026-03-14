@@ -48,35 +48,44 @@ Replaces the search-then-download pattern in `execute_download_batch`. Reuses al
 async def _pipeline_download(
     client,
     cfg: Config,
-    tracks_by_job: dict[str, dict],    # {job_id: track_dict}
-    queries_by_id: dict[int, list[str]], # {track_id: [query_variants]}
-    report_fn,                          # async (job_id, success, result, error) -> None
-    status_fn=None,                     # optional (phase: str) -> None
+    tracks_by_job: dict[str, dict],      # {job_id: track_dict}
+    queries_by_id: dict[int, list[str]],  # {track_id: [query_variants]}
+    report_fn,                            # async (job_id, success, result, error) -> None
+    status_fn=None,                       # optional (phase: str) -> None
 ) -> None:
 ```
 
+**Contract:** Each track dict in `tracks_by_job` MUST have an `"id"` key whose value is a key in `queries_by_id`. The caller (`execute_download_batch`) builds both dicts from the same job list, so this is always satisfied.
+
 #### Internals
 
-**1. Shared result collector**
+**1. Per-track result collector with per-track events**
 
-Register a single `SearchResultEvent` handler that routes results to per-track lists. Signal waiting workers when new results arrive.
+Register a single `SearchResultEvent` handler that routes results to per-track lists and signals per-track events (avoids thundering-herd wake of all 50 workers on every result).
 
 ```python
 results_by_track: dict[int, list] = {t["id"]: [] for t in all_tracks}
-new_results: asyncio.Event  # set whenever results arrive, workers clear after waking
+track_events: dict[int, asyncio.Event] = {t["id"]: asyncio.Event() for t in all_tracks}
+
+async def on_result(event):
+    track_id = ticket_to_track.get(event.result.ticket)
+    if track_id is not None:
+        results_by_track[track_id].append(event.result)
+        track_events[track_id].set()  # wake only this track's worker
 ```
 
 **2. Per-track worker coroutine**
 
-Each track runs as an independent `asyncio.Task`:
+Each track runs as an independent `asyncio.Task`. Workers are closures capturing `client`, `ticket_to_track`, and shared state from the enclosing `_pipeline_download` scope.
 
 ```python
 async def _track_worker(job_id, track):
     track_id = track["id"]
     query_variants = queries_by_id[track_id]
+    my_event = track_events[track_id]
 
     # Phase A: Wait for viable results (up to search_timeout_sec)
-    # Check every 2s whether accumulated results contain a viable candidate.
+    # Check whenever new results arrive for this track.
     # "Viable" = _rank_candidates returns a non-empty list.
     deadline = now() + search_timeout_sec
     ranked = []
@@ -84,50 +93,88 @@ async def _track_worker(job_id, track):
         ranked = _rank_candidates(track, results_by_track[track_id], cfg, query_variants[0])
         if ranked:
             break
-        await wait_for_results_or_timeout(remaining=min(2.0, deadline - now()))
+        my_event.clear()
+        remaining = deadline - now()
+        if remaining <= 0:
+            break
+        try:
+            await asyncio.wait_for(my_event.wait(), timeout=min(remaining, 2.0))
+        except asyncio.TimeoutError:
+            pass
 
     # Phase B: Fallback searches (if no viable results yet)
     # Fire one fallback query at a time, wait up to search_timeout_sec each.
     # Each fallback runs independently — other workers are downloading concurrently.
     if not ranked:
         for variant_idx in range(1, len(query_variants)):
-            fire_search(query_variants[variant_idx])
-            wait up to search_timeout_sec, checking every 2s
-            ranked = _rank_candidates(...)
+            cmd = GlobalSearchCommand(query_variants[variant_idx])
+            await client.execute(cmd)
+            ticket_to_track[cmd._ticket] = track_id
+
+            fb_deadline = now() + search_timeout_sec
+            while now() < fb_deadline:
+                ranked = _rank_candidates(track, results_by_track[track_id], cfg, query_variants[0])
+                if ranked:
+                    break
+                my_event.clear()
+                remaining = fb_deadline - now()
+                if remaining <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(my_event.wait(), timeout=min(remaining, 2.0))
+                except asyncio.TimeoutError:
+                    pass
             if ranked:
                 break
 
     # Phase C: Download
+    # Snapshot results to avoid data race (list is still being appended to by collector).
     if not ranked:
-        report_fn(job_id, False, None, "No viable search results")
+        await report_fn(job_id, False, None, "No viable search results")
         return
 
-    local_path = await _download_track(client, cfg, track, results_by_track[track_id], ...)
-    report_fn(job_id, bool(local_path), {"local_path": local_path} if local_path else None, ...)
+    results_snapshot = list(results_by_track[track_id])
+    local_path = await _download_track(client, cfg, track, results_snapshot, query_variants[0])
+    if local_path:
+        await report_fn(job_id, True, {"local_path": local_path}, None)
+    else:
+        await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
 ```
 
 **3. Orchestration**
 
 ```python
 async def _pipeline_download(...):
+    ticket_to_track: dict[int, int] = {}
+
     # Register result collector
     client.events.register(SearchResultEvent, on_result)
+    try:
+        if status_fn:
+            status_fn("searching")
 
-    # Fire all primary searches at once (same as today)
-    for track_id, queries in queries_by_id.items():
-        cmd = GlobalSearchCommand(queries[0])
-        await client.execute(cmd)
-        ticket_to_track[cmd._ticket] = track_id
+        # Fire all primary searches at once (same as today)
+        for track_id, queries in queries_by_id.items():
+            cmd = GlobalSearchCommand(queries[0])
+            await client.execute(cmd)
+            ticket_to_track[cmd._ticket] = track_id
 
-    # Run all track workers concurrently
-    await asyncio.gather(*[
-        _track_worker(job_id, track)
-        for job_id, track in tracks_by_job.items()
-    ])
+        if status_fn:
+            status_fn("downloading")
 
-    # Cleanup
-    client.events.unregister(SearchResultEvent, on_result)
+        # Run all track workers concurrently.
+        # Each worker has its own try/except — a single track failure
+        # does not abort other tracks.
+        await asyncio.gather(*[
+            _track_worker(job_id, track)
+            for job_id, track in tracks_by_job.items()
+        ])
+    finally:
+        # Cleanup — unregister even if gather raised
+        client.events.unregister(SearchResultEvent, on_result)
 ```
+
+**Note on error handling:** Each `_track_worker` wraps its body in try/except and calls `report_fn` with failure on any exception. This means `asyncio.gather` never sees unhandled exceptions from workers — a single track's network error does not cancel other tracks. This matches the existing `_download_one` pattern in `execute_download_batch`.
 
 ### Changes to `execute_download_batch`
 
@@ -147,11 +194,10 @@ await _pipeline_download(client, cfg, tracks_by_job, queries_by_id, report_fn, s
 
 The rest of `execute_download_batch` (job state tracking, batch totals, error handling for unreported jobs) stays the same.
 
-### Changes to CLI `_run_async`
+### Out of scope
 
-Location: `djtoolkit/downloader/aioslsk_client.py`
-
-The CLI's `_run_async` function uses the same search-then-download pattern. It should also benefit from pipelining. However, it uses `rich.progress` bars and writes directly to SQLite, so it needs a thin adapter. This is a separate, optional follow-up — the agent path is the priority.
+- **CLI `_run_async`**: Uses the same search-then-download pattern but with `rich.progress` bars and direct SQLite writes. Could benefit from pipelining but needs a thin adapter. Separate follow-up.
+- **`execute_download` (single-track path)**: Uses `client.searches.search()` (different API). Not affected by this change.
 
 ---
 
@@ -167,8 +213,8 @@ The CLI's `_run_async` function uses the same search-then-download pattern. It s
 
 | File | Change |
 |------|--------|
-| `djtoolkit/downloader/aioslsk_client.py` | Add `_pipeline_download()` function |
-| `djtoolkit/agent/executor.py` | Replace search+download phases with `_pipeline_download()` call in `execute_download_batch` |
+| `djtoolkit/downloader/aioslsk_client.py` | Add `_pipeline_download()` function (~80 lines) |
+| `djtoolkit/agent/executor.py` | Replace search+download phases with `_pipeline_download()` call in `execute_download_batch` (net deletion — simpler) |
 
 ---
 
@@ -176,8 +222,9 @@ The CLI's `_run_async` function uses the same search-then-download pattern. It s
 
 - **Early-arriving results with bad scores**: Workers check `_rank_candidates`, not just "any results". A track with 100 low-quality results keeps waiting; a track with 1 good result starts immediately.
 - **Fallback search ticket routing**: Fallback searches register new tickets in the shared `ticket_to_track` map. The result collector routes them to the correct track automatically.
-- **All workers finish before search window**: Fine — `asyncio.gather` returns when all workers complete. The result collector is unregistered in the finally block.
-- **Worker exception**: `asyncio.gather` propagates exceptions. The caller (`execute_download_batch`) already has try/except for batch-level failures with per-job cleanup.
+- **All workers finish before search window**: `asyncio.gather` returns when all workers complete. The result collector is unregistered in the finally block. No explicit cancellation of in-flight Soulseek searches is needed — they are fire-and-forget and results simply stop arriving.
+- **Worker exception**: Each worker catches its own exceptions and reports failure via `report_fn`. No exception propagates to `asyncio.gather`. This matches the existing `_download_one` pattern.
+- **Results list mutation**: Workers snapshot `results_by_track[track_id]` via `list()` before passing to `_download_track`, preventing data races from concurrent result collector appends.
 
 ---
 
