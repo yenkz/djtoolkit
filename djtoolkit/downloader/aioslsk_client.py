@@ -321,6 +321,150 @@ async def _search_all(client, query_by_track_id: dict[int, str], timeout_sec: fl
     return results_by_track
 
 
+# ─── Pipelined search + download ─────────────────────────────────────────────
+
+async def _pipeline_download(
+    client,
+    cfg: Config,
+    tracks_by_job: dict[str, dict],      # {job_id: track_dict}
+    queries_by_id: dict[int, list[str]],  # {track_id: [query_variants]}
+    report_fn,                            # async (job_id, success, result, error) -> None
+    status_fn=None,                       # optional (phase: str) -> None
+) -> None:
+    """
+    Pipelined search + download: each track starts downloading as soon as
+    viable search results arrive, rather than waiting for all searches to finish.
+
+    Each track dict in tracks_by_job MUST have an ``"id"`` key that
+    corresponds to a key in queries_by_id.
+    """
+    from aioslsk.commands import GlobalSearchCommand
+    from aioslsk.events import SearchResultEvent
+
+    all_tracks = list(tracks_by_job.values())
+    job_by_track_id: dict[int, str] = {t["id"]: job_id for job_id, t in tracks_by_job.items()}
+
+    # Per-track result collectors and wake-up events
+    results_by_track: dict[int, list] = {t["id"]: [] for t in all_tracks}
+    track_events: dict[int, asyncio.Event] = {t["id"]: asyncio.Event() for t in all_tracks}
+
+    # Maps search ticket → track_id so the result handler can route
+    ticket_to_track: dict[int, int] = {}
+
+    async def _on_result(event):
+        ticket = getattr(event.result, "ticket", None)
+        track_id = ticket_to_track.get(ticket)
+        if track_id is not None:
+            results_by_track[track_id].append(event.result)
+            track_events[track_id].set()
+
+    async def _worker(track: dict) -> None:
+        """Per-track worker: wait for viable results, then download."""
+        track_id = track["id"]
+        job_id = job_by_track_id[track_id]
+        query_variants = queries_by_id.get(track_id, [])
+        primary_query = query_variants[0] if query_variants else ""
+        timeout = cfg.soulseek.search_timeout_sec
+
+        try:
+            # Phase A: wait for viable results from primary search
+            viable = await _wait_for_viable(
+                track, track_id, results_by_track, track_events, cfg, primary_query, timeout,
+            )
+
+            # Phase B: fallback queries if primary yielded nothing viable
+            if not viable:
+                for variant in query_variants[1:]:
+                    cmd = GlobalSearchCommand(variant)
+                    await client.execute(cmd)
+                    ticket_to_track[cmd._ticket] = track_id
+                    log.info("[%d] Fallback query: «%s»", track_id, variant)
+
+                    # Clear event and wait for new results
+                    track_events[track_id].clear()
+                    viable = await _wait_for_viable(
+                        track, track_id, results_by_track, track_events, cfg, variant, timeout,
+                    )
+                    if viable:
+                        break
+
+            # Phase C: download
+            if not viable:
+                log.warning("[%d] No viable results after all queries", track_id)
+                await report_fn(job_id, False, None, "no viable results")
+                return
+
+            # Snapshot results to avoid data race
+            snapshot = list(results_by_track[track_id])
+            local_path = await _download_track(client, cfg, track, snapshot, primary_query)
+
+            if local_path:
+                log.info("[%d] ✓ downloaded via pipeline", track_id)
+                await report_fn(job_id, True, local_path, None)
+            else:
+                log.warning("[%d] Download failed (all peers exhausted)", track_id)
+                await report_fn(job_id, False, None, "download failed")
+
+        except Exception as exc:
+            log.exception("[%d] Pipeline worker error", track_id)
+            await report_fn(job_id, False, None, str(exc))
+
+    client.events.register(SearchResultEvent, _on_result)
+    try:
+        if status_fn:
+            status_fn("searching")
+
+        # Fire all primary searches at once
+        for track in all_tracks:
+            track_id = track["id"]
+            variants = queries_by_id.get(track_id, [])
+            if variants:
+                cmd = GlobalSearchCommand(variants[0])
+                await client.execute(cmd)
+                ticket_to_track[cmd._ticket] = track_id
+
+        if status_fn:
+            status_fn("downloading")
+
+        # Run all workers concurrently
+        await asyncio.gather(*[_worker(t) for t in all_tracks])
+    finally:
+        client.events.unregister(SearchResultEvent, _on_result)
+
+
+async def _wait_for_viable(
+    track: dict,
+    track_id: int,
+    results_by_track: dict[int, list],
+    track_events: dict[int, asyncio.Event],
+    cfg: Config,
+    query: str,
+    timeout: float,
+) -> bool:
+    """
+    Wait up to *timeout* seconds for viable candidates to appear for a track.
+    Checks _rank_candidates each time the per-track event fires.
+    Returns True as soon as viable candidates exist, False on timeout.
+    """
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            return False
+        # Check if we already have viable results
+        if results_by_track[track_id] and _rank_candidates(track, results_by_track[track_id], cfg, query):
+            return True
+        # Wait for more results (or timeout)
+        track_events[track_id].clear()
+        try:
+            await asyncio.wait_for(track_events[track_id].wait(), timeout=remaining)
+        except asyncio.TimeoutError:
+            # Final check after timeout
+            if results_by_track[track_id] and _rank_candidates(track, results_by_track[track_id], cfg, query):
+                return True
+            return False
+
+
 # ─── Download ─────────────────────────────────────────────────────────────────
 
 async def _wait_for_transfer(
