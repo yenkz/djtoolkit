@@ -1,0 +1,510 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10001010000000000000001 /* DJToolkitSetupApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000001 /* DJToolkitSetupApp.swift */; };
+		A10001010000000000000002 /* SetupState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000002 /* SetupState.swift */; };
+		A10001010000000000000003 /* AgentAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000003 /* AgentAPI.swift */; };
+		A10001010000000000000004 /* CLIBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000004 /* CLIBridge.swift */; };
+		A10001010000000000000005 /* OAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000005 /* OAuthService.swift */; };
+		A10001010000000000000006 /* AcoustIDView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000006 /* AcoustIDView.swift */; };
+		A10001010000000000000007 /* ConfirmView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000007 /* ConfirmView.swift */; };
+		A10001010000000000000008 /* DoneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000008 /* DoneView.swift */; };
+		A10001010000000000000009 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001010000000000000009 /* SignInView.swift */; };
+		A1000101000000000000000A /* SoulseekView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000101000000000000000A /* SoulseekView.swift */; };
+		A1000101000000000000000B /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000101000000000000000B /* WelcomeView.swift */; };
+		A1000101000000000000000C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000101000000000000000F /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A50001010000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A40001010000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A30001010000000000000001;
+			remoteInfo = DJToolkitSetup;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A20001010000000000000001 /* DJToolkitSetupApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DJToolkitSetupApp.swift; sourceTree = "<group>"; };
+		A20001010000000000000002 /* SetupState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupState.swift; sourceTree = "<group>"; };
+		A20001010000000000000003 /* AgentAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAPI.swift; sourceTree = "<group>"; };
+		A20001010000000000000004 /* CLIBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIBridge.swift; sourceTree = "<group>"; };
+		A20001010000000000000005 /* OAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OAuthService.swift; sourceTree = "<group>"; };
+		A20001010000000000000006 /* AcoustIDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AcoustIDView.swift; sourceTree = "<group>"; };
+		A20001010000000000000007 /* ConfirmView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfirmView.swift; sourceTree = "<group>"; };
+		A20001010000000000000008 /* DoneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoneView.swift; sourceTree = "<group>"; };
+		A20001010000000000000009 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		A2000101000000000000000A /* SoulseekView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoulseekView.swift; sourceTree = "<group>"; };
+		A2000101000000000000000B /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		A2000101000000000000000C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000101000000000000000D /* DJToolkit Setup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "DJToolkit Setup.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000101000000000000000E /* DJToolkitSetupTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DJToolkitSetupTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000101000000000000000F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A60001010000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A60001010000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A70001010000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A70001010000000000000002 /* DJToolkitSetup */,
+				A70001010000000000000006 /* DJToolkitSetupTests */,
+				A70001010000000000000007 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A70001010000000000000002 /* DJToolkitSetup */ = {
+			isa = PBXGroup;
+			children = (
+				A20001010000000000000001 /* DJToolkitSetupApp.swift */,
+				A2000101000000000000000C /* Info.plist */,
+				A2000101000000000000000F /* Assets.xcassets */,
+				A70001010000000000000003 /* Models */,
+				A70001010000000000000004 /* Services */,
+				A70001010000000000000005 /* Views */,
+			);
+			path = DJToolkitSetup;
+			sourceTree = "<group>";
+		};
+		A70001010000000000000003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A20001010000000000000002 /* SetupState.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A70001010000000000000004 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A20001010000000000000003 /* AgentAPI.swift */,
+				A20001010000000000000004 /* CLIBridge.swift */,
+				A20001010000000000000005 /* OAuthService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		A70001010000000000000005 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A20001010000000000000006 /* AcoustIDView.swift */,
+				A20001010000000000000007 /* ConfirmView.swift */,
+				A20001010000000000000008 /* DoneView.swift */,
+				A20001010000000000000009 /* SignInView.swift */,
+				A2000101000000000000000A /* SoulseekView.swift */,
+				A2000101000000000000000B /* WelcomeView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A70001010000000000000006 /* DJToolkitSetupTests */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = DJToolkitSetupTests;
+			sourceTree = "<group>";
+		};
+		A70001010000000000000007 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A2000101000000000000000D /* DJToolkit Setup.app */,
+				A2000101000000000000000E /* DJToolkitSetupTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A30001010000000000000001 /* DJToolkitSetup */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80001010000000000000002 /* Build configuration list for PBXNativeTarget "DJToolkitSetup" */;
+			buildPhases = (
+				A90001010000000000000001 /* Sources */,
+				A60001010000000000000001 /* Frameworks */,
+				AA0001010000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = DJToolkitSetup;
+			productName = "DJToolkit Setup";
+			productReference = A2000101000000000000000D /* DJToolkit Setup.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A30001010000000000000002 /* DJToolkitSetupTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80001010000000000000003 /* Build configuration list for PBXNativeTarget "DJToolkitSetupTests" */;
+			buildPhases = (
+				A90001010000000000000002 /* Sources */,
+				A60001010000000000000002 /* Frameworks */,
+				AA0001010000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A50001010000000000000002 /* PBXTargetDependency */,
+			);
+			name = DJToolkitSetupTests;
+			productName = DJToolkitSetupTests;
+			productReference = A2000101000000000000000E /* DJToolkitSetupTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A40001010000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1540;
+				LastUpgradeCheck = 1540;
+				TargetAttributes = {
+					A30001010000000000000001 = {
+						CreatedOnToolsVersion = 15.4;
+					};
+					A30001010000000000000002 = {
+						CreatedOnToolsVersion = 15.4;
+						TestTargetID = A30001010000000000000001;
+					};
+				};
+			};
+			buildConfigurationList = A80001010000000000000001 /* Build configuration list for PBXProject "DJToolkitSetup" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A70001010000000000000001;
+			productRefGroup = A70001010000000000000007 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A30001010000000000000001 /* DJToolkitSetup */,
+				A30001010000000000000002 /* DJToolkitSetupTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA0001010000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000101000000000000000C /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0001010000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A90001010000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10001010000000000000001 /* DJToolkitSetupApp.swift in Sources */,
+				A10001010000000000000002 /* SetupState.swift in Sources */,
+				A10001010000000000000003 /* AgentAPI.swift in Sources */,
+				A10001010000000000000004 /* CLIBridge.swift in Sources */,
+				A10001010000000000000005 /* OAuthService.swift in Sources */,
+				A10001010000000000000006 /* AcoustIDView.swift in Sources */,
+				A10001010000000000000007 /* ConfirmView.swift in Sources */,
+				A10001010000000000000008 /* DoneView.swift in Sources */,
+				A10001010000000000000009 /* SignInView.swift in Sources */,
+				A1000101000000000000000A /* SoulseekView.swift in Sources */,
+				A1000101000000000000000B /* WelcomeView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A90001010000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A50001010000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A30001010000000000000001 /* DJToolkitSetup */;
+			targetProxy = A50001010000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		B10001010000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		B10001010000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		B10001010000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DJToolkitSetup/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "DJToolkit Setup";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.djtoolkit.setup-assistant";
+				PRODUCT_NAME = "DJToolkit Setup";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B10001010000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DJToolkitSetup/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "DJToolkit Setup";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.djtoolkit.setup-assistant";
+				PRODUCT_NAME = "DJToolkit Setup";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		B10001010000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.djtoolkit.setup-assistant-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DJToolkit Setup.app/Contents/MacOS/DJToolkit Setup";
+			};
+			name = Debug;
+		};
+		B10001010000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.djtoolkit.setup-assistant-tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DJToolkit Setup.app/Contents/MacOS/DJToolkit Setup";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80001010000000000000001 /* Build configuration list for PBXProject "DJToolkitSetup" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10001010000000000000001 /* Debug */,
+				B10001010000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80001010000000000000002 /* Build configuration list for PBXNativeTarget "DJToolkitSetup" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10001010000000000000003 /* Debug */,
+				B10001010000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80001010000000000000003 /* Build configuration list for PBXNativeTarget "DJToolkitSetupTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10001010000000000000005 /* Debug */,
+				B10001010000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = A40001010000000000000001 /* Project object */;
+}

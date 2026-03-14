@@ -9,7 +9,7 @@ struct WelcomeView: View {
 
             Image(systemName: "music.note.house.fill")
                 .font(.system(size: 64))
-                .foregroundStyle(.accent)
+                .foregroundColor(.accentColor)
 
             Text("Set up djtoolkit on this Mac")
                 .font(.title)

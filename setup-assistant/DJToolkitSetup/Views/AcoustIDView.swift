@@ -11,7 +11,7 @@ struct AcoustIDView: View {
 
             Image(systemName: "waveform.badge.magnifyingglass")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundColor(.accentColor)
 
             Text("Audio Fingerprinting (Optional)")
                 .font(.title2)

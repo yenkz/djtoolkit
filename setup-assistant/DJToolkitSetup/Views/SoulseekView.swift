@@ -11,7 +11,7 @@ struct SoulseekView: View {
 
             Image(systemName: "network")
                 .font(.system(size: 40))
-                .foregroundStyle(.accent)
+                .foregroundColor(.accentColor)
 
             Text("Connect to Soulseek")
                 .font(.title2)
