@@ -191,19 +191,25 @@ Same logic as `launchd.py`:
 3. Fall back to `which djtoolkit`
 4. If bundled in DMG: use the binary from the same DMG volume
 
+### State Flow
+
+The Setup Assistant accumulates all values in the `SetupState` observable across Steps 2-5. No CLI calls happen until Step 5:
+
+- **Step 2 (Sign In)**: `OAuthService` handles the browser auth and calls `POST /api/agents/register` directly via `URLSession` (in `AgentAPI.swift`). The returned API key and user email are stored in `SetupState` in memory only.
+- **Steps 3-4**: Soulseek credentials and AcoustID key are stored in `SetupState` in memory.
+- **Step 5 (Install)**: A single `CLIBridge` call passes all accumulated values to `configure-headless` via stdin, then a second call runs `agent install`.
+
 ### Commands Called
 
 ```swift
-// Step 2: Store API key after OAuth
-CLIBridge.run(["agent", "configure-headless",
-    "--api-key", apiKey,
-    "--slsk-user", slskUsername,
-    "--slsk-pass", slskPassword,
-    "--acoustid-key", acoustidKey,   // omitted if skipped
-    "--cloud-url", cloudURL,
-    "--downloads-dir", downloadsDir, // omitted if default
-    "--poll-interval", pollInterval  // omitted if default
-])
+// Step 5: Configure agent (all credentials at once, via stdin)
+let credentials = """
+{"api_key": "\(apiKey)", "slsk_user": "\(slskUser)", "slsk_pass": "\(slskPass)", \
+"acoustid_key": \(acoustidKey.map { "\"\($0)\"" } ?? "null"), \
+"cloud_url": "\(cloudURL)", "downloads_dir": "\(downloadsDir)", \
+"poll_interval": \(pollInterval)}
+"""
+CLIBridge.run(["agent", "configure-headless", "--stdin"], stdin: credentials)
 
 // Step 5: Install LaunchAgent
 CLIBridge.run(["agent", "install"])
@@ -211,26 +217,37 @@ CLIBridge.run(["agent", "install"])
 
 ### New CLI Command: `agent configure-headless`
 
-The existing `agent configure` prompts interactively for credentials. The Setup Assistant needs a non-interactive variant that accepts all values as arguments.
+The existing `agent configure` prompts interactively for credentials. The Setup Assistant needs a non-interactive variant.
 
 ```
-djtoolkit agent configure-headless \
-  --api-key djt_xxx \
-  --slsk-user yenkz \
-  --slsk-pass secret \
-  [--acoustid-key xxx] \
-  [--cloud-url https://api.djtoolkit.com] \
-  [--downloads-dir ~/Music/djtoolkit/downloads] \
-  [--poll-interval 30]
+# Reads a JSON blob from stdin:
+echo '{"api_key": "djt_xxx", "slsk_user": "yenkz", "slsk_pass": "secret", \
+  "acoustid_key": null, "cloud_url": "https://api.djtoolkit.com", \
+  "downloads_dir": "~/Music/djtoolkit/downloads", "poll_interval": 30}' \
+  | djtoolkit agent configure-headless --stdin
 ```
+
+**Stdin JSON schema:**
+
+| Field | Type | Required | Default |
+| --- | --- | --- | --- |
+| `api_key` | string | yes | — |
+| `slsk_user` | string | yes | — |
+| `slsk_pass` | string | yes | — |
+| `acoustid_key` | string \| null | no | null |
+| `cloud_url` | string | no | `https://api.djtoolkit.com` |
+| `downloads_dir` | string | no | `~/Music/djtoolkit/downloads` |
+| `poll_interval` | integer | no | 30 |
 
 This command:
+
+- Reads credentials from stdin (avoids `ps` visibility of secrets)
 - Stores credentials in macOS Keychain (same as interactive `configure`)
 - Writes `~/.djtoolkit/config.toml` with all settings
 - Exits with code 0 on success, non-zero on failure
-- Outputs JSON to stdout for the Setup Assistant to parse: `{"status": "ok"}` or `{"status": "error", "message": "..."}`
-
-**Security note:** Passing the password via command-line argument is visible in `ps` output momentarily. Acceptable here because the Setup Assistant runs locally and the process is short-lived. Alternative: pass via stdin or environment variable if this is a concern.
+- Outputs JSON to stdout for the Setup Assistant to parse:
+  - Success: `{"status": "ok", "config_path": "~/.djtoolkit/config.toml", "downloads_dir": "/Users/x/Music/djtoolkit/downloads"}`
+  - Error: `{"status": "error", "message": "..."}`
 
 ---
 
@@ -247,7 +264,14 @@ djtoolkit-1.2.3/
 └── README.txt             ← Brief instructions
 ```
 
-The Setup Assistant's first step will check if the CLI binary is installed. If not, it copies it to `/usr/local/bin/` (prompting for admin password via `AuthorizationExecuteWithPrivileges` or an embedded privileged helper).
+The Setup Assistant checks if the CLI binary is installed on launch. If not found, it runs an `osascript` shell helper that prompts the user for their admin password and copies the binary to `/usr/local/bin/`:
+
+```swift
+let script = "do shell script \"cp '\(dmgBinaryPath)' /usr/local/bin/djtoolkit\" with administrator privileges"
+NSAppleScript(source: script)?.executeAndReturnError(&error)
+```
+
+This uses the standard macOS admin authorization dialog — no deprecated APIs, no privileged helper needed.
 
 ### Homebrew Integration
 
@@ -266,6 +290,7 @@ After `brew install djtoolkit`:
 ```ruby
 def install
   bin.install "djtoolkit"
+  # .app is a directory bundle — Homebrew's install handles cp -R
   (share/"djtoolkit").install "DJToolkit Setup.app"
 end
 
@@ -331,12 +356,44 @@ Add a step after the PyInstaller build:
 
 The DMG build step in `build.sh` is updated to include the .app in the staging directory.
 
+The Homebrew tarball step in `release.yml` is also updated to include the .app bundle alongside the CLI binary:
+
+```yaml
+- name: Create Homebrew tarball
+  run: |
+    VERSION="${VERSION#v}"
+    TAR_NAME="djtoolkit-${VERSION}-arm64.tar.gz"
+    tar czf "${TAR_NAME}" -C dist djtoolkit "DJToolkit Setup.app"
+```
+
+### ExportOptions.plist
+
+Required by `xcodebuild -exportArchive`. Create at `setup-assistant/ExportOptions.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "...">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>developer-id</string>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>
+```
+
+For unsigned builds (initial release), use `method: mac-application` instead.
+
 ### Code Signing & Notarization
 
-If an Apple Developer account is available:
-- Sign both the CLI binary and the Setup Assistant app
-- Notarize the DMG for Gatekeeper
-- Without signing: users get the "unidentified developer" warning and must right-click → Open
+Initial release ships unsigned. Users will see the "unidentified developer" Gatekeeper warning and must right-click → Open on first launch. This is acceptable for an early-stage tool with a technical audience.
+
+When an Apple Developer Program membership ($99/yr) is added:
+- Add `APPLE_DEVELOPER_IDENTITY`, `APPLE_ID`, and `APP_SPECIFIC_PASSWORD` as GitHub Actions secrets
+- Sign both the CLI binary and the Setup Assistant app with `codesign`
+- Notarize the DMG via `notarytool submit` + `stapler staple`
+- The CI step would be added after the archive export in `release.yml`
 
 ---
 
@@ -370,6 +427,7 @@ The Setup Assistant opens the Supabase hosted auth page, which supports whatever
 | `agent install` fails | Show error, offer to copy manual terminal commands |
 | Keychain access denied | Prompt user to allow Keychain access |
 | Already configured | Detect existing `~/.djtoolkit/config.toml`, offer to reconfigure or skip |
+| Agent already running | Check via `launchctl list com.djtoolkit.agent`; if running, show status and offer to reconfigure or close wizard |
 
 ---
 
@@ -377,7 +435,7 @@ The Setup Assistant opens the Supabase hosted auth page, which supports whatever
 
 - **JWT lifetime**: The JWT from Supabase Auth has a short lifetime (default 1 hour). The Setup Assistant uses it immediately to register the agent, so expiration is not a concern.
 - **API key display**: The API key is never displayed in the wizard. It goes straight from the API response to Keychain storage.
-- **Password in `ps`**: The `configure-headless` command receives the Soulseek password as a CLI argument, which is briefly visible in `ps`. Mitigation: use `--stdin` mode where the Setup Assistant pipes credentials via stdin instead. If this is deemed unnecessary for a local-only tool, the CLI argument approach is simpler.
+- **Credential passing**: The `configure-headless` command reads all credentials from stdin as JSON, avoiding `ps` visibility of secrets. The Setup Assistant pipes the JSON blob via `Process.standardInput`.
 - **Custom URL scheme hijacking**: Another app could register the `djtoolkit://` scheme. Mitigation: validate the JWT's integrity (already done server-side during agent registration). The JWT is useless without the Supabase project's signing key.
 
 ---
