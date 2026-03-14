@@ -6,7 +6,7 @@ import sys
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 # All paths resolved relative to repo root so the spec works regardless of CWD
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(SPECPATH), "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 
 # fpcalc.exe: env var (may be relative to repo root) or default location
 FPCALC_PATH = os.environ.get("FPCALC_PATH", os.path.join("dist", "fpcalc.exe"))
