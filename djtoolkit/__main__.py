@@ -679,9 +679,11 @@ def agent_stop():
 
 @agent_app.command("status")
 def agent_status():
-    """Show agent daemon status."""
+    """Show agent daemon status and current activity."""
+    import time
     from djtoolkit.agent.platform import get_service_manager
     from djtoolkit.agent.paths import log_dir
+    from djtoolkit.agent.state import load_daemon_status
 
     mgr = get_service_manager()
 
@@ -693,6 +695,37 @@ def agent_status():
     status_str = "[green]running[/green]" if running else "[red]stopped[/red]"
     console.print(f"Agent: {status_str}")
     console.print(f"  Logs: {log_dir() / 'agent.log'}")
+
+    if not running:
+        return
+
+    ds = load_daemon_status()
+    if not ds:
+        return
+
+    age = time.time() - ds.get("updated_at", 0)
+    if age > 120:
+        console.print(f"  [dim]Status stale ({age:.0f}s old)[/dim]")
+        return
+
+    state = ds.get("state", "unknown")
+    if state == "downloading":
+        batch = ds.get("batch") or {}
+        total = batch.get("total", 0)
+        ok = batch.get("ok", 0)
+        failed = batch.get("failed", 0)
+        phase = batch.get("phase", "")
+        done = ok + failed
+        console.print(f"  State: [yellow]{phase}[/yellow]  ({done}/{total} tracks — {ok} ok, {failed} failed)")
+    else:
+        console.print(f"  State: {state}")
+
+    totals = ds.get("totals") or {}
+    if totals.get("batches", 0) > 0:
+        console.print(
+            f"  Session: {totals['downloaded']} downloaded, {totals['failed']} failed "
+            f"across {totals['batches']} batch(es)"
+        )
 
 
 @agent_app.command("logs")

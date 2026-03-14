@@ -17,6 +17,7 @@ from djtoolkit.agent.executor import execute_job, execute_download_batch, shutdo
 from djtoolkit.agent.keychain import load_agent_credentials
 from djtoolkit.agent.state import (
     save_job_state, load_orphaned_jobs, cleanup_job,
+    save_daemon_status, clear_daemon_status,
 )
 from djtoolkit.config import Config
 
@@ -136,6 +137,13 @@ async def run_daemon(
         "Agent started — cloud=%s, capabilities=%s, max_jobs=%d, poll=%ds",
         cfg.agent.cloud_url, capabilities, max_concurrent, poll_interval,
     )
+    save_daemon_status({
+        "state": "idle",
+        "capabilities": capabilities,
+        "active_jobs": 0,
+        "batch": None,
+        "totals": {"downloaded": 0, "failed": 0, "batches": 0},
+    })
 
     # ── Job execution wrapper ────────────────────────────────────────────
     async def _run_job(job: dict) -> None:
@@ -166,6 +174,8 @@ async def run_daemon(
                 log.warning("Job %s failure report failed; saved locally", job_id)
 
     # ── Batch download wrapper ────────────────────────────────────────────
+    batch_totals = {"downloaded": 0, "failed": 0, "batches": 0}
+
     async def _run_download_batch(jobs: list[dict]) -> None:
         """Execute a batch of download jobs and report results individually."""
         job_ids = [j["id"] for j in jobs]
@@ -174,20 +184,50 @@ async def run_daemon(
         for job in jobs:
             save_job_state(job["id"], "claimed", job.get("payload") or {})
 
+        batch_ok = 0
+        batch_fail = 0
+
+        save_daemon_status({
+            "state": "downloading",
+            "active_jobs": len(active_tasks),
+            "batch": {
+                "total": len(jobs),
+                "phase": "connecting",
+                "ok": 0, "failed": 0,
+            },
+            "totals": batch_totals,
+        })
+
         async def _report(job_id, success, result, error):
+            nonlocal batch_ok, batch_fail
             if success:
                 save_job_state(job_id, "completed", {}, result)
+                batch_ok += 1
+                batch_totals["downloaded"] += 1
             else:
                 save_job_state(job_id, "failed", {}, {"error": error})
+                batch_fail += 1
+                batch_totals["failed"] += 1
 
             reported = await client.report_result(
                 job_id, success=success, result=result, error=error,
             )
             if reported:
                 cleanup_job(job_id)
-                log.info("Job %s: %s", job_id, "ok" if success else "failed")
             else:
                 log.warning("Job %s result report failed; saved locally", job_id)
+
+            # Update status after each track completes
+            save_daemon_status({
+                "state": "downloading",
+                "active_jobs": len(active_tasks),
+                "batch": {
+                    "total": len(jobs),
+                    "phase": "downloading",
+                    "ok": batch_ok, "failed": batch_fail,
+                },
+                "totals": batch_totals,
+            })
 
         reported_ids: set[str] = set()
 
@@ -195,8 +235,24 @@ async def run_daemon(
             reported_ids.add(job_id)
             await _report(job_id, success, result, error)
 
+        def _update_phase(phase: str):
+            save_daemon_status({
+                "state": "downloading",
+                "active_jobs": len(active_tasks),
+                "batch": {
+                    "total": len(jobs),
+                    "phase": phase,
+                    "ok": batch_ok, "failed": batch_fail,
+                },
+                "totals": batch_totals,
+            })
+
         try:
-            await execute_download_batch(jobs, cfg, creds, report_fn=_tracking_report)
+            await execute_download_batch(
+                jobs, cfg, creds,
+                report_fn=_tracking_report,
+                status_fn=_update_phase,
+            )
         except Exception:
             log.exception("Download batch failed entirely")
             for job in jobs:
@@ -206,8 +262,21 @@ async def run_daemon(
                 save_job_state(jid, "failed", {}, {"error": "Batch execution failed"})
                 await client.report_result(jid, success=False, error="Batch execution failed")
                 cleanup_job(jid)
+                batch_fail += 1
+                batch_totals["failed"] += 1
 
-        log.info("Download batch finished: %d jobs", len(jobs))
+        batch_totals["batches"] += 1
+        log.info(
+            "Download batch finished: %d ok, %d failed (cumulative: %d ok, %d failed across %d batches)",
+            batch_ok, batch_fail,
+            batch_totals["downloaded"], batch_totals["failed"], batch_totals["batches"],
+        )
+        save_daemon_status({
+            "state": "idle",
+            "active_jobs": len(active_tasks) - 1,  # this task is about to end
+            "batch": None,
+            "totals": batch_totals,
+        })
 
     # ── Heartbeat loop ───────────────────────────────────────────────────
     async def _heartbeat_loop() -> None:
@@ -305,4 +374,5 @@ async def run_daemon(
 
         await shutdown_slsk_client()
         await client.close()
+        clear_daemon_status()
         log.info("Agent stopped.")

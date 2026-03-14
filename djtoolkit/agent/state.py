@@ -76,3 +76,31 @@ def cleanup_all(*, jobs_dir: Path | None = None) -> int:
         path.unlink()
         count += 1
     return count
+
+
+# ─── Daemon activity status ──────────────────────────────────────────────────
+
+STATUS_FILE = Path.home() / ".djtoolkit" / "agent-status.json"
+
+
+def save_daemon_status(status: dict) -> None:
+    """Write daemon activity status to a JSON file for CLI querying."""
+    import time
+    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    status["updated_at"] = time.time()
+    STATUS_FILE.write_text(json.dumps(status, indent=2))
+
+
+def load_daemon_status() -> dict | None:
+    """Read daemon activity status. Returns None if not available."""
+    if not STATUS_FILE.exists():
+        return None
+    try:
+        return json.loads(STATUS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def clear_daemon_status() -> None:
+    """Remove daemon status file on shutdown."""
+    STATUS_FILE.unlink(missing_ok=True)

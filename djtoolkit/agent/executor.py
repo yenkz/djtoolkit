@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -17,54 +18,47 @@ from djtoolkit.config import Config
 log = logging.getLogger(__name__)
 
 
-# ─── Shared Soulseek client ──────────────────────────────────────────────────
+# ─── Soulseek client factory ─────────────────────────────────────────────────
 
-_slsk_client = None
-_slsk_lock = asyncio.Lock()
+_noisy_loggers_suppressed = False
 
 
-async def get_slsk_client(cfg: Config, credentials: dict):
-    """Return a shared, persistent SoulSeekClient. Created on first call."""
-    global _slsk_client
+@asynccontextmanager
+async def _slsk_session(cfg: Config, credentials: dict):
+    """Create a fresh SoulSeekClient for the duration of a batch.
 
-    async with _slsk_lock:
-        if _slsk_client is not None:
-            return _slsk_client
+    Mirrors the CLI's ``async with SoulSeekClient(settings) as client:``
+    pattern — a clean connection per batch avoids stale-session issues.
+    """
+    global _noisy_loggers_suppressed
 
-        from djtoolkit.downloader.aioslsk_client import _make_settings
-        from aioslsk.client import SoulSeekClient
+    from djtoolkit.downloader.aioslsk_client import _make_settings
+    from aioslsk.client import SoulSeekClient
 
-        cfg.soulseek.username = credentials["slsk_username"]
-        cfg.soulseek.password = credentials["slsk_password"]
+    cfg.soulseek.username = credentials["slsk_username"]
+    cfg.soulseek.password = credentials["slsk_password"]
+    settings = _make_settings(cfg)
 
-        settings = _make_settings(cfg)
-
-        # Suppress noisy aioslsk logs
+    if not _noisy_loggers_suppressed:
         for _noisy in (
             "aioslsk.network.network", "aioslsk.network.connection",
             "aioslsk.network.peer", "aioslsk.transfer",
             "aioslsk.network.distributed", "aioslsk.distributed",
         ):
             logging.getLogger(_noisy).setLevel(logging.CRITICAL)
+        _noisy_loggers_suppressed = True
 
-        client = SoulSeekClient(settings)
-        await client.start()
+    async with SoulSeekClient(settings) as client:
         await client.login()
-        log.info("Soulseek client connected (persistent)")
-        _slsk_client = client
-        return client
+        log.info("Soulseek client connected")
+        yield client
+
+    log.info("Soulseek client disconnected")
 
 
 async def shutdown_slsk_client():
-    """Shut down the shared Soulseek client if active."""
-    global _slsk_client
-    if _slsk_client is not None:
-        try:
-            await _slsk_client.stop()
-        except Exception:
-            log.debug("Error stopping Soulseek client", exc_info=True)
-        _slsk_client = None
-        log.info("Soulseek client disconnected")
+    """No-op — kept for daemon compatibility. Clients are now per-batch."""
+    pass
 
 
 # ─── Job dispatch ────────────────────────────────────────────────────────────
@@ -115,21 +109,21 @@ async def execute_download(
     }
 
     queries = _build_search_queries(track)
-    client = await get_slsk_client(cfg, credentials)
 
-    # Search with all query variants
-    all_results = []
-    for query in queries:
-        request = await client.searches.search(query)
-        await asyncio.sleep(cfg.soulseek.search_timeout_sec)
-        all_results.extend(request.results)
+    async with _slsk_session(cfg, credentials) as client:
+        # Search with all query variants
+        all_results = []
+        for query in queries:
+            request = await client.searches.search(query)
+            await asyncio.sleep(cfg.soulseek.search_timeout_sec)
+            all_results.extend(request.results)
 
-    if not all_results:
-        raise RuntimeError(f"No search results for: {search_string}")
+        if not all_results:
+            raise RuntimeError(f"No search results for: {search_string}")
 
-    local_path = await _download_track(
-        client, cfg, track, all_results, queries[0],
-    )
+        local_path = await _download_track(
+            client, cfg, track, all_results, queries[0],
+        )
 
     if not local_path:
         raise RuntimeError(f"No matching file found for: {search_string}")
@@ -139,7 +133,7 @@ async def execute_download(
 
 async def execute_download_batch(
     jobs: list[dict], cfg: Config, credentials: dict,
-    report_fn=None,
+    report_fn=None, status_fn=None,
 ) -> dict[str, dict]:
     """Batch search + parallel download for multiple tracks.
 
@@ -155,6 +149,7 @@ async def execute_download_batch(
         report_fn: async callback(job_id, success, result, error) to report
                    each job's result as it completes. If None, results are
                    returned in a dict.
+        status_fn: optional callback(phase: str) to report batch phase changes.
 
     Returns:
         {job_id: {"success": bool, "result": dict|None, "error": str|None}}
@@ -165,8 +160,6 @@ async def execute_download_batch(
         _rank_candidates,
         _download_track,
     )
-
-    client = await get_slsk_client(cfg, credentials)
 
     # Build track dicts and query variants
     tracks_by_job: dict[str, dict] = {}
@@ -189,82 +182,92 @@ async def execute_download_batch(
     all_tracks = list(tracks_by_job.values())
     log.info("Batch download: %d tracks", len(all_tracks))
 
-    # ── Phase 1: Batch search ────────────────────────────────────────────
-    primary_queries = {t["id"]: queries_by_id[t["id"]][0] for t in all_tracks}
-    results_by_track = await _search_all(client, primary_queries, cfg.soulseek.search_timeout_sec)
-
-    hits = sum(1 for r in results_by_track.values() if r)
-    log.info("Batch search: %d/%d tracks got results", hits, len(all_tracks))
-
-    # Fallback rounds for tracks with no results
-    def _needs_better(t):
-        res = results_by_track.get(t["id"], [])
-        return not res or not _rank_candidates(t, res, cfg, queries_by_id[t["id"]][0])
-
-    fallback_idx: dict[int, int] = {t["id"]: 1 for t in all_tracks}
-    for _round in range(3):
-        needing = [t for t in all_tracks
-                   if _needs_better(t) and fallback_idx[t["id"]] < len(queries_by_id[t["id"]])]
-        if not needing:
-            break
-
-        fb_queries = {}
-        for t in needing:
-            idx = fallback_idx[t["id"]]
-            fb_queries[t["id"]] = queries_by_id[t["id"]][idx]
-            fallback_idx[t["id"]] += 1
-
-        log.info("Fallback search round %d: %d tracks", _round + 1, len(fb_queries))
-        fb_results = await _search_all(client, fb_queries, cfg.soulseek.search_timeout_sec)
-        for tid, res in fb_results.items():
-            if res:
-                results_by_track.setdefault(tid, []).extend(res)
-
-    # ── Phase 2: Parallel download with local retry ──────────────────────
     outcomes: dict[str, dict] = {}
 
-    async def _download_one(job_id: str, track: dict):
-        track_id = track["id"]
-        results = results_by_track.get(track_id, [])
-        label = f"{track.get('artist')} - {track.get('title')}"
+    async with _slsk_session(cfg, credentials) as client:
+        # ── Phase 1: Batch search ────────────────────────────────────────
+        if status_fn:
+            status_fn("searching")
+        primary_queries = {t["id"]: queries_by_id[t["id"]][0] for t in all_tracks}
+        log.info("Searching %d tracks (%.0fs window)…", len(all_tracks), cfg.soulseek.search_timeout_sec)
+        results_by_track = await _search_all(client, primary_queries, cfg.soulseek.search_timeout_sec)
 
-        if not results:
-            error = f"No search results for: {label}"
-            log.warning("[batch] %s", error)
-            outcomes[job_id] = {"success": False, "result": None, "error": error}
+        hits = sum(1 for r in results_by_track.values() if r)
+        total_files = sum(sum(len(sr.shared_items) for sr in r) for r in results_by_track.values())
+        log.info("Batch search: %d/%d tracks got results (%d files total)", hits, len(all_tracks), total_files)
+
+        # Fallback rounds for tracks with no results
+        def _needs_better(t):
+            res = results_by_track.get(t["id"], [])
+            return not res or not _rank_candidates(t, res, cfg, queries_by_id[t["id"]][0])
+
+        fallback_idx: dict[int, int] = {t["id"]: 1 for t in all_tracks}
+        for _round in range(3):
+            needing = [t for t in all_tracks
+                       if _needs_better(t) and fallback_idx[t["id"]] < len(queries_by_id[t["id"]])]
+            if not needing:
+                break
+
+            fb_queries = {}
+            for t in needing:
+                idx = fallback_idx[t["id"]]
+                fb_queries[t["id"]] = queries_by_id[t["id"]][idx]
+                fallback_idx[t["id"]] += 1
+
+            log.info("Fallback search round %d: %d tracks", _round + 1, len(fb_queries))
+            fb_results = await _search_all(client, fb_queries, cfg.soulseek.search_timeout_sec)
+            for tid, res in fb_results.items():
+                if res:
+                    results_by_track.setdefault(tid, []).extend(res)
+
+        # ── Phase 2: Parallel download with local retry ──────────────────
+        ready = sum(1 for t in all_tracks if results_by_track.get(t["id"]))
+        log.info("Downloading %d/%d tracks with results…", ready, len(all_tracks))
+        if status_fn:
+            status_fn("downloading")
+
+        async def _download_one(job_id: str, track: dict):
+            track_id = track["id"]
+            results = results_by_track.get(track_id, [])
+            label = f"{track.get('artist')} - {track.get('title')}"
+
+            if not results:
+                error = f"No search results for: {label}"
+                log.warning("[batch] %s", error)
+                outcomes[job_id] = {"success": False, "result": None, "error": error}
+                if report_fn:
+                    await report_fn(job_id, False, None, error)
+                return
+
+            # Try download with local retry (up to 2 retries)
+            last_error = None
+            for attempt in range(3):
+                try:
+                    local_path = await _download_track(
+                        client, cfg, track, results, queries_by_id[track_id][0],
+                    )
+                    if local_path:
+                        result = {"local_path": local_path}
+                        log.info("[batch] OK: %s", label)
+                        outcomes[job_id] = {"success": True, "result": result, "error": None}
+                        if report_fn:
+                            await report_fn(job_id, True, result, None)
+                        return
+                    last_error = f"No matching file for: {label}"
+                except Exception as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+                    log.warning("[batch] attempt %d failed for %s: %s", attempt + 1, label, last_error)
+
+            # All local retries exhausted
+            log.error("[batch] FAIL after 3 attempts: %s", label)
+            outcomes[job_id] = {"success": False, "result": None, "error": last_error}
             if report_fn:
-                await report_fn(job_id, False, None, error)
-            return
+                await report_fn(job_id, False, None, last_error)
 
-        # Try download with local retry (up to 2 retries)
-        last_error = None
-        for attempt in range(3):
-            try:
-                local_path = await _download_track(
-                    client, cfg, track, results, queries_by_id[track_id][0],
-                )
-                if local_path:
-                    result = {"local_path": local_path}
-                    log.info("[batch] OK: %s", label)
-                    outcomes[job_id] = {"success": True, "result": result, "error": None}
-                    if report_fn:
-                        await report_fn(job_id, True, result, None)
-                    return
-                last_error = f"No matching file for: {label}"
-            except Exception as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-                log.warning("[batch] attempt %d failed for %s: %s", attempt + 1, label, last_error)
-
-        # All local retries exhausted
-        log.error("[batch] FAIL after 3 attempts: %s", label)
-        outcomes[job_id] = {"success": False, "result": None, "error": last_error}
-        if report_fn:
-            await report_fn(job_id, False, None, last_error)
-
-    await asyncio.gather(*[
-        _download_one(job_id, track)
-        for job_id, track in tracks_by_job.items()
-    ])
+        await asyncio.gather(*[
+            _download_one(job_id, track)
+            for job_id, track in tracks_by_job.items()
+        ])
 
     log.info(
         "Batch complete: %d ok, %d failed",

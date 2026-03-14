@@ -57,7 +57,8 @@ def _terminal_failed_states():
 def _make_settings(cfg: Config):
     from aioslsk.settings import (
         Settings, CredentialsSettings, SharesSettings,
-        NetworkSettings, ListeningSettings,
+        NetworkSettings, ListeningSettings, ServerSettings,
+        ReconnectSettings,
     )
     from aioslsk.network.network import ListeningConnectionErrorMode
     return Settings(
@@ -71,6 +72,9 @@ def _make_settings(cfg: Config):
         network=NetworkSettings(
             listening=ListeningSettings(
                 error_mode=ListeningConnectionErrorMode.ALL,
+            ),
+            server=ServerSettings(
+                reconnect=ReconnectSettings(auto=True),
             ),
         ),
     )
