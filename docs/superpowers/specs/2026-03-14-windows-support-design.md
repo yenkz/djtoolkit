@@ -102,15 +102,61 @@ Both `launchd.py` and `windows_service.py` expose the same interface:
 
 | Function | Description |
 |---|---|
-| `install(cfg)` | Register the service/agent to start at boot |
-| `uninstall(cfg)` | Remove the service/agent registration |
-| `start(cfg)` | Start the service/agent now |
-| `stop(cfg)` | Stop the service/agent |
-| `status(cfg)` | Return current status (running/stopped/not installed) |
+| `install()` | Register the service/agent to start at boot |
+| `uninstall()` | Remove the service/agent registration |
+| `start()` | Start the service/agent now |
+| `stop()` | Stop the service/agent |
+| `is_installed()` | Return whether the service/agent is registered |
+| `is_running()` | Return whether the service/agent is currently running |
 
-The existing `__main__.py` agent commands change from importing `launchd` directly to using `get_service_manager()`, then calling `mgr.install(cfg)`, etc.
+This matches the existing `launchd.py` signatures (no `cfg` parameter — each module resolves its own paths internally). `launchd.py` already conforms to this interface unchanged.
 
-`launchd.py` keeps its current implementation unchanged — it already conforms to this interface.
+### CLI Commands to Update
+
+All agent commands in `__main__.py` currently import from `launchd` directly. These must change to use `get_service_manager()`:
+
+- `agent_install` — `launchd.install()`
+- `agent_uninstall` — `launchd.uninstall()`
+- `agent_start` — `launchd.start()`
+- `agent_stop` — `launchd.stop()`
+- `agent_status` — `launchd.is_installed()` / `launchd.is_running()`
+- `agent_logs` — hardcodes `~/Library/Logs/djtoolkit`; needs platform-aware log path (see below)
+- `agent_run` — hardcodes `~/Library/Logs/djtoolkit` for file logging; needs platform-aware log path
+- `setup_wizard` — currently rejects non-Darwin; must also support Windows, launching `DJToolkit Setup.exe` from `%ProgramFiles%\djtoolkit\`
+
+### Platform-Aware Paths
+
+Several shared code paths hardcode macOS-specific directories. These must use a platform helper:
+
+```python
+# agent/paths.py (new)
+import sys
+from pathlib import Path
+
+def config_dir() -> Path:
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", "~")) / "djtoolkit"
+    return Path.home() / ".djtoolkit"
+
+def log_dir() -> Path:
+    if sys.platform == "win32":
+        return config_dir() / "logs"
+    return Path.home() / "Library" / "Logs" / "djtoolkit"
+
+def default_downloads_dir() -> Path:
+    if sys.platform == "win32":
+        return Path.home() / "Music" / "djtoolkit" / "downloads"
+    return Path.home() / "Music" / "djtoolkit" / "downloads"
+```
+
+Affected code:
+- `__main__.py`: `agent_run`, `agent_logs`, `agent_configure`, `agent_configure_headless` — all hardcode `Path.home() / ".djtoolkit"`
+- `config.py`: default path values
+- `launchd.py`: `LOG_DIR` (stays macOS-specific, that's fine — it's the macOS module)
+
+### `agent logs` on Windows
+
+The `agent_logs` command runs `tail -f` which does not exist on Windows. On Windows, use Python's built-in file tailing (seek to end, poll for new lines) or `Get-Content -Wait` via PowerShell. The simplest cross-platform approach: implement a Python `_tail_follow()` helper used on all platforms, replacing the `tail -f` subprocess call.
 
 ---
 
@@ -127,10 +173,12 @@ A `win32serviceutil.ServiceFramework` subclass that wraps the existing `daemon.p
 
 ### Signal Handling
 
-`daemon.py` gets a platform branch for shutdown:
+`daemon.py` already uses an `asyncio.Event` (`shutdown_event`) for loop control, with Unix signal handlers calling `shutdown_event.set()`. The platform branch:
 
-- **Unix (existing):** `loop.add_signal_handler(SIGTERM/SIGINT, handler)`
-- **Windows:** accepts a `shutdown_event: threading.Event` parameter. The daemon polls this event alongside its normal work loop. When the service control manager calls `SvcStop()`, it sets the event, and the daemon exits cleanly.
+- **Unix (existing):** `loop.add_signal_handler(SIGTERM/SIGINT, handler)` calls `shutdown_event.set()`
+- **Windows:** `loop.add_signal_handler` is not available. Instead, the Windows Service's `SvcStop()` calls `loop.call_soon_threadsafe(shutdown_event.set)` to safely set the asyncio event from the service control thread. No `threading.Event` needed — the existing `asyncio.Event` is reused, just triggered from a different thread via the thread-safe trampoline.
+
+The `run_daemon()` function needs a small refactor: extract the signal handler setup into a platform-conditional block, and accept an optional `loop` parameter so the Windows service can pass in the event loop reference for `call_soon_threadsafe`.
 
 ### Service Configuration
 
@@ -139,16 +187,19 @@ A `win32serviceutil.ServiceFramework` subclass that wraps the existing `daemon.p
 | Service name | `DJToolkitAgent` |
 | Display name | `djtoolkit Agent` |
 | Start type | Automatic (starts at boot) |
-| Recovery | Restart on first and second failure (60s delay) |
+| Recovery | Restart on all failures (60s delay) |
 | Run as | Current user (needs network + file access) |
+
+**Elevation:** Installing an NT service requires Administrator privileges. `djtoolkit agent install` on Windows must be run elevated. The Setup Assistant's CLIBridge launches the install step with `ProcessStartInfo.Verb = "runas"` to trigger the UAC elevation prompt. This differs from macOS where `launchctl load` works without elevation for user-scoped LaunchAgents.
 
 ### Interface Functions
 
-- `install(cfg)` — calls `win32serviceutil.InstallService()`, sets recovery options via `ChangeServiceConfig2`
-- `uninstall(cfg)` — stops if running, then `RemoveService()`
-- `start(cfg)` — `win32serviceutil.StartService()`
-- `stop(cfg)` — `win32serviceutil.StopService()`
-- `status(cfg)` — queries `QueryServiceStatus()`, returns running/stopped/not installed
+- `install()` — calls `win32serviceutil.InstallService()`, sets recovery options via `ChangeServiceConfig2`
+- `uninstall()` — stops if running, then `RemoveService()`
+- `start()` — `win32serviceutil.StartService()`
+- `stop()` — `win32serviceutil.StopService()`
+- `is_installed()` — queries service control manager, returns bool
+- `is_running()` — queries `QueryServiceStatus()`, returns bool
 
 ### Dependency
 
@@ -178,7 +229,7 @@ Identical to the macOS Setup Assistant:
 
 ### OAuth Flow
 
-Uses `WebView2` (ships with Windows 11) instead of `ASWebAuthenticationSession`. Same redirect to `djtoolkit://auth/callback`. The app registers the `djtoolkit://` protocol via the MSI installer (registry key under `HKCU\Software\Classes\djtoolkit`).
+Uses `WebView2` (ships with Windows 11) instead of `ASWebAuthenticationSession`. Same redirect to `djtoolkit://auth/callback`. The `djtoolkit://` protocol is registered via the MSI installer (registry key under `HKCU\Software\Classes\djtoolkit`). The app itself does not handle protocol registration — the MSI owns that.
 
 ### CLIBridge
 
@@ -192,9 +243,9 @@ CLIBridge.Run(["agent", "install"]);
 
 ### Binary Resolution Order
 
-1. Check `PATH` for `djtoolkit.exe`
-2. Check `%ProgramFiles%\djtoolkit\djtoolkit.exe` (MSI install location)
-3. If bundled in MSI: use binary from same install directory
+1. Check `%ProgramFiles%\djtoolkit\djtoolkit.exe` (MSI install location — preferred, avoids PATH propagation delay after fresh install)
+2. Check `PATH` for `djtoolkit.exe`
+3. Fallback: check adjacent directory if running from a dev/build context
 
 ### New CLI Command: `agent configure-headless`
 
@@ -220,7 +271,6 @@ setup-assistant-windows/
 │   │   ├── CLIBridge.cs                # Process wrapper
 │   │   ├── OAuthService.cs            # WebView2 auth flow
 │   │   └── AgentAPI.cs                 # POST /agents/register via HttpClient
-│   ├── Package.appxmanifest            # Protocol registration
 │   └── Assets/
 └── DJToolkitSetup.Tests/
     └── CLIBridgeTests.cs
@@ -313,8 +363,8 @@ build-windows:
 
 | File | Purpose |
 |---|---|
-| `packaging/windows/djtoolkit.spec` | PyInstaller spec for Windows (`fpcalc.exe` path, `keyring.backends.Windows` backend) |
-| `packaging/windows/djtoolkit.wxs` | WiX installer definition |
+| `packaging/windows/djtoolkit.spec` | PyInstaller spec for Windows (`fpcalc.exe` path, `keyring.backends.Windows` backend, `pywin32` hidden imports: `win32serviceutil`, `win32service`, `win32event`, `servicemanager`) |
+| `packaging/windows/djtoolkit.wxs` | WiX 4+ installer definition (uses `wix build` CLI, not legacy `candle`/`light`) |
 | `packaging/windows/build.ps1` | Orchestrates PyInstaller + WiX build |
 
 ### Release Assets
@@ -340,7 +390,8 @@ After this change, each release produces:
 | Credential Manager access denied | Prompt user to allow access |
 | Already configured | Detect existing `%APPDATA%\djtoolkit\config.toml`, offer to reconfigure or skip |
 | Service already running | Check via `QueryServiceStatus()`; if running, show status and offer to reconfigure or close wizard |
-| Service install requires elevation | MSI runs elevated; `agent install` via CLIBridge may need elevation — if denied, show instructions to run as administrator |
+| Service install requires elevation | CLIBridge launches `agent install` with `Verb = "runas"` for UAC prompt; if denied, show instructions to run as administrator |
+| No internet connectivity | Check connectivity before OAuth step; show "No internet connection" with retry button |
 
 ---
 
@@ -353,22 +404,34 @@ After this change, each release produces:
 
 ---
 
+## Known Limitations
+
+- **Windows SmartScreen:** Unsigned executables trigger SmartScreen warnings that are more aggressive than macOS Gatekeeper. Users must click "More info" → "Run anyway" on first launch. This is acceptable for an early-stage tool with a technical audience. Code signing is out of scope for the initial release.
+- **PATH propagation delay:** MSI adds the install directory to PATH, but this only takes effect for new processes. The Setup Assistant (launched as a post-install action) uses the direct `%ProgramFiles%\djtoolkit\djtoolkit.exe` path instead of relying on PATH resolution.
+- **`fpcalc.exe` extension:** `shutil.which("fpcalc")` handles `.exe` resolution automatically on Windows. The `fpcalc_path` config key also works with `.exe` — no code changes needed.
+- **WinUI 3 unpackaged mode:** The Setup Assistant uses the unpackaged WinUI 3 deployment model (no MSIX). Protocol registration is handled entirely by the MSI via registry keys, not by the app manifest.
+
+---
+
 ## Scope
 
 ### In scope
 
-- Platform abstraction layer (`agent/platform.py`)
+- Platform abstraction layer (`agent/platform.py`, `agent/paths.py`)
 - Windows Service implementation (`agent/windows_service.py`)
-- `daemon.py` signal handling for Windows (threading event)
+- `daemon.py` signal handling for Windows (`call_soon_threadsafe`)
 - `config.py` platform-aware path resolution (`%APPDATA%`, `%USERPROFILE%`)
+- `__main__.py` agent commands refactored to use `get_service_manager()`
+- `agent logs` cross-platform tail implementation
+- `setup_wizard` command updated for Windows
 - `pywin32` Windows-only dependency
-- WinUI 3 Setup Assistant with 6-step wizard
+- WinUI 3 Setup Assistant (unpackaged) with 6-step wizard
 - OAuth via WebView2
-- CLIBridge (C# Process wrapper)
-- PyInstaller spec for Windows
-- WiX MSI installer
-- `release.yml` Windows build job
-- `djtoolkit://` protocol registration
+- CLIBridge (C# Process wrapper) with UAC elevation for service install
+- PyInstaller spec for Windows (with `pywin32` hidden imports)
+- WiX 4+ MSI installer
+- `release.yml` Windows build job (`windows-latest`)
+- `djtoolkit://` protocol registration via MSI registry keys
 
 ### Out of scope
 
