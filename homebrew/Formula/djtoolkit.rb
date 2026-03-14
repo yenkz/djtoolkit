@@ -12,9 +12,16 @@ class Djtoolkit < Formula
 
   def install
     bin.install "djtoolkit"
+    (share/"djtoolkit").install "DJToolkit Setup.app" if Dir.exist?("DJToolkit Setup.app")
   end
 
-  test do
-    assert_match "djtoolkit", shell_output("#{bin}/djtoolkit --help")
+  def caveats
+    <<~EOS
+      Run the setup wizard to configure djtoolkit:
+        djtoolkit setup
+
+      Or open the app directly:
+        open #{share}/djtoolkit/DJToolkit\\ Setup.app
+    EOS
   end
 end

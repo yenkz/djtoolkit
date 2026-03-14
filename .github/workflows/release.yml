@@ -35,6 +35,20 @@ jobs:
       - name: Install PyInstaller
         run: poetry run pip install pyinstaller
 
+      - name: Build Setup Assistant
+        run: |
+          xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj \
+            -scheme DJToolkitSetup \
+            -configuration Release \
+            -archivePath build/DJToolkitSetup.xcarchive \
+            archive -quiet
+          xcodebuild -exportArchive \
+            -archivePath build/DJToolkitSetup.xcarchive \
+            -exportOptionsPlist setup-assistant/ExportOptions.plist \
+            -exportPath build/ -quiet
+          cp -R "build/DJToolkit Setup.app" dist/
+          echo "✓ Setup Assistant built"
+
       - name: Build installer
         env:
           VERSION: ${{ github.ref_name }}   # e.g. "v1.0.0"
@@ -49,7 +63,7 @@ jobs:
         run: |
           VERSION="${VERSION#v}"
           TAR_NAME="djtoolkit-${VERSION}-arm64.tar.gz"
-          tar czf "${TAR_NAME}" -C dist djtoolkit
+          tar czf "${TAR_NAME}" -C dist djtoolkit "DJToolkit Setup.app"
           echo "TAR_NAME=${TAR_NAME}" >> "$GITHUB_ENV"
           echo "Created: ${TAR_NAME} ($(du -sh "${TAR_NAME}" | cut -f1))"
 

@@ -73,3 +73,10 @@ postman/
 
 # Logs
 *.log
+
+# Xcode
+setup-assistant/build/
+setup-assistant/DJToolkitSetup.xcodeproj/xcuserdata/
+setup-assistant/DJToolkitSetup.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcarchive
+DerivedData/

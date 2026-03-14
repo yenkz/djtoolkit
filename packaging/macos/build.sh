@@ -37,6 +37,24 @@ if [ ! -f "$BINARY" ]; then
 fi
 echo "✓ Binary built: $BINARY ($(du -sh "$BINARY" | cut -f1))"
 
+# ── 3b. Build Setup Assistant ─────────────────────────────────────────────
+if [ -d "setup-assistant/DJToolkitSetup.xcodeproj" ]; then
+    echo "Building Setup Assistant..."
+    xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj \
+        -scheme DJToolkitSetup \
+        -configuration Release \
+        -archivePath build/DJToolkitSetup.xcarchive \
+        archive -quiet
+    xcodebuild -exportArchive \
+        -archivePath build/DJToolkitSetup.xcarchive \
+        -exportOptionsPlist setup-assistant/ExportOptions.plist \
+        -exportPath build/ -quiet
+    cp -R "build/DJToolkit Setup.app" dist/
+    echo "✓ Setup Assistant built"
+else
+    echo "⚠ Setup Assistant project not found, skipping"
+fi
+
 # ── 4. Build .pkg ───────────────────────────────────────────────────────────
 PKG_NAME="djtoolkit-${VERSION}-${ARCH}.pkg"
 echo "Building $PKG_NAME..."
@@ -58,6 +76,9 @@ echo "Creating $DMG_NAME..."
 # Stage into a temp folder for hdiutil
 TMP_DMG_DIR=$(mktemp -d)
 cp "$PKG_NAME" "$TMP_DMG_DIR/"
+if [ -d "dist/DJToolkit Setup.app" ]; then
+    cp -R "dist/DJToolkit Setup.app" "$TMP_DMG_DIR/"
+fi
 
 hdiutil create \
     -volname "djtoolkit $VERSION" \
