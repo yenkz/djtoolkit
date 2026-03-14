@@ -383,7 +383,7 @@ async def _pipeline_download(
                     # Clear event and wait for new results
                     track_events[track_id].clear()
                     viable = await _wait_for_viable(
-                        track, track_id, results_by_track, track_events, cfg, variant, timeout,
+                        track, track_id, results_by_track, track_events, cfg, primary_query, timeout,
                     )
                     if viable:
                         break
@@ -391,7 +391,7 @@ async def _pipeline_download(
             # Phase C: download
             if not viable:
                 log.warning("[%d] No viable results after all queries", track_id)
-                await report_fn(job_id, False, None, "no viable results")
+                await report_fn(job_id, False, None, "No viable search results")
                 return
 
             # Snapshot results to avoid data race
@@ -400,10 +400,10 @@ async def _pipeline_download(
 
             if local_path:
                 log.info("[%d] ✓ downloaded via pipeline", track_id)
-                await report_fn(job_id, True, local_path, None)
+                await report_fn(job_id, True, {"local_path": local_path}, None)
             else:
-                log.warning("[%d] Download failed (all peers exhausted)", track_id)
-                await report_fn(job_id, False, None, "download failed")
+                log.warning("[%d] No matching file (all peers exhausted)", track_id)
+                await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
 
         except Exception as exc:
             log.exception("[%d] Pipeline worker error", track_id)
@@ -446,23 +446,22 @@ async def _wait_for_viable(
     Checks _rank_candidates each time the per-track event fires.
     Returns True as soon as viable candidates exist, False on timeout.
     """
-    deadline = asyncio.get_event_loop().time() + timeout
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
     while True:
-        remaining = deadline - asyncio.get_event_loop().time()
+        remaining = deadline - loop.time()
         if remaining <= 0:
             return False
         # Check if we already have viable results
         if results_by_track[track_id] and _rank_candidates(track, results_by_track[track_id], cfg, query):
             return True
-        # Wait for more results (or timeout)
+        # Wait for more results (or poll interval, whichever comes first)
         track_events[track_id].clear()
         try:
-            await asyncio.wait_for(track_events[track_id].wait(), timeout=remaining)
+            await asyncio.wait_for(track_events[track_id].wait(), timeout=min(remaining, 2.0))
         except asyncio.TimeoutError:
-            # Final check after timeout
-            if results_by_track[track_id] and _rank_candidates(track, results_by_track[track_id], cfg, query):
-                return True
-            return False
+            # Poll interval expired — loop will re-check remaining time
+            pass
 
 
 # ─── Download ─────────────────────────────────────────────────────────────────

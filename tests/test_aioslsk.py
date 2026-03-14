@@ -273,12 +273,12 @@ async def test_pipeline_download_starts_download_on_first_viable_result(cfg):
         mock_dl.return_value = "/tmp/Big Wild - City of Sound.flac"
 
         # Run delivery and pipeline concurrently
-        asyncio.get_event_loop().create_task(deliver_results())
+        asyncio.create_task(deliver_results())
         await _pipeline_download(client, cfg, tracks_by_job, queries_by_id, report_fn)
 
     assert len(reports) == 1
     assert reports[0]["success"] is True
-    assert reports[0]["result"] == "/tmp/Big Wild - City of Sound.flac"
+    assert reports[0]["result"] == {"local_path": "/tmp/Big Wild - City of Sound.flac"}
     mock_dl.assert_called_once()
 
 
@@ -340,7 +340,7 @@ async def test_pipeline_download_independent_tracks(cfg):
     with patch("djtoolkit.downloader.aioslsk_client._download_track", new_callable=AsyncMock) as mock_dl:
         mock_dl.return_value = "/tmp/Big Wild - City of Sound.flac"
 
-        asyncio.get_event_loop().create_task(deliver_results_for_track_a())
+        asyncio.create_task(deliver_results_for_track_a())
         await _pipeline_download(client, cfg, tracks_by_job, queries_by_id, report_fn)
 
     assert len(reports) == 2
