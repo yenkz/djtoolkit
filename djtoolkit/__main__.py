@@ -467,8 +467,9 @@ def agent_configure(
     api_key: Annotated[str, typer.Option("--api-key", help="Agent API key (djt_xxx)")],
     cloud_url: Annotated[str, typer.Option("--cloud-url", help="Cloud API base URL")] = "https://api.djtoolkit.com",
 ):
-    """Configure the local agent — stores credentials in macOS Keychain."""
+    """Configure the local agent — stores credentials in the system credential store."""
     from djtoolkit.agent.keychain import store_agent_credentials, has_secret, API_KEY
+    from djtoolkit.agent.paths import config_dir, credential_store_name
 
     if not api_key.startswith("djt_"):
         console.print("[red]API key must start with 'djt_'[/red]")
@@ -486,10 +487,10 @@ def agent_configure(
         acoustid_key=acoustid or None,
     )
 
-    # Write non-secret config to ~/.djtoolkit/config.toml
-    config_dir = Path.home() / ".djtoolkit"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.toml"
+    # Write non-secret config
+    cfg_dir = config_dir()
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    config_path = cfg_dir / "config.toml"
 
     config_content = f"""[agent]
 cloud_url = "{cloud_url}"
@@ -508,7 +509,7 @@ sources = "coverart itunes deezer"
 """
     config_path.write_text(config_content)
 
-    console.print(f"[green]✓[/green] Credentials stored in macOS Keychain")
+    console.print(f"[green]✓[/green] Credentials stored in {credential_store_name()}")
     console.print(f"[green]✓[/green] Config written to [bold]{config_path}[/bold]")
     console.print(f"  cloud_url = {cloud_url}")
     console.print(f"\nNext: run [bold]djtoolkit agent install[/bold] to start the background daemon.")
@@ -578,9 +579,10 @@ def agent_configure_headless(
     # Expand ~ for the response but keep unexpanded in config if user passed ~
     expanded_downloads = str(Path(downloads_dir).expanduser())
 
-    config_dir = Path.home() / ".djtoolkit"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_path = config_dir / "config.toml"
+    from djtoolkit.agent.paths import config_dir
+    cfg_dir = config_dir()
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    config_path = cfg_dir / "config.toml"
 
     config_content = f"""[agent]
 cloud_url = "{cloud_url}"
@@ -609,47 +611,53 @@ sources = "coverart itunes deezer"
 
 @agent_app.command("install")
 def agent_install():
-    """Install the agent as a macOS LaunchAgent (runs on login)."""
-    from djtoolkit.agent.launchd import install, is_installed
+    """Install the agent as a background service (runs on login)."""
+    from djtoolkit.agent.platform import get_service_manager
     from djtoolkit.agent.keychain import has_secret, API_KEY
+    from djtoolkit.agent.paths import log_dir, service_display_name
 
     if not has_secret(API_KEY):
         console.print("[red]Agent not configured.[/red] Run [bold]djtoolkit agent configure --api-key djt_xxx[/bold] first.")
         raise typer.Exit(1)
 
-    if is_installed():
+    mgr = get_service_manager()
+
+    if mgr.is_installed():
         console.print("[yellow]Agent already installed.[/yellow] Use [bold]djtoolkit agent start/stop[/bold] to manage.")
         return
 
-    plist_path = install()
+    mgr.install()
     console.print(f"[green]✓[/green] Agent installed and started")
-    console.print(f"  Plist: {plist_path}")
-    console.print(f"  Logs:  ~/Library/Logs/djtoolkit/agent.log")
+    console.print(f"  Logs: {log_dir() / 'agent.log'}")
 
 
 @agent_app.command("uninstall")
 def agent_uninstall():
-    """Uninstall the agent LaunchAgent and clear credentials."""
-    from djtoolkit.agent.launchd import uninstall, is_installed
+    """Uninstall the agent service and clear credentials."""
+    from djtoolkit.agent.platform import get_service_manager
     from djtoolkit.agent.keychain import clear_agent_credentials
+    from djtoolkit.agent.paths import service_display_name, credential_store_name
 
-    if is_installed():
-        uninstall()
-        console.print("[green]✓[/green] LaunchAgent removed")
+    mgr = get_service_manager()
+
+    if mgr.is_installed():
+        mgr.uninstall()
+        console.print(f"[green]✓[/green] {service_display_name()} removed")
     else:
-        console.print("[dim]LaunchAgent was not installed.[/dim]")
+        console.print(f"[dim]{service_display_name()} was not installed.[/dim]")
 
-    if typer.confirm("Also remove credentials from Keychain?", default=True):
+    if typer.confirm(f"Also remove credentials from {credential_store_name()}?", default=True):
         clear_agent_credentials()
-        console.print("[green]✓[/green] Keychain entries cleared")
+        console.print(f"[green]✓[/green] {credential_store_name()} entries cleared")
 
 
 @agent_app.command("start")
 def agent_start():
-    """Resume the agent (launchctl load)."""
-    from djtoolkit.agent.launchd import start
+    """Start the agent service."""
+    from djtoolkit.agent.platform import get_service_manager
+    mgr = get_service_manager()
     try:
-        start()
+        mgr.start()
         console.print("[green]✓[/green] Agent started")
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
@@ -658,10 +666,11 @@ def agent_start():
 
 @agent_app.command("stop")
 def agent_stop():
-    """Temporarily stop the agent (launchctl unload)."""
-    from djtoolkit.agent.launchd import stop
+    """Stop the agent service."""
+    from djtoolkit.agent.platform import get_service_manager
+    mgr = get_service_manager()
     try:
-        stop()
+        mgr.stop()
         console.print("[green]✓[/green] Agent stopped")
     except FileNotFoundError as e:
         console.print(f"[red]{e}[/red]")
@@ -671,52 +680,79 @@ def agent_stop():
 @agent_app.command("status")
 def agent_status():
     """Show agent daemon status."""
-    from djtoolkit.agent.launchd import is_installed, is_running
+    from djtoolkit.agent.platform import get_service_manager
+    from djtoolkit.agent.paths import log_dir
 
-    if not is_installed():
+    mgr = get_service_manager()
+
+    if not mgr.is_installed():
         console.print("[dim]Agent not installed.[/dim]")
         return
 
-    running = is_running()
+    running = mgr.is_running()
     status_str = "[green]running[/green]" if running else "[red]stopped[/red]"
     console.print(f"Agent: {status_str}")
-    console.print(f"  Logs: ~/Library/Logs/djtoolkit/agent.log")
+    console.print(f"  Logs: {log_dir() / 'agent.log'}")
 
 
 @agent_app.command("logs")
 def agent_logs():
     """Tail the agent log file."""
-    import subprocess
-    log_path = Path.home() / "Library" / "Logs" / "djtoolkit" / "agent.log"
+    import time
+    from djtoolkit.agent.paths import log_dir
+
+    log_path = log_dir() / "agent.log"
     if not log_path.exists():
         console.print(f"[dim]Log file not found: {log_path}[/dim]")
         raise typer.Exit(1)
+
     try:
-        subprocess.run(["tail", "-f", str(log_path)])
+        with open(log_path, "r") as f:
+            # Seek to last 4KB to show recent context
+            f.seek(0, 2)  # end of file
+            size = f.tell()
+            f.seek(max(0, size - 4096))
+            if size > 4096:
+                f.readline()  # discard partial line
+            for line in f:
+                console.print(line, end="", highlight=False)
+            # Tail loop
+            while True:
+                line = f.readline()
+                if line:
+                    console.print(line, end="", highlight=False)
+                else:
+                    time.sleep(0.5)
     except KeyboardInterrupt:
         pass
 
 
 @agent_app.command("run")
 def agent_run(
-    config: ConfigOpt = str(Path.home() / ".djtoolkit" / "config.toml"),
+    config: Annotated[str | None, typer.Option(help="Path to config file")] = None,
 ):
-    """Run the agent daemon directly (used by launchd, not typically run manually)."""
+    """Run the agent daemon directly (used by the service manager, not typically run manually)."""
     import asyncio
     import logging
     from djtoolkit.agent.daemon import run_daemon
+    from djtoolkit.agent.paths import config_dir, log_dir
+
+    config_path = config if config else str(config_dir() / "config.toml")
 
     # Use file-based logging for daemon mode
-    log_dir = Path.home() / "Library" / "Logs" / "djtoolkit"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    _log_dir = log_dir()
+    _log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.FileHandler(log_dir / "agent.log")],
+        handlers=[logging.FileHandler(_log_dir / "agent.log")],
     )
 
-    cfg = _cfg(config)
-    asyncio.run(run_daemon(cfg))
+    cfg = _cfg(config_path)
+    try:
+        asyncio.run(run_daemon(cfg))
+    except KeyboardInterrupt:
+        pass
 
 
 # ─── setup command ────────────────────────────────────────────────────────────
@@ -724,38 +760,57 @@ def agent_run(
 @app.command("setup")
 def setup_wizard():
     """Open the Setup Assistant GUI."""
-    import platform
     import subprocess
-    import shutil
+    import sys as _sys
 
-    if platform.system() != "Darwin":
-        console.print("[red]The Setup Assistant is only available on macOS.[/red]")
+    if _sys.platform == "darwin":
+        # Search for the .app bundle on macOS
+        search_paths = [
+            Path("/opt/homebrew/share/djtoolkit/DJToolkit Setup.app"),
+            Path("/usr/local/share/djtoolkit/DJToolkit Setup.app"),
+            Path(__file__).parent.parent / "DJToolkit Setup.app",
+        ]
+
+        app_path = None
+        for p in search_paths:
+            if p.exists():
+                app_path = p
+                break
+
+        if app_path is None:
+            console.print("[red]Setup Assistant not found.[/red]")
+            console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] for terminal setup.")
+            raise typer.Exit(1)
+
+        console.print("Opening Setup Assistant...")
+        subprocess.run(["open", str(app_path)])
+
+    elif _sys.platform == "win32":
+        import os
+        # Search for the .exe on Windows
+        search_paths = [
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "djtoolkit" / "DJToolkit Setup.exe",
+            Path(__file__).parent.parent / "DJToolkit Setup.exe",
+        ]
+
+        exe_path = None
+        for p in search_paths:
+            if p.exists():
+                exe_path = p
+                break
+
+        if exe_path is None:
+            console.print("[red]Setup Assistant not found.[/red]")
+            console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] for terminal setup.")
+            raise typer.Exit(1)
+
+        console.print("Opening Setup Assistant...")
+        subprocess.run([str(exe_path)])
+
+    else:
+        console.print("[red]The Setup Assistant is not available on this platform.[/red]")
         console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] instead.")
         raise typer.Exit(1)
-
-    # Search for the Setup Assistant app
-    search_paths = [
-        # Homebrew arm64
-        Path("/opt/homebrew/share/djtoolkit/DJToolkit Setup.app"),
-        # Homebrew x86_64
-        Path("/usr/local/share/djtoolkit/DJToolkit Setup.app"),
-        # Same directory as binary (DMG or dev)
-        Path(__file__).parent.parent / "DJToolkit Setup.app",
-    ]
-
-    app_path = None
-    for p in search_paths:
-        if p.exists():
-            app_path = p
-            break
-
-    if app_path is None:
-        console.print("[red]Setup Assistant not found.[/red]")
-        console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] for terminal setup.")
-        raise typer.Exit(1)
-
-    console.print(f"Opening Setup Assistant...")
-    subprocess.run(["open", str(app_path)])
 
 
 if __name__ == "__main__":
