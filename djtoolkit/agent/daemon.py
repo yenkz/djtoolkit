@@ -25,6 +25,27 @@ log = logging.getLogger(__name__)
 __version__ = "0.1.0"
 
 
+def _setup_signal_handlers(
+    loop: asyncio.AbstractEventLoop,
+    shutdown_event: asyncio.Event,
+) -> None:
+    """Register SIGTERM/SIGINT handlers to trigger graceful shutdown.
+
+    On Windows, ``loop.add_signal_handler`` is not supported, so this is a
+    no-op — Windows callers rely on ``KeyboardInterrupt`` or the service
+    control manager to stop the daemon.
+    """
+    if sys.platform == "win32":
+        return
+
+    def _handle_signal(sig: signal.Signals) -> None:
+        log.info("Received %s, shutting down gracefully…", sig.name)
+        shutdown_event.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sig, _handle_signal, sig)
+
+
 def _detect_capabilities() -> list[str]:
     """Detect locally available capabilities."""
     caps = []
@@ -54,7 +75,10 @@ def _detect_capabilities() -> list[str]:
     return caps
 
 
-async def run_daemon(cfg: Config) -> None:
+async def run_daemon(
+    cfg: Config,
+    shutdown_event: asyncio.Event | None = None,
+) -> None:
     """Main daemon entry point. Runs until SIGTERM/SIGINT or key revocation."""
 
     # ── Load credentials ─────────────────────────────────────────────────
@@ -73,16 +97,11 @@ async def run_daemon(cfg: Config) -> None:
     poll_interval = cfg.agent.poll_interval_sec
 
     # ── Graceful shutdown ────────────────────────────────────────────────
-    shutdown_event = asyncio.Event()
+    shutdown_event = shutdown_event or asyncio.Event()
     active_tasks: set[asyncio.Task] = set()
 
-    def _handle_signal(sig: signal.Signals) -> None:
-        log.info("Received %s, shutting down gracefully…", sig.name)
-        shutdown_event.set()
-
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _handle_signal, sig)
+    _setup_signal_handlers(loop, shutdown_event)
 
     # ── Recover orphaned jobs ────────────────────────────────────────────
     orphans = load_orphaned_jobs()
