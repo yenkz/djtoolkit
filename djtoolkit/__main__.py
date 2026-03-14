@@ -719,5 +719,44 @@ def agent_run(
     asyncio.run(run_daemon(cfg))
 
 
+# ─── setup command ────────────────────────────────────────────────────────────
+
+@app.command("setup")
+def setup_wizard():
+    """Open the Setup Assistant GUI."""
+    import platform
+    import subprocess
+    import shutil
+
+    if platform.system() != "Darwin":
+        console.print("[red]The Setup Assistant is only available on macOS.[/red]")
+        console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] instead.")
+        raise typer.Exit(1)
+
+    # Search for the Setup Assistant app
+    search_paths = [
+        # Homebrew arm64
+        Path("/opt/homebrew/share/djtoolkit/DJToolkit Setup.app"),
+        # Homebrew x86_64
+        Path("/usr/local/share/djtoolkit/DJToolkit Setup.app"),
+        # Same directory as binary (DMG or dev)
+        Path(__file__).parent.parent / "DJToolkit Setup.app",
+    ]
+
+    app_path = None
+    for p in search_paths:
+        if p.exists():
+            app_path = p
+            break
+
+    if app_path is None:
+        console.print("[red]Setup Assistant not found.[/red]")
+        console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] for terminal setup.")
+        raise typer.Exit(1)
+
+    console.print(f"Opening Setup Assistant...")
+    subprocess.run(["open", str(app_path)])
+
+
 if __name__ == "__main__":
     app()
