@@ -5,8 +5,13 @@ import os
 import sys
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-# fpcalc.exe should be in the same directory or downloaded during build
-FPCALC_PATH = os.environ.get("FPCALC_PATH", "dist\\fpcalc.exe")
+# All paths resolved relative to repo root so the spec works regardless of CWD
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(SPECPATH), "..", ".."))
+
+# fpcalc.exe: env var (may be relative to repo root) or default location
+FPCALC_PATH = os.environ.get("FPCALC_PATH", os.path.join("dist", "fpcalc.exe"))
+if not os.path.isabs(FPCALC_PATH):
+    FPCALC_PATH = os.path.join(REPO_ROOT, FPCALC_PATH)
 
 if not os.path.exists(FPCALC_PATH):
     print(f"WARNING: fpcalc not found at {FPCALC_PATH}. It will not be bundled.")
@@ -15,7 +20,7 @@ else:
     fpcalc_binaries = [(FPCALC_PATH, "bin")]
 
 a = Analysis(
-    ["../../djtoolkit/__main__.py"],
+    [os.path.join(REPO_ROOT, "djtoolkit", "__main__.py")],
     pathex=[],
     binaries=fpcalc_binaries,
     datas=[
@@ -68,7 +73,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=["packaging/windows/runtime_hook_path.py"],
+    runtime_hooks=[os.path.join(REPO_ROOT, "packaging", "windows", "runtime_hook_path.py")],
     excludes=[
         "fastapi",
         "uvicorn",
@@ -102,5 +107,5 @@ exe = EXE(
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
-    icon="packaging/windows/assets/icon.ico",
+    icon=os.path.join(REPO_ROOT, "packaging", "windows", "assets", "icon.ico"),
 )
