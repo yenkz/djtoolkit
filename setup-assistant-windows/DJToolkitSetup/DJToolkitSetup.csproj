@@ -6,6 +6,8 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <AssemblyName>DJToolkit Setup</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
   </PropertyGroup>
 
   <ItemGroup>
