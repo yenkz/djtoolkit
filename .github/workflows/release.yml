@@ -1,4 +1,4 @@
-name: Release macOS Installer
+name: Release
 
 on:
   push:
@@ -74,6 +74,61 @@ jobs:
           files: |
             *.dmg
             ${{ env.TAR_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Install PyInstaller
+        run: poetry run pip install pyinstaller
+
+      - name: Build CLI binary
+        run: |
+          poetry run pyinstaller --onefile --name djtoolkit djtoolkit/__main__.py
+        shell: pwsh
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build Setup Assistant
+        run: |
+          dotnet build setup-assistant-windows/DJToolkitSetup.sln -c Release
+          Copy-Item "setup-assistant-windows/DJToolkitSetup/bin/Release/net8.0-windows10.0.22621.0/DJToolkit Setup.exe" "dist/"
+        shell: pwsh
+
+      - name: Build MSI with WiX
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          $ver = $env:VERSION -replace '^v',''
+          dotnet tool install --global wix
+          wix build packaging/windows/djtoolkit.wxs -o "djtoolkit-${ver}-x64.msi" -d Version=$ver -d SetupPath="dist/DJToolkit Setup.exe"
+        shell: pwsh
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          files: "*.msi"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
