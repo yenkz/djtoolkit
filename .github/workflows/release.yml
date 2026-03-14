@@ -116,6 +116,17 @@ jobs:
           FPCALC_PATH: dist\fpcalc.exe
         run: poetry run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
 
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build Setup Assistant
+        run: |
+          dotnet build setup-assistant-windows/DJToolkitSetup.sln -c Release
+          Copy-Item "setup-assistant-windows/DJToolkitSetup/bin/Release/net8.0-windows10.0.22621.0/DJToolkit Setup.exe" "dist/"
+        shell: pwsh
+
       - name: Install WiX 4
         run: dotnet tool install --global wix
         shell: pwsh
@@ -129,7 +140,8 @@ jobs:
             -o "dist/djtoolkit-${v}-windows.msi" `
             -d Version=$v `
             -d BinaryPath="dist/djtoolkit.exe" `
-            -d FpcalcPath="dist/fpcalc.exe"
+            -d FpcalcPath="dist/fpcalc.exe" `
+            -d SetupPath="dist/DJToolkit Setup.exe"
         shell: pwsh
 
       - name: Upload release assets

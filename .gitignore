@@ -38,6 +38,9 @@ djtoolkit.db-wal
 # Config (may contain API keys — copy from djtoolkit.toml.example)
 djtoolkit.toml
 
+# Internal Supabase config (contains project IDs, not for public repo)
+SUPABASE_CONFIG.md
+
 # Exported CSVs
 *.csv
 
