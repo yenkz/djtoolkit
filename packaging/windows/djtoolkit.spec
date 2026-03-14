@@ -107,5 +107,9 @@ exe = EXE(
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
-    icon=os.path.join(REPO_ROOT, "packaging", "windows", "assets", "icon.ico"),
+    icon=(
+        os.path.join(REPO_ROOT, "packaging", "windows", "assets", "icon.ico")
+        if os.path.exists(os.path.join(REPO_ROOT, "packaging", "windows", "assets", "icon.ico"))
+        else None
+    ),
 )
