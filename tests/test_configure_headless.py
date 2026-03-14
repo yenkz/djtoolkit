@@ -33,7 +33,7 @@ def _make_input(*, api_key="djt_abc123def456abc123def456abc123def456abc1",
 @patch("djtoolkit.agent.keychain.store_agent_credentials")
 def test_configure_headless_valid_json(mock_store, tmp_path, monkeypatch):
     """Valid JSON via stdin → stores credentials + writes config."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("djtoolkit.agent.paths.config_dir", lambda: tmp_path / ".djtoolkit")
     input_json = _make_input()
 
     result = runner.invoke(app, ["agent", "configure-headless", "--stdin"],
@@ -62,7 +62,7 @@ def test_configure_headless_valid_json(mock_store, tmp_path, monkeypatch):
 @patch("djtoolkit.agent.keychain.store_agent_credentials")
 def test_configure_headless_custom_settings(mock_store, tmp_path, monkeypatch):
     """Custom downloads_dir and poll_interval are written to config."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr("djtoolkit.agent.paths.config_dir", lambda: tmp_path / ".djtoolkit")
     input_json = _make_input(
         downloads_dir="/Users/test/MyMusic",
         poll_interval=60,
