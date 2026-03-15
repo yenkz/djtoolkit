@@ -58,6 +58,8 @@ Every FastAPI endpoint becomes a Next.js API Route Handler in `web/app/api/`:
 | `POST /api/catalog/import/trackid` | `app/api/catalog/import/trackid/route.ts` |
 | `GET /api/catalog/import/trackid/{jobId}/status` | `app/api/catalog/import/trackid/[jobId]/status/route.ts` |
 | `POST /api/catalog/backfill-artwork` | `app/api/catalog/backfill-artwork/route.ts` |
+| `DELETE /api/catalog/tracks/bulk` | `app/api/catalog/tracks/bulk/route.ts` |
+| `POST /api/catalog/tracks/{id}/reset` | `app/api/catalog/tracks/[id]/reset/route.ts` |
 | `GET /api/pipeline/jobs` | `app/api/pipeline/jobs/route.ts` |
 | `POST /api/pipeline/jobs/bulk` | `app/api/pipeline/jobs/bulk/route.ts` |
 | `POST /api/pipeline/jobs/batch/claim` | `app/api/pipeline/jobs/batch/claim/route.ts` |
@@ -86,11 +88,27 @@ Route handlers use the Supabase server client with the service role key. RLS pol
 
 ### Rate limiting
 
-Replace slowapi with Upstash Redis rate limiter (free tier: 10k requests/day) or rely on Vercel's built-in DDoS protection for the initial deployment. Per-route rate limiting can be added incrementally.
+Replace slowapi with Upstash Redis rate limiter (free tier: 10k requests/day). The current system has per-route limits (e.g., `5/hour` for backfill-artwork, `20/hour` for imports, `300/hour` for reads). Vercel's built-in DDoS protection does not provide this granularity, so Upstash should be set up in Phase 1 alongside the shared utilities to avoid a rate-limiting gap during migration. The `@upstash/ratelimit` package integrates directly with Next.js Route Handlers.
 
 ### Job result chaining
 
-The `_apply_job_result` function (~130 lines of match/case with DB updates for download -> fingerprint -> cover_art -> metadata auto-queuing) translates directly to TypeScript. Same logic, different syntax.
+The `_apply_job_result` function (~130 lines of match/case with DB updates for download -> fingerprint -> cover_art -> metadata auto-queuing) translates directly to TypeScript. Same logic, different syntax. Note: this function performs up to 6 sequential DB queries within a single transaction (e.g., for a cover_art result: update flag, fetch local_path, fetch metadata, reconstruct musical_key, insert metadata job). This should comfortably fit within the 10s timeout.
+
+### Frontend API client changes
+
+The frontend currently points all API calls to an external FastAPI server via `NEXT_PUBLIC_API_URL` (see `web/lib/api.ts`). After migration, API calls become relative (`/api/...`) since the backend lives in the same Next.js app. `NEXT_PUBLIC_API_URL` will be removed, and `web/lib/api.ts` and all files referencing it must be updated to use relative paths.
+
+### Audit logging
+
+The current `audit_log()` helper uses `get_pool()` (asyncpg) to insert audit rows. In Vercel Route Handlers, this becomes a Supabase server client insert. A shared `auditLog()` TypeScript helper will be created in Phase 1 as part of the shared utilities.
+
+### Spotify token encryption migration
+
+Existing Spotify tokens in the DB are encrypted with Python's `cryptography.fernet.Fernet`. The TypeScript port will use a JS Fernet-compatible implementation (e.g., `fernet` npm package) to decrypt existing tokens without breaking backward compatibility. This avoids forcing all users to re-connect Spotify after migration. If a JS Fernet implementation proves unreliable, the fallback is to re-encrypt all tokens in a one-time migration script using Node.js `crypto` (AES-256-CBC, matching Fernet's underlying algorithm).
+
+### Request body size limits
+
+Vercel's free tier has a 4.5MB request body limit. The current CSV import allows up to 10MB (`_MAX_CSV_BYTES`). The limit will be reduced to 4MB for the Vercel deployment. Exportify CSVs for even large libraries (5000+ tracks) are typically under 2MB, so this should not impact real usage. If needed, chunked upload can be added later.
 
 ## Solving Serverless Constraints
 
@@ -202,7 +220,6 @@ Both solvable with pagination patterns, no architectural change.
 
 ### FastAPI backend (entire directory removed from cloud path)
 - `djtoolkit/api/app.py`
-- `djtoolkit/api/routes.py`
 - `djtoolkit/api/catalog_routes.py`
 - `djtoolkit/api/pipeline_routes.py`
 - `djtoolkit/api/spotify_auth_routes.py`
@@ -218,38 +235,72 @@ Both solvable with pagination patterns, no architectural change.
 - `pyproject.toml`, `Makefile`, `djtoolkit.toml`, `.env`
 
 ### CI changes
+
 - `.github/workflows/deploy.yml` replaced by Vercel's GitHub integration (push to main = deploy, PR = preview)
 - `.github/workflows/ci.yml` kept for Python tests (local agent), web job updated for Vercel build
+- `.github/workflows/release.yml` stays unchanged (builds macOS/Windows Setup Assistant for the local agent)
+
+## Environment Variables
+
+### Removed
+
+- `NEXT_PUBLIC_API_URL` -- no longer needed; API routes are same-origin (`/api/...`)
+- `HETZNER_HOST`, `HETZNER_USER`, `HETZNER_SSH_KEY` -- no server to deploy to
+- `GITHUB_REPOSITORY`, `IMAGE_TAG` -- no Docker images to tag
+
+### Moved to Vercel environment settings
+
+- `SUPABASE_DATABASE_URL` -- used by Route Handlers for direct DB access
+- `SUPABASE_JWT_EC_X`, `SUPABASE_JWT_EC_Y`, `SUPABASE_JWT_AUDIENCE` -- JWT verification
+- `SUPABASE_SERVICE_ROLE_KEY` -- server-side Supabase client
+- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` -- Spotify OAuth
+- `SPOTIFY_CALLBACK_URL` -- update to Vercel domain (e.g., `https://djtoolkit.com/api/auth/spotify/callback`)
+- `SPOTIFY_TOKEN_ENCRYPTION_KEY` -- Fernet key for encrypted tokens
+- `PLATFORM_FRONTEND_URL` -- update to Vercel domain or remove (same-origin)
+- `PLATFORM_SPOTIFY_CLIENT_ID`, `PLATFORM_SPOTIFY_CLIENT_SECRET` -- if separate from user-facing keys
+
+### Already on Vercel (no change)
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 
 ## Migration Strategy
 
 ### Phase 1 -- Foundation (no user-facing changes)
+
 - Set up Vercel project, connect GitHub repo, configure environment variables
-- Create shared utilities: `verifyAgentKey()`, `getAuthUser()`, Supabase server client helper, audit log helper
+- Create shared utilities: `verifyAgentKey()`, `getAuthUser()`, Supabase server client helper, `auditLog()` helper
+- Set up Upstash Redis rate limiter (matching current per-route limits)
 - Add `oauth_states` table to Supabase schema
-- Enable pg_cron for stale job sweeper
-- Add `vercel.json` with route config and cron definition
+- Enable pg_cron for stale job sweeper and expired OAuth state cleanup
+- Add `vercel.json` with route config
+- Update `web/lib/api.ts` to use relative paths (`/api/...`), remove `NEXT_PUBLIC_API_URL`
 
 ### Phase 2 -- Port API routes (Vercel preview deploys for testing)
+
 - Port pipeline routes first (agent-facing -- easiest to test with the local agent)
-- Port catalog routes (tracks, stats, import/csv)
+- Port catalog routes (tracks, stats, bulk delete, track reset, import/csv)
 - Port agent management routes
-- Port Spotify OAuth (connect/callback/disconnect) using `oauth_states` table
-- Port Spotify import + artwork backfill with pagination safety
+- Port Spotify OAuth (connect/callback/disconnect) using `oauth_states` table, with Fernet-compatible token decryption
+- Port Spotify import + artwork backfill with pagination safety (4MB CSV limit)
 
 ### Phase 3 -- Replace real-time + TrackID
+
 - Add Supabase Realtime subscriptions in frontend (pipeline page, catalog page)
 - Remove SSE EventSource connection from frontend
 - Create Supabase Edge Function for TrackID polling
 - Port TrackID import route to invoke the Edge Function
 
 ### Phase 4 -- Verify + cutover
+
 - Test full flow end-to-end: sign up -> connect Spotify -> import playlist -> agent downloads -> real-time updates
+- Verify local agent works against Vercel API routes (check response format compatibility)
 - Point `djtoolkit.com` DNS to Vercel
 - Decommission Hetzner VPS
 - Remove Docker/Nginx/deploy infrastructure files from repo
 
 ### Phase 5 -- Cleanup
+
 - Delete FastAPI backend files
 - Update CI workflow
 - Update CLAUDE.md and docs
@@ -272,8 +323,9 @@ For high-traffic scenarios (thousands of concurrent bulk imports), a job queue s
 
 ## Rewrite Scope
 
-- ~800 lines of Python -> TypeScript (API route handlers)
-- ~1500 lines + 15 infrastructure files deleted
-- ~50 lines of new SQL (oauth_states table, pg_cron schedule)
+- ~1200-1500 lines of TypeScript (API route handlers, shared utilities, rate limiting setup)
+- ~1500 lines of Python + 15 infrastructure files deleted
+- ~50 lines of new SQL (oauth_states table, pg_cron schedules)
 - ~1 Supabase Edge Function (TrackID polling, ~100 lines of Deno/TypeScript)
 - Frontend: replace SSE EventSource with Supabase Realtime subscriptions (~30 lines changed)
+- Frontend: update `web/lib/api.ts` and references to remove `NEXT_PUBLIC_API_URL` (~8 files)
