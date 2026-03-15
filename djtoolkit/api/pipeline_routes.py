@@ -77,6 +77,29 @@ class JobOut(BaseModel):
     created_at: str
 
 
+class JobDetailOut(BaseModel):
+    id: str
+    job_type: str
+    status: str
+    track_id: Optional[int]
+    payload: Optional[dict]
+    result: Optional[dict]
+    error: Optional[str]
+    retry_count: int
+    claimed_at: Optional[str]
+    completed_at: Optional[str]
+    created_at: str
+    track_title: Optional[str]
+    track_artist: Optional[str]
+
+
+class JobListResponse(BaseModel):
+    jobs: list[JobDetailOut]
+    total: int
+    page: int
+    per_page: int
+
+
 class JobResultRequest(BaseModel):
     result: Optional[dict] = None
     error: Optional[str] = None
@@ -576,6 +599,80 @@ async def report_job_result(
         resource_id=job_id,
         details={"job_type": job["job_type"], "status": body.status, "track_id": job["track_id"]},
         ip_address=request.client.host if request.client else None,
+    )
+
+
+@router.get("/jobs/history", response_model=JobListResponse)
+@limiter.limit("600/hour")
+async def list_jobs(
+    request: Request,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    job_type: Optional[str] = Query(None),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """List all pipeline jobs with optional filtering by status and type."""
+    pool = await get_pool()
+
+    where = ["j.user_id = $1"]
+    args: list = [user.user_id]
+    idx = 2
+
+    if status_filter:
+        where.append(f"j.status = ${idx}")
+        args.append(status_filter)
+        idx += 1
+    if job_type:
+        where.append(f"j.job_type = ${idx}")
+        args.append(job_type)
+        idx += 1
+
+    where_clause = " AND ".join(where)
+
+    total = await pool.fetchval(
+        f"SELECT COUNT(*) FROM pipeline_jobs j WHERE {where_clause}",
+        *args,
+    )
+
+    offset = (page - 1) * per_page
+    args.extend([per_page, offset])
+    rows = await pool.fetch(
+        f"""
+        SELECT j.id, j.job_type, j.status, j.track_id, j.payload, j.result,
+               j.error, j.retry_count, j.claimed_at, j.completed_at, j.created_at,
+               t.title AS track_title, t.artist AS track_artist
+        FROM pipeline_jobs j
+        LEFT JOIN tracks t ON t.id = j.track_id
+        WHERE {where_clause}
+        ORDER BY j.created_at DESC
+        LIMIT ${idx} OFFSET ${idx + 1}
+        """,
+        *args,
+    )
+
+    return JobListResponse(
+        jobs=[
+            JobDetailOut(
+                id=str(r["id"]),
+                job_type=r["job_type"],
+                status=r["status"],
+                track_id=r["track_id"],
+                payload=_jsonb(r["payload"]),
+                result=_jsonb(r["result"]),
+                error=r["error"],
+                retry_count=r["retry_count"],
+                claimed_at=r["claimed_at"].isoformat() if r["claimed_at"] else None,
+                completed_at=r["completed_at"].isoformat() if r["completed_at"] else None,
+                created_at=r["created_at"].isoformat(),
+                track_title=r["track_title"],
+                track_artist=r["track_artist"],
+            )
+            for r in rows
+        ],
+        total=total,
+        page=page,
+        per_page=per_page,
     )
 
 

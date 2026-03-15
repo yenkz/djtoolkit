@@ -278,6 +278,10 @@ async def run_daemon(
             "totals": batch_totals,
         })
 
+        # Brief cooldown before next batch — gives the Soulseek server time
+        # to accept a new connection after the previous one was closed.
+        await asyncio.sleep(10)
+
     # ── Heartbeat loop ───────────────────────────────────────────────────
     async def _heartbeat_loop() -> None:
         while not shutdown_event.is_set():

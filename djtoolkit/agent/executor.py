@@ -49,8 +49,25 @@ async def _slsk_session(cfg: Config, credentials: dict):
         _noisy_loggers_suppressed = True
 
     async with SoulSeekClient(settings) as client:
-        await client.login()
-        log.info("Soulseek client connected")
+        # Retry login with exponential backoff — Soulseek server sometimes
+        # rejects rapid reconnections after a per-batch disconnect.
+        last_exc = None
+        for attempt in range(4):
+            try:
+                await client.login()
+                log.info("Soulseek client connected")
+                break
+            except Exception as exc:
+                last_exc = exc
+                delay = 5 * (2 ** attempt)  # 5s, 10s, 20s, 40s
+                log.warning(
+                    "Soulseek login attempt %d failed: %s — retrying in %ds",
+                    attempt + 1, exc, delay,
+                )
+                await asyncio.sleep(delay)
+        else:
+            raise last_exc  # type: ignore[misc]
+
         yield client
 
     log.info("Soulseek client disconnected")

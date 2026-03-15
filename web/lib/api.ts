@@ -59,11 +59,16 @@ export interface Track {
   acquisition_status: string;
   fingerprinted: number;
   enriched_spotify: number;
+  enriched_audio: number;
   metadata_written: number;
+  cover_art_written: number;
   in_library: number;
   local_path?: string;
   year?: number;
   genres?: string;
+  tempo?: number;
+  artwork_url?: string;
+  spotify_uri?: string;
   already_owned?: boolean;
 }
 
@@ -148,6 +153,45 @@ export interface PipelineStatus {
 
 export async function fetchPipelineStatus(): Promise<PipelineStatus> {
   const res = await apiClient("/pipeline/status");
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export interface PipelineJob {
+  id: string;
+  job_type: string;
+  status: string;
+  track_id: number | null;
+  payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  retry_count: number;
+  claimed_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  track_title: string | null;
+  track_artist: string | null;
+}
+
+export interface PipelineJobList {
+  jobs: PipelineJob[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export async function fetchPipelineJobs(params: {
+  page?: number;
+  per_page?: number;
+  status?: string;
+  job_type?: string;
+}): Promise<PipelineJobList> {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set("page", String(params.page));
+  if (params.per_page) qs.set("per_page", String(params.per_page));
+  if (params.status) qs.set("status", params.status);
+  if (params.job_type) qs.set("job_type", params.job_type);
+  const res = await apiClient(`/pipeline/jobs/history?${qs}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
