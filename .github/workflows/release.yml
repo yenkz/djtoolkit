@@ -125,11 +125,14 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore Setup Assistant
-        run: msbuild setup-assistant-windows/DJToolkitSetup.sln /t:Restore /p:Configuration=Release /p:Platform=x64
+        run: dotnet restore setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -r win-x64
+        shell: pwsh
 
       - name: Build Setup Assistant
         run: |
-          msbuild setup-assistant-windows/DJToolkitSetup.sln /p:Configuration=Release /p:Platform=x64
+          msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:normal
+          Write-Host "--- bin contents ---"
+          Get-ChildItem -Recurse -Path "setup-assistant-windows/DJToolkitSetup/bin" -File | ForEach-Object { Write-Host $_.FullName }
           $exe = Get-ChildItem -Recurse -Path "setup-assistant-windows/DJToolkitSetup/bin" -Filter "DJToolkit Setup.exe" | Select-Object -First 1
           if (-not $exe) { Write-Error "DJToolkit Setup.exe not found in bin/"; exit 1 }
           Write-Host "Found: $($exe.FullName)"
