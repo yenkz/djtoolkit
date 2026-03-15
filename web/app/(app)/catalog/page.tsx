@@ -320,7 +320,7 @@ function CsvImportModal({ onClose }: { onClose: () => void }) {
 }
 
 function SpotifyImportModal({ onClose }: { onClose: () => void }) {
-  const [playlists, setPlaylists] = useState<{ id: string; name: string; track_count: number }[]>([]);
+  const [playlists, setPlaylists] = useState<{ id: string; name: string; track_count?: number | null }[]>([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
