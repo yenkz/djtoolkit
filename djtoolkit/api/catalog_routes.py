@@ -289,6 +289,8 @@ class TrackOut(BaseModel):
     year: Optional[int]
     duration_ms: Optional[int]
     genres: Optional[str]
+    tempo: Optional[float] = None
+    artwork_url: Optional[str] = None
     spotify_uri: Optional[str]
     local_path: Optional[str]
     fingerprinted: bool
@@ -365,6 +367,8 @@ def _row_to_track(r) -> TrackOut:
         year=r["year"],
         duration_ms=r["duration_ms"],
         genres=r["genres"],
+        tempo=r.get("tempo"),
+        artwork_url=r.get("artwork_url"),
         spotify_uri=r["spotify_uri"],
         local_path=r["local_path"],
         fingerprinted=bool(r["fingerprinted"]),
@@ -461,6 +465,13 @@ def _map_spotify_track(item: dict) -> dict:
     release_date = album.get("release_date", "")
     year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
 
+    # Pick the smallest Spotify album image (64px thumbnail) for fast table display
+    images = album.get("images") or []
+    artwork_url = None
+    if images:
+        # Spotify returns images largest-first; pick the smallest (last) for thumbnails
+        artwork_url = images[-1].get("url") if len(images) > 1 else images[0].get("url")
+
     t = {
         "title": track.get("name"),
         "artist": primary_artist,
@@ -475,6 +486,7 @@ def _map_spotify_track(item: dict) -> dict:
         "explicit": track.get("explicit", False),
         "added_by": (item.get("added_by") or {}).get("id"),
         "added_at": item.get("added_at"),
+        "artwork_url": artwork_url,
     }
     t["search_string"] = build_search_string(t.get("artist", ""), t.get("title", ""))
     return t
@@ -500,12 +512,12 @@ async def _insert_tracks_and_create_jobs(
                 user_id, acquisition_status, source,
                 title, artist, artists, album, year, release_date,
                 duration_ms, isrc, genres, spotify_uri, popularity,
-                explicit, added_by, added_at, search_string
+                explicit, added_by, added_at, search_string, artwork_url
             ) VALUES (
                 $1, 'candidate', $2,
                 $3, $4, $5, $6, $7, $8,
                 $9, $10, $11, $12, $13,
-                $14, $15, $16, $17
+                $14, $15, $16, $17, $18
             )
             ON CONFLICT (user_id, spotify_uri) DO NOTHING
             RETURNING id
@@ -516,7 +528,7 @@ async def _insert_tracks_and_create_jobs(
             t.get("duration_ms"), t.get("isrc"), t.get("genres"),
             t.get("spotify_uri"), t.get("popularity"),
             t.get("explicit", False), t.get("added_by"), t.get("added_at"),
-            t.get("search_string"),
+            t.get("search_string"), t.get("artwork_url"),
         )
         if result is None:
             skipped += 1
@@ -983,3 +995,72 @@ async def reset_track(
         resource_id=str(track_id),
         ip_address=request.client.host if request.client else None,
     )
+
+
+class BackfillArtworkResult(BaseModel):
+    updated: int
+    total_missing: int
+
+
+@router.post("/backfill-artwork", response_model=BackfillArtworkResult)
+@limiter.limit("5/hour")
+async def backfill_artwork(
+    request: Request,
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Fetch album artwork URLs from Spotify for tracks that have a spotify_uri but no artwork_url."""
+    access_token = await _get_spotify_token(user.user_id)
+    pool = await get_pool()
+
+    # Find tracks missing artwork
+    rows = await pool.fetch(
+        """
+        SELECT id, spotify_uri FROM tracks
+        WHERE user_id = $1 AND spotify_uri IS NOT NULL AND artwork_url IS NULL
+        """,
+        user.user_id,
+    )
+    if not rows:
+        return BackfillArtworkResult(updated=0, total_missing=0)
+
+    # Extract Spotify track IDs from URIs (spotify:track:XXXXX → XXXXX)
+    track_map: dict[str, int] = {}  # spotify_id → db_id
+    for r in rows:
+        uri = r["spotify_uri"]
+        parts = uri.split(":")
+        if len(parts) == 3 and parts[1] == "track":
+            track_map[parts[2]] = r["id"]
+
+    updated = 0
+    spotify_ids = list(track_map.keys())
+
+    # Spotify's /v1/tracks endpoint accepts up to 50 IDs per request
+    async with httpx.AsyncClient() as client:
+        for i in range(0, len(spotify_ids), 50):
+            batch = spotify_ids[i : i + 50]
+            r = await client.get(
+                "https://api.spotify.com/v1/tracks",
+                params={"ids": ",".join(batch)},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if not r.is_success:
+                continue
+            data = r.json()
+            for track_data in data.get("tracks") or []:
+                if not track_data:
+                    continue
+                images = (track_data.get("album") or {}).get("images") or []
+                if not images:
+                    continue
+                # Pick smallest thumbnail for table display
+                artwork_url = images[-1].get("url") if len(images) > 1 else images[0].get("url")
+                spotify_id = track_data.get("id")
+                db_id = track_map.get(spotify_id)
+                if db_id and artwork_url:
+                    await pool.execute(
+                        "UPDATE tracks SET artwork_url = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3",
+                        artwork_url, db_id, user.user_id,
+                    )
+                    updated += 1
+
+    return BackfillArtworkResult(updated=updated, total_missing=len(rows))

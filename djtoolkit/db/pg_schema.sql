@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS tracks (
     tempo            REAL,
     time_signature   INTEGER,
 
+    -- Artwork
+    artwork_url      TEXT,               -- album art thumbnail URL (from Spotify)
+
     -- Toolkit fields
     search_string    TEXT,
     local_path       TEXT,               -- reported by agent; machine-local path

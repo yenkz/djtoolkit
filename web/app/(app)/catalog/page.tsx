@@ -28,17 +28,19 @@ export default function CatalogPage() {
   const [stats, setStats] = useState<CatalogStats | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(50);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [showSpotifyModal, setShowSpotifyModal] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [tracksData, statsData] = await Promise.all([
-        fetchTracks({ page, per_page: 50, status: statusFilter || undefined, search: search || undefined }),
+        fetchTracks({ page, per_page: perPage, status: statusFilter || undefined, search: search || undefined }),
         fetchStats(),
       ]);
       setTracks(tracksData.tracks);
@@ -49,11 +51,17 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, search]);
+  }, [page, perPage, statusFilter, search]);
 
   useEffect(() => { load(); }, [load]);
 
-  const totalPages = Math.ceil(total / 50);
+  const totalPages = Math.ceil(total / perPage);
+
+  function copyPath(trackId: number, path: string) {
+    navigator.clipboard.writeText(path);
+    setCopiedId(trackId);
+    setTimeout(() => setCopiedId(null), 1500);
+  }
 
   return (
     <div className="space-y-4">
@@ -122,24 +130,44 @@ export default function CatalogPage() {
         </select>
       </div>
 
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden">
+      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800 text-left text-xs text-gray-500">
+              <th className="w-10 px-2 py-3"></th>
               <th className="px-4 py-3">Title</th>
               <th className="px-4 py-3">Artist</th>
               <th className="px-4 py-3">Album</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-3 py-3">BPM</th>
+              <th className="px-3 py-3">Style</th>
               <th className="px-4 py-3">Flags</th>
+              <th className="px-3 py-3">Path</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
             ) : tracks.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No tracks found</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No tracks found</td></tr>
             ) : tracks.map((t) => (
               <tr key={t.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+                <td className="px-2 py-2.5 text-center">
+                  {t.artwork_url ? (
+                    <img
+                      src={t.artwork_url}
+                      alt=""
+                      className="h-8 w-8 rounded object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className={`inline-flex h-8 w-8 items-center justify-center rounded ${t.cover_art_written ? "bg-indigo-900/50" : "bg-gray-800"}`}>
+                      <svg className={`h-4 w-4 ${t.cover_art_written ? "text-indigo-400" : "text-gray-600"}`} fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
+                      </svg>
+                    </div>
+                  )}
+                </td>
                 <td className="px-4 py-2.5 text-white">{t.title}</td>
                 <td className="px-4 py-2.5 text-gray-300">{t.artist}</td>
                 <td className="px-4 py-2.5 text-gray-400">{t.album}</td>
@@ -147,6 +175,12 @@ export default function CatalogPage() {
                   <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[t.acquisition_status] ?? "bg-gray-700 text-gray-300"}`}>
                     {t.acquisition_status}
                   </span>
+                </td>
+                <td className="px-3 py-2.5 text-gray-300 tabular-nums">
+                  {t.tempo ? Math.round(t.tempo) : <span className="text-gray-600">—</span>}
+                </td>
+                <td className="px-3 py-2.5 text-gray-400 max-w-[140px] truncate" title={t.genres ?? ""}>
+                  {t.genres || <span className="text-gray-600">—</span>}
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex gap-1">
@@ -165,16 +199,43 @@ export default function CatalogPage() {
                     ))}
                   </div>
                 </td>
+                <td className="px-3 py-2.5">
+                  {t.local_path && t.acquisition_status === "available" ? (
+                    <button
+                      onClick={() => copyPath(t.id, t.local_path!)}
+                      title={t.local_path}
+                      className="rounded px-2 py-0.5 text-xs text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                    >
+                      {copiedId === t.id ? "Copied!" : "Copy path"}
+                    </button>
+                  ) : (
+                    <span className="text-gray-600 text-xs">—</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
           <p className="text-sm text-gray-500">{total} tracks</p>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">Show</span>
+            <select
+              value={perPage}
+              onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
+              className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-white focus:border-indigo-500 focus:outline-none"
+            >
+              {[15, 30, 50, 100].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
@@ -193,8 +254,8 @@ export default function CatalogPage() {
               Next
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {showCsvModal && (
         <CsvImportModal onClose={() => { setShowCsvModal(false); load(); }} />
