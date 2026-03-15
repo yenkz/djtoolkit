@@ -367,6 +367,11 @@ async def _pipeline_download(
         timeout = cfg.soulseek.search_timeout_sec
 
         try:
+            # Bail early if session already lost
+            if session_lost.is_set():
+                await report_fn(job_id, False, None, "Soulseek session lost")
+                return
+
             # Phase A: wait for viable results from primary search
             viable = await _wait_for_viable(
                 track, track_id, results_by_track, track_events, cfg, primary_query, timeout,
@@ -389,6 +394,10 @@ async def _pipeline_download(
                         break
 
             # Phase C: download
+            if session_lost.is_set():
+                await report_fn(job_id, False, None, "Soulseek session lost")
+                return
+
             if not viable:
                 log.warning("[%d] No viable results after all queries", track_id)
                 await report_fn(job_id, False, None, "No viable search results")
@@ -406,22 +415,51 @@ async def _pipeline_download(
                 await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
 
         except Exception as exc:
-            log.exception("[%d] Pipeline worker error", track_id)
-            await report_fn(job_id, False, None, str(exc))
+            if "not logged in" in str(exc).lower():
+                session_lost.set()
+                log.error("[%d] Session lost — flagging batch abort", track_id)
+                await report_fn(job_id, False, None, "Soulseek session lost")
+            else:
+                log.exception("[%d] Pipeline worker error", track_id)
+                await report_fn(job_id, False, None, str(exc))
+
+    # Session-loss flag — when set, workers abort early instead of
+    # each independently hitting InvalidSessionError.
+    session_lost = asyncio.Event()
 
     client.events.register(SearchResultEvent, _on_result)
     try:
         if status_fn:
             status_fn("searching")
 
-        # Fire all primary searches at once
-        for track in all_tracks:
-            track_id = track["id"]
-            variants = queries_by_id.get(track_id, [])
-            if variants:
-                cmd = GlobalSearchCommand(variants[0])
-                await client.execute(cmd)
-                ticket_to_track[cmd._ticket] = track_id
+        # Fire primary searches in batches of 10 with a 1s gap to avoid
+        # overwhelming the Soulseek server and getting disconnected.
+        SEARCH_BATCH_SIZE = 10
+        for i in range(0, len(all_tracks), SEARCH_BATCH_SIZE):
+            batch = all_tracks[i : i + SEARCH_BATCH_SIZE]
+            for track in batch:
+                track_id = track["id"]
+                variants = queries_by_id.get(track_id, [])
+                if variants:
+                    try:
+                        cmd = GlobalSearchCommand(variants[0])
+                        await client.execute(cmd)
+                        ticket_to_track[cmd._ticket] = track_id
+                    except Exception as exc:
+                        if "not logged in" in str(exc).lower():
+                            session_lost.set()
+                            log.error("Session lost while sending searches — aborting batch")
+                            # Fail all remaining tracks
+                            for t in all_tracks:
+                                tid = t["id"]
+                                jid = job_by_track_id[tid]
+                                if not results_by_track[tid]:  # not yet processed
+                                    await report_fn(jid, False, None, "Soulseek session lost")
+                            return
+                        raise
+            # Brief pause between search batches
+            if i + SEARCH_BATCH_SIZE < len(all_tracks):
+                await asyncio.sleep(1)
 
         if status_fn:
             status_fn("downloading")

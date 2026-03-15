@@ -101,7 +101,7 @@ class AgentConfig:
     api_key: str = ""           # env: DJTOOLKIT_AGENT_KEY
     poll_interval_sec: float = 30.0
     max_concurrent_jobs: int = 2
-    max_download_batch: int = 50
+    max_download_batch: int = 15
     local_db_path: str = "~/.djtoolkit/agent.db"
 
 
