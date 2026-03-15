@@ -171,6 +171,8 @@ export interface PipelineJob {
   created_at: string;
   track_title: string | null;
   track_artist: string | null;
+  track_artwork_url: string | null;
+  track_album: string | null;
 }
 
 export interface PipelineJobList {
@@ -192,6 +194,19 @@ export async function fetchPipelineJobs(params: {
   if (params.status) qs.set("status", params.status);
   if (params.job_type) qs.set("job_type", params.job_type);
   const res = await apiClient(`/pipeline/jobs/history?${qs}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function retryPipelineJobs(params: {
+  job_ids?: string[];
+  filter_status?: string;
+  filter_job_type?: string;
+}): Promise<{ retried: number }> {
+  const res = await apiClient("/pipeline/jobs/retry", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

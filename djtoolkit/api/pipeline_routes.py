@@ -91,6 +91,8 @@ class JobDetailOut(BaseModel):
     created_at: str
     track_title: Optional[str]
     track_artist: Optional[str]
+    track_artwork_url: Optional[str]
+    track_album: Optional[str]
 
 
 class JobListResponse(BaseModel):
@@ -135,6 +137,23 @@ class BulkJobsRequest(BaseModel):
 
 class BulkJobsResult(BaseModel):
     created: int
+
+
+class RetryJobsRequest(BaseModel):
+    job_ids: Optional[list[str]] = None
+    filter_status: Optional[str] = None
+    filter_job_type: Optional[str] = None
+
+    @field_validator("job_ids")
+    @classmethod
+    def validate_job_ids_size(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v and len(v) > _MAX_BULK_ITEMS:
+            raise ValueError(f"job_ids cannot exceed {_MAX_BULK_ITEMS} items")
+        return v
+
+
+class RetryJobsResult(BaseModel):
+    retried: int
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -377,6 +396,85 @@ async def bulk_create_jobs(
         ip_address=request.client.host if request.client else None,
     )
     return BulkJobsResult(created=created)
+
+
+@router.post("/jobs/retry", response_model=RetryJobsResult)
+@limiter.limit("30/hour")
+async def retry_jobs(
+    request: Request,
+    body: RetryJobsRequest = Body(...),
+    user: CurrentUser = Depends(get_current_user),
+):
+    """Retry failed (or done) jobs by resetting them to pending.
+
+    Either provide explicit job_ids, or use filter_status/filter_job_type
+    to retry all matching jobs.
+    """
+    pool = await get_pool()
+
+    if body.job_ids:
+        # Retry specific jobs by ID
+        result = await pool.execute(
+            """
+            UPDATE pipeline_jobs
+            SET status = 'pending',
+                claimed_at = NULL,
+                completed_at = NULL,
+                agent_id = NULL,
+                error = NULL,
+                result = NULL
+            WHERE user_id = $1
+              AND id = ANY($2::uuid[])
+              AND status IN ('failed', 'done')
+            """,
+            user.user_id, body.job_ids,
+        )
+        retried = int(result.split()[-1])
+    else:
+        # Retry by filter
+        where = ["user_id = $1", "status IN ('failed', 'done')"]
+        args: list = [user.user_id]
+        idx = 2
+
+        if body.filter_status and body.filter_status in ("failed", "done"):
+            where[-1] = f"status = ${idx}"
+            args.append(body.filter_status)
+            idx += 1
+        if body.filter_job_type:
+            where.append(f"job_type = ${idx}")
+            args.append(body.filter_job_type)
+            idx += 1
+
+        result = await pool.execute(
+            f"""
+            UPDATE pipeline_jobs
+            SET status = 'pending',
+                claimed_at = NULL,
+                completed_at = NULL,
+                agent_id = NULL,
+                error = NULL,
+                result = NULL
+            WHERE {' AND '.join(where)}
+            """,
+            *args,
+        )
+        retried = int(result.split()[-1])
+
+    if retried:
+        broadcast(user.user_id, "job_update", {"action": "retry", "count": retried})
+
+    await audit_log(
+        user.user_id, "job.retry",
+        resource_type="pipeline_job",
+        details={
+            "retried": retried,
+            "job_ids": body.job_ids,
+            "filter_status": body.filter_status,
+            "filter_job_type": body.filter_job_type,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+    return RetryJobsResult(retried=retried)
 
 
 @router.get("/jobs", response_model=list[JobOut])
@@ -641,7 +739,8 @@ async def list_jobs(
         f"""
         SELECT j.id, j.job_type, j.status, j.track_id, j.payload, j.result,
                j.error, j.retry_count, j.claimed_at, j.completed_at, j.created_at,
-               t.title AS track_title, t.artist AS track_artist
+               t.title AS track_title, t.artist AS track_artist,
+               t.artwork_url AS track_artwork_url, t.album AS track_album
         FROM pipeline_jobs j
         LEFT JOIN tracks t ON t.id = j.track_id
         WHERE {where_clause}
@@ -667,6 +766,8 @@ async def list_jobs(
                 created_at=r["created_at"].isoformat(),
                 track_title=r["track_title"],
                 track_artist=r["track_artist"],
+                track_artwork_url=r["track_artwork_url"],
+                track_album=r["track_album"],
             )
             for r in rows
         ],

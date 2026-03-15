@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   fetchPipelineStatus,
   fetchPipelineJobs,
+  retryPipelineJobs,
   type PipelineStatus,
   type PipelineJob,
   type PipelineJobList,
@@ -69,6 +70,26 @@ function formatTimestamp(iso: string): string {
   });
 }
 
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function fileExt(path: string | undefined | null): string | null {
+  if (!path) return null;
+  const dot = path.lastIndexOf(".");
+  if (dot === -1) return null;
+  return path.slice(dot + 1).toUpperCase();
+}
+
+function processingDuration(claimed: string | null, completed: string | null): string | null {
+  if (!claimed || !completed) return null;
+  const sec = Math.round((new Date(completed).getTime() - new Date(claimed).getTime()) / 1000);
+  if (sec < 60) return `${sec}s`;
+  return `${Math.floor(sec / 60)}m${sec % 60}s`;
+}
+
 function JsonBlock({ data }: { data: Record<string, unknown> }) {
   return (
     <pre className="rounded bg-gray-950 border border-gray-800 p-3 text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap break-all">
@@ -77,8 +98,19 @@ function JsonBlock({ data }: { data: Record<string, unknown> }) {
   );
 }
 
-function JobRow({ job }: { job: PipelineJob }) {
+function JobRow({
+  job,
+  selected,
+  onSelect,
+  onRetry,
+}: {
+  job: PipelineJob;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  onRetry: (id: string) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
+  const canRetry = job.status === "failed" || job.status === "done";
   const label =
     job.track_artist && job.track_title
       ? `${job.track_artist} - ${job.track_title}`
@@ -86,42 +118,106 @@ function JobRow({ job }: { job: PipelineJob }) {
         ? `Track #${job.track_id}`
         : "Unknown";
 
+  const durationMs = (job.payload?.duration_ms as number) ?? null;
+  const localPath = (job.result?.local_path as string) ?? (job.payload?.local_path as string) ?? null;
+  const ext = fileExt(localPath);
+  const procDur = processingDuration(job.claimed_at, job.completed_at);
+
   return (
     <div className="border-b border-gray-800 last:border-b-0">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-800/50 transition-colors"
-      >
-        <svg
-          className={`h-3.5 w-3.5 text-gray-500 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
+      <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-800/50 transition-colors">
+        {canRetry && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => onSelect(job.id, e.target.checked)}
+            className="h-3.5 w-3.5 shrink-0 accent-blue-500 cursor-pointer"
+            onClick={(e) => e.stopPropagation()}
+          />
+        )}
+        {!canRetry && <span className="w-3.5 shrink-0" />}
 
-        <span className={`rounded border px-2 py-0.5 text-xs font-medium ${jobStatusBadge(job.status)}`}>
-          {job.status}
-        </span>
-        <span className={`rounded px-2 py-0.5 text-xs ${jobTypeBadge(job.job_type)}`}>
-          {job.job_type}
-        </span>
-
-        <span className="flex-1 truncate text-sm text-white">{label}</span>
-
-        {job.retry_count > 0 && (
-          <span className="rounded bg-orange-900/50 px-1.5 py-0.5 text-xs text-orange-400">
-            retry {job.retry_count}
+        {/* Artwork thumbnail */}
+        {job.track_artwork_url ? (
+          <img
+            src={job.track_artwork_url}
+            alt=""
+            className="h-8 w-8 rounded shrink-0 object-cover"
+          />
+        ) : (
+          <span className="h-8 w-8 rounded bg-gray-800 shrink-0 flex items-center justify-center text-gray-600 text-xs">
+            {job.job_type === "download" ? "DL" : job.job_type === "fingerprint" ? "FP" : job.job_type === "cover_art" ? "CA" : "MD"}
           </span>
         )}
 
-        <span className="text-xs text-gray-500 shrink-0">{relativeTime(job.created_at)}</span>
-      </button>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-3 flex-1 min-w-0 text-left"
+        >
+          <svg
+            className={`h-3.5 w-3.5 text-gray-500 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+
+          <span className={`rounded border px-2 py-0.5 text-xs font-medium ${jobStatusBadge(job.status)}`}>
+            {job.status}
+          </span>
+          <span className={`rounded px-2 py-0.5 text-xs ${jobTypeBadge(job.job_type)}`}>
+            {job.job_type}
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <span className="truncate text-sm text-white block">{label}</span>
+            {job.track_album && (
+              <span className="truncate text-xs text-gray-500 block">{job.track_album}</span>
+            )}
+          </div>
+
+          {durationMs && (
+            <span className="text-xs text-gray-500 shrink-0" title="Track duration">
+              {formatDuration(durationMs)}
+            </span>
+          )}
+
+          {ext && (
+            <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-mono text-gray-400 shrink-0">
+              {ext}
+            </span>
+          )}
+
+          {job.retry_count > 0 && (
+            <span className="rounded bg-orange-900/50 px-1.5 py-0.5 text-xs text-orange-400">
+              retry {job.retry_count}
+            </span>
+          )}
+
+          {procDur && (
+            <span className="text-xs text-gray-500 shrink-0" title="Processing time">
+              {procDur}
+            </span>
+          )}
+
+          <span className="text-xs text-gray-500 shrink-0">{relativeTime(job.created_at)}</span>
+        </button>
+
+        {canRetry && (
+          <button
+            onClick={() => onRetry(job.id)}
+            className="shrink-0 rounded border border-gray-700 px-2 py-1 text-xs text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+            title="Retry this job"
+          >
+            Retry
+          </button>
+        )}
+      </div>
 
       {expanded && (
-        <div className="px-4 pb-4 pl-11 space-y-3">
+        <div className="px-4 pb-4 pl-14 space-y-3">
           {/* Timeline */}
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
             <span>Created: {formatTimestamp(job.created_at)}</span>
@@ -169,6 +265,8 @@ export default function PipelinePage() {
   const [jobPage, setJobPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [retrying, setRetrying] = useState(false);
   const [events, setEvents] = useState<string[]>([]);
   const sseRef = useRef<EventSource | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -193,6 +291,60 @@ export default function PipelinePage() {
       );
     } catch {
       // silently ignore — avoid toast spam during rapid updates
+    }
+  }
+
+  function toggleSelect(id: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  const retryableJobs = jobData?.jobs.filter((j) => j.status === "failed" || j.status === "done") ?? [];
+  const allRetryableSelected = retryableJobs.length > 0 && retryableJobs.every((j) => selectedIds.has(j.id));
+
+  function toggleSelectAll(checked: boolean) {
+    if (checked) {
+      setSelectedIds(new Set(retryableJobs.map((j) => j.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  }
+
+  async function handleRetry(jobIds: string[]) {
+    if (jobIds.length === 0) return;
+    setRetrying(true);
+    try {
+      const { retried } = await retryPipelineJobs({ job_ids: jobIds });
+      toast.success(`${retried} job${retried !== 1 ? "s" : ""} queued for retry`);
+      setSelectedIds(new Set());
+      loadStatus();
+      loadJobs();
+    } catch (err) {
+      toast.error(`Retry failed: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  async function handleRetryAllFiltered() {
+    setRetrying(true);
+    try {
+      const { retried } = await retryPipelineJobs({
+        filter_status: statusFilter || "failed",
+        filter_job_type: typeFilter || undefined,
+      });
+      toast.success(`${retried} job${retried !== 1 ? "s" : ""} queued for retry`);
+      setSelectedIds(new Set());
+      loadStatus();
+      loadJobs();
+    } catch (err) {
+      toast.error(`Retry failed: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -288,14 +440,32 @@ export default function PipelinePage() {
 
       {/* Jobs */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
             Jobs {jobData ? `(${jobData.total})` : ""}
           </h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {selectedIds.size > 0 && (
+              <button
+                onClick={() => handleRetry(Array.from(selectedIds))}
+                disabled={retrying}
+                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+              >
+                {retrying ? "Retrying..." : `Retry Selected (${selectedIds.size})`}
+              </button>
+            )}
+            {(statusFilter === "failed" || statusFilter === "done") && (
+              <button
+                onClick={handleRetryAllFiltered}
+                disabled={retrying}
+                className="rounded border border-blue-700 px-3 py-1 text-xs font-medium text-blue-400 hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
+              >
+                {retrying ? "Retrying..." : `Retry All ${statusFilter}${typeFilter ? ` ${typeFilter}` : ""}`}
+              </button>
+            )}
             <select
               value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setJobPage(1); }}
+              onChange={(e) => { setStatusFilter(e.target.value); setJobPage(1); setSelectedIds(new Set()); }}
               className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-300"
             >
               <option value="">All statuses</option>
@@ -307,7 +477,7 @@ export default function PipelinePage() {
             </select>
             <select
               value={typeFilter}
-              onChange={(e) => { setTypeFilter(e.target.value); setJobPage(1); }}
+              onChange={(e) => { setTypeFilter(e.target.value); setJobPage(1); setSelectedIds(new Set()); }}
               className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-300"
             >
               <option value="">All types</option>
@@ -323,7 +493,28 @@ export default function PipelinePage() {
           {!jobData || jobData.jobs.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-gray-500">No jobs found.</p>
           ) : (
-            jobData.jobs.map((job) => <JobRow key={job.id} job={job} />)
+            <>
+              {retryableJobs.length > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 bg-gray-900/50">
+                  <input
+                    type="checkbox"
+                    checked={allRetryableSelected}
+                    onChange={(e) => toggleSelectAll(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-blue-500 cursor-pointer"
+                  />
+                  <span className="text-xs text-gray-500">Select all retryable on this page</span>
+                </div>
+              )}
+              {jobData.jobs.map((job) => (
+                <JobRow
+                  key={job.id}
+                  job={job}
+                  selected={selectedIds.has(job.id)}
+                  onSelect={toggleSelect}
+                  onRetry={(id) => handleRetry([id])}
+                />
+              ))}
+            </>
           )}
         </div>
 
