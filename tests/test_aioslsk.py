@@ -185,55 +185,30 @@ def test_pick_best_empty_results(cfg):
 
 # ─── Mock client for _pipeline_download tests ────────────────────────────────
 
-class _MockEvents:
-    """Mimics client.events with register/unregister and manual dispatch.
+@dataclass
+class _MockSearchRequest:
+    """Mimics aioslsk SearchRequest — accumulates results on .results list."""
+    query: str
+    results: list = field(default_factory=list)
 
-    Handlers are registered by event type, but dispatch routes by the
-    *registered* type — so we can dispatch a real SearchResultEvent and
-    it reaches handlers registered for that type.
-    """
+
+class _MockSearchManager:
+    """Mimics client.searches with a search() method."""
 
     def __init__(self):
-        self._handlers: dict[type, list] = {}
+        self._requests: list[_MockSearchRequest] = []
 
-    def register(self, event_type, handler):
-        self._handlers.setdefault(event_type, []).append(handler)
-
-    def unregister(self, event_type, handler):
-        handlers = self._handlers.get(event_type, [])
-        if handler in handlers:
-            handlers.remove(handler)
-
-    async def dispatch(self, event_type, event):
-        """Dispatch *event* to all handlers registered for *event_type*."""
-        for handler in self._handlers.get(event_type, []):
-            await handler(event)
+    async def search(self, query: str) -> _MockSearchRequest:
+        req = _MockSearchRequest(query=query)
+        self._requests.append(req)
+        return req
 
 
 class _MockClient:
-    """Fake aioslsk client with events and execute."""
+    """Fake aioslsk client with searches manager."""
 
     def __init__(self):
-        self.events = _MockEvents()
-        self._next_ticket = 1
-
-    async def execute(self, cmd):
-        cmd._ticket = self._next_ticket
-        self._next_ticket += 1
-
-
-@dataclass
-class _MockSearchResultEvent:
-    """Mimics aioslsk SearchResultEvent."""
-    result: object
-
-
-@dataclass
-class _TicketedSearchResult:
-    """Search result with a ticket for routing."""
-    ticket: int
-    username: str
-    shared_items: list = field(default_factory=list)
+        self.searches = _MockSearchManager()
 
 
 # ─── _pipeline_download tests ────────────────────────────────────────────────
@@ -254,20 +229,17 @@ async def test_pipeline_download_starts_download_on_first_viable_result(cfg):
         reports.append({"job_id": job_id, "success": success, "result": result, "error": error})
 
     async def deliver_results():
-        """Wait briefly, then dispatch a viable search result."""
+        """Wait briefly, then inject results into the SearchRequest."""
         await asyncio.sleep(0.1)
-        from aioslsk.events import SearchResultEvent
-        # ticket=1 because it's the first execute() call
-        sr = _TicketedSearchResult(
-            ticket=1,
+        # The first search request is for our track
+        req = client.searches._requests[0]
+        req.results.append(_SearchResult(
             username="user1",
             shared_items=[_FileData(
                 "Big Wild - City of Sound.flac", extension="flac", filesize=30_000_000,
                 attributes=[_Attribute(_ATTR_DURATION, 232)],
             )],
-        )
-        event = _MockSearchResultEvent(result=sr)
-        await client.events.dispatch(SearchResultEvent, event)
+        ))
 
     with patch("djtoolkit.downloader.aioslsk_client._download_track", new_callable=AsyncMock) as mock_dl:
         mock_dl.return_value = "/tmp/Big Wild - City of Sound.flac"
@@ -325,17 +297,18 @@ async def test_pipeline_download_independent_tracks(cfg):
 
     async def deliver_results_for_track_a():
         await asyncio.sleep(0.1)
-        from aioslsk.events import SearchResultEvent
-        # Track A's primary search fires first (ticket=1)
-        sr = _TicketedSearchResult(
-            ticket=1,
-            username="user1",
-            shared_items=[_FileData(
-                "Big Wild - City of Sound.flac", extension="flac", filesize=30_000_000,
-                attributes=[_Attribute(_ATTR_DURATION, 232)],
-            )],
-        )
-        await client.events.dispatch(SearchResultEvent, _MockSearchResultEvent(result=sr))
+        # With MAX_CONCURRENT=3, both tracks search immediately.
+        # Find the request for track A's query.
+        for req in client.searches._requests:
+            if req.query == "big wild city of sound":
+                req.results.append(_SearchResult(
+                    username="user1",
+                    shared_items=[_FileData(
+                        "Big Wild - City of Sound.flac", extension="flac", filesize=30_000_000,
+                        attributes=[_Attribute(_ATTR_DURATION, 232)],
+                    )],
+                ))
+                break
 
     with patch("djtoolkit.downloader.aioslsk_client._download_track", new_callable=AsyncMock) as mock_dl:
         mock_dl.return_value = "/tmp/Big Wild - City of Sound.flac"

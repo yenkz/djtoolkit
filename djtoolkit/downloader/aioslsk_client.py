@@ -293,32 +293,16 @@ def _build_search_queries(track: dict) -> list[str]:
 
 async def _search_all(client, query_by_track_id: dict[int, str], timeout_sec: float) -> dict[int, list]:
     """
-    Fire all searches simultaneously, wait once for timeout_sec, return results.
-    Returns {track_id: [SearchResult, ...]} for all tracks.
+    Fire all searches via the SearchManager, wait once for timeout_sec,
+    return results.  Returns {track_id: [SearchResult, ...]}.
     """
-    from aioslsk.commands import GlobalSearchCommand
-    from aioslsk.events import SearchResultEvent
+    requests: dict[int, object] = {}
+    for track_id, query in query_by_track_id.items():
+        requests[track_id] = await client.searches.search(query)
 
-    ticket_to_track: dict[int, int] = {}
-    results_by_track: dict[int, list] = {tid: [] for tid in query_by_track_id}
+    await asyncio.sleep(timeout_sec)
 
-    async def on_result(event: SearchResultEvent):
-        ticket = getattr(event.result, "ticket", None)
-        track_id = ticket_to_track.get(ticket)
-        if track_id is not None:
-            results_by_track[track_id].append(event.result)
-
-    client.events.register(SearchResultEvent, on_result)
-    try:
-        for track_id, query in query_by_track_id.items():
-            cmd = GlobalSearchCommand(query)
-            await client.execute(cmd)
-            ticket_to_track[cmd._ticket] = track_id
-        await asyncio.sleep(timeout_sec)
-    finally:
-        client.events.unregister(SearchResultEvent, on_result)
-
-    return results_by_track
+    return {tid: list(req.results) for tid, req in requests.items()}
 
 
 # ─── Pipelined search + download ─────────────────────────────────────────────
@@ -332,174 +316,134 @@ async def _pipeline_download(
     status_fn=None,                       # optional (phase: str) -> None
 ) -> None:
     """
-    Pipelined search + download: each track starts downloading as soon as
-    viable search results arrive, rather than waiting for all searches to finish.
+    Semaphore-bounded pipeline: each worker manages its own search+download
+    cycle, but at most ``MAX_CONCURRENT`` workers run at a time.  This keeps
+    the Soulseek server happy (no flood of simultaneous searches) while still
+    overlapping search-for-track-N+1 with download-of-track-N.
+
+    Uses the aioslsk SearchManager (``client.searches.search()``) which
+    accumulates results internally on the ``SearchRequest.results`` list —
+    no manual event routing required.
 
     Each track dict in tracks_by_job MUST have an ``"id"`` key that
     corresponds to a key in queries_by_id.
     """
-    from aioslsk.commands import GlobalSearchCommand
-    from aioslsk.events import SearchResultEvent
+    MAX_CONCURRENT = 3  # max workers active at once
 
     all_tracks = list(tracks_by_job.values())
     job_by_track_id: dict[int, str] = {t["id"]: job_id for job_id, t in tracks_by_job.items()}
 
-    # Per-track result collectors and wake-up events
-    results_by_track: dict[int, list] = {t["id"]: [] for t in all_tracks}
-    track_events: dict[int, asyncio.Event] = {t["id"]: asyncio.Event() for t in all_tracks}
+    # Session-loss flag — when set, workers abort early instead of
+    # each independently hitting InvalidSessionError.
+    session_lost = asyncio.Event()
 
-    # Maps search ticket → track_id so the result handler can route
-    ticket_to_track: dict[int, int] = {}
-
-    async def _on_result(event):
-        ticket = getattr(event.result, "ticket", None)
-        track_id = ticket_to_track.get(ticket)
-        if track_id is not None:
-            results_by_track[track_id].append(event.result)
-            track_events[track_id].set()
+    # Semaphore gates how many workers can be active (searching or downloading)
+    sem = asyncio.Semaphore(MAX_CONCURRENT)
 
     async def _worker(track: dict) -> None:
-        """Per-track worker: wait for viable results, then download."""
+        """Per-track worker: acquire semaphore, search, download, release."""
         track_id = track["id"]
         job_id = job_by_track_id[track_id]
         query_variants = queries_by_id.get(track_id, [])
         primary_query = query_variants[0] if query_variants else ""
         timeout = cfg.soulseek.search_timeout_sec
 
-        try:
-            # Bail early if session already lost
-            if session_lost.is_set():
-                await report_fn(job_id, False, None, "Soulseek session lost")
-                return
+        # Bail early if session already lost (before waiting for semaphore)
+        if session_lost.is_set():
+            await report_fn(job_id, False, None, "Soulseek session lost")
+            return
 
-            # Phase A: wait for viable results from primary search
-            viable = await _wait_for_viable(
-                track, track_id, results_by_track, track_events, cfg, primary_query, timeout,
-            )
+        async with sem:
+            try:
+                # Re-check after acquiring semaphore
+                if session_lost.is_set():
+                    await report_fn(job_id, False, None, "Soulseek session lost")
+                    return
 
-            # Phase B: fallback queries if primary yielded nothing viable
-            if not viable:
-                for variant in query_variants[1:]:
-                    cmd = GlobalSearchCommand(variant)
-                    await client.execute(cmd)
-                    ticket_to_track[cmd._ticket] = track_id
-                    log.info("[%d] Fallback query: «%s»", track_id, variant)
+                # Phase A: search with primary query
+                log.info("[%d] Search: «%s»", track_id, primary_query)
+                request = await client.searches.search(primary_query)
+                results = await _collect_viable(
+                    track, request, cfg, primary_query, timeout,
+                )
 
-                    # Clear event and wait for new results
-                    track_events[track_id].clear()
-                    viable = await _wait_for_viable(
-                        track, track_id, results_by_track, track_events, cfg, primary_query, timeout,
-                    )
-                    if viable:
-                        break
+                # Phase B: fallback queries if primary yielded nothing viable
+                if not results:
+                    for variant in query_variants[1:]:
+                        if session_lost.is_set():
+                            break
+                        log.info("[%d] Fallback query: «%s»", track_id, variant)
+                        request = await client.searches.search(variant)
+                        results = await _collect_viable(
+                            track, request, cfg, primary_query, timeout,
+                        )
+                        if results:
+                            break
 
-            # Phase C: download
-            if session_lost.is_set():
-                await report_fn(job_id, False, None, "Soulseek session lost")
-                return
+                # Phase C: download
+                if session_lost.is_set():
+                    await report_fn(job_id, False, None, "Soulseek session lost")
+                    return
 
-            if not viable:
-                log.warning("[%d] No viable results after all queries", track_id)
-                await report_fn(job_id, False, None, "No viable search results")
-                return
+                if not results:
+                    log.warning("[%d] No viable results after all queries", track_id)
+                    await report_fn(job_id, False, None, "No viable search results")
+                    return
 
-            # Snapshot results to avoid data race
-            snapshot = list(results_by_track[track_id])
-            local_path = await _download_track(client, cfg, track, snapshot, primary_query)
+                local_path = await _download_track(client, cfg, track, results, primary_query)
 
-            if local_path:
-                log.info("[%d] ✓ downloaded via pipeline", track_id)
-                await report_fn(job_id, True, {"local_path": local_path}, None)
-            else:
-                log.warning("[%d] No matching file (all peers exhausted)", track_id)
-                await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
+                if local_path:
+                    log.info("[%d] ✓ downloaded via pipeline", track_id)
+                    await report_fn(job_id, True, {"local_path": local_path}, None)
+                else:
+                    log.warning("[%d] No matching file (all peers exhausted)", track_id)
+                    await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
 
-        except Exception as exc:
-            if "not logged in" in str(exc).lower():
-                session_lost.set()
-                log.error("[%d] Session lost — flagging batch abort", track_id)
-                await report_fn(job_id, False, None, "Soulseek session lost")
-            else:
-                log.exception("[%d] Pipeline worker error", track_id)
-                await report_fn(job_id, False, None, str(exc))
+            except Exception as exc:
+                if "not logged in" in str(exc).lower():
+                    session_lost.set()
+                    log.error("[%d] Session lost — flagging batch abort", track_id)
+                    await report_fn(job_id, False, None, "Soulseek session lost")
+                else:
+                    log.exception("[%d] Pipeline worker error", track_id)
+                    await report_fn(job_id, False, None, str(exc))
 
-    # Session-loss flag — when set, workers abort early instead of
-    # each independently hitting InvalidSessionError.
-    session_lost = asyncio.Event()
+    if status_fn:
+        status_fn("downloading")
 
-    client.events.register(SearchResultEvent, _on_result)
-    try:
-        if status_fn:
-            status_fn("searching")
-
-        # Fire primary searches in batches of 10 with a 1s gap to avoid
-        # overwhelming the Soulseek server and getting disconnected.
-        SEARCH_BATCH_SIZE = 10
-        for i in range(0, len(all_tracks), SEARCH_BATCH_SIZE):
-            batch = all_tracks[i : i + SEARCH_BATCH_SIZE]
-            for track in batch:
-                track_id = track["id"]
-                variants = queries_by_id.get(track_id, [])
-                if variants:
-                    try:
-                        cmd = GlobalSearchCommand(variants[0])
-                        await client.execute(cmd)
-                        ticket_to_track[cmd._ticket] = track_id
-                    except Exception as exc:
-                        if "not logged in" in str(exc).lower():
-                            session_lost.set()
-                            log.error("Session lost while sending searches — aborting batch")
-                            # Fail all remaining tracks
-                            for t in all_tracks:
-                                tid = t["id"]
-                                jid = job_by_track_id[tid]
-                                if not results_by_track[tid]:  # not yet processed
-                                    await report_fn(jid, False, None, "Soulseek session lost")
-                            return
-                        raise
-            # Brief pause between search batches
-            if i + SEARCH_BATCH_SIZE < len(all_tracks):
-                await asyncio.sleep(1)
-
-        if status_fn:
-            status_fn("downloading")
-
-        # Run all workers concurrently
-        await asyncio.gather(*[_worker(t) for t in all_tracks])
-    finally:
-        client.events.unregister(SearchResultEvent, _on_result)
+    # All workers start immediately but only MAX_CONCURRENT proceed past
+    # the semaphore at a time — the rest queue up transparently.
+    await asyncio.gather(*[_worker(t) for t in all_tracks])
 
 
-async def _wait_for_viable(
+async def _collect_viable(
     track: dict,
-    track_id: int,
-    results_by_track: dict[int, list],
-    track_events: dict[int, asyncio.Event],
+    request,
     cfg: Config,
     query: str,
     timeout: float,
-) -> bool:
+) -> list:
     """
-    Wait up to *timeout* seconds for viable candidates to appear for a track.
-    Checks _rank_candidates each time the per-track event fires.
-    Returns True as soon as viable candidates exist, False on timeout.
+    Wait up to *timeout* seconds for viable candidates from a SearchRequest.
+    Polls ``request.results`` periodically and runs ``_rank_candidates`` to
+    check viability.  Returns the full result list on success, empty on timeout.
     """
+    POLL_INTERVAL = 2.0
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
+
     while True:
         remaining = deadline - loop.time()
         if remaining <= 0:
-            return False
-        # Check if we already have viable results
-        if results_by_track[track_id] and _rank_candidates(track, results_by_track[track_id], cfg, query):
-            return True
-        # Wait for more results (or poll interval, whichever comes first)
-        track_events[track_id].clear()
-        try:
-            await asyncio.wait_for(track_events[track_id].wait(), timeout=min(remaining, 2.0))
-        except asyncio.TimeoutError:
-            # Poll interval expired — loop will re-check remaining time
-            pass
+            break
+        if request.results and _rank_candidates(track, request.results, cfg, query):
+            return list(request.results)
+        await asyncio.sleep(min(remaining, POLL_INTERVAL))
+
+    # Final check after timeout
+    if request.results and _rank_candidates(track, request.results, cfg, query):
+        return list(request.results)
+    return []
 
 
 # ─── Download ─────────────────────────────────────────────────────────────────
