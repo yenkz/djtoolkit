@@ -328,7 +328,7 @@ async def _pipeline_download(
     Each track dict in tracks_by_job MUST have an ``"id"`` key that
     corresponds to a key in queries_by_id.
     """
-    MAX_CONCURRENT_SEARCHES = 3  # max concurrent searches (server-facing)
+    MAX_CONCURRENT = 3  # max workers active at once
 
     all_tracks = list(tracks_by_job.values())
     job_by_track_id: dict[int, str] = {t["id"]: job_id for job_id, t in tracks_by_job.items()}
@@ -337,13 +337,11 @@ async def _pipeline_download(
     # each independently hitting InvalidSessionError.
     session_lost = asyncio.Event()
 
-    # Semaphore only gates the SEARCH phase — searches hit the central
-    # Soulseek server and too many at once cause session drops.  Downloads
-    # are peer-to-peer and can run concurrently without limit.
-    search_sem = asyncio.Semaphore(MAX_CONCURRENT_SEARCHES)
+    # Semaphore gates how many workers can be active (searching or downloading)
+    sem = asyncio.Semaphore(MAX_CONCURRENT)
 
     async def _worker(track: dict) -> None:
-        """Per-track worker: search (semaphore-gated), then download (ungated)."""
+        """Per-track worker: acquire semaphore, search, download, release."""
         track_id = track["id"]
         job_id = job_by_track_id[track_id]
         query_variants = queries_by_id.get(track_id, [])
@@ -355,10 +353,9 @@ async def _pipeline_download(
             await report_fn(job_id, False, None, "Soulseek session lost")
             return
 
-        try:
-            # ── Search phase (semaphore-gated) ──────────────────────────
-            results = []
-            async with search_sem:
+        async with sem:
+            try:
+                # Re-check after acquiring semaphore
                 if session_lost.is_set():
                     await report_fn(job_id, False, None, "Soulseek session lost")
                     return
@@ -383,33 +380,33 @@ async def _pipeline_download(
                         if results:
                             break
 
-            # ── Download phase (no semaphore — peer-to-peer) ────────────
-            if session_lost.is_set():
-                await report_fn(job_id, False, None, "Soulseek session lost")
-                return
+                # Phase C: download
+                if session_lost.is_set():
+                    await report_fn(job_id, False, None, "Soulseek session lost")
+                    return
 
-            if not results:
-                log.warning("[%d] No viable results after all queries", track_id)
-                await report_fn(job_id, False, None, "No viable search results")
-                return
+                if not results:
+                    log.warning("[%d] No viable results after all queries", track_id)
+                    await report_fn(job_id, False, None, "No viable search results")
+                    return
 
-            local_path = await _download_track(client, cfg, track, results, primary_query)
+                local_path = await _download_track(client, cfg, track, results, primary_query)
 
-            if local_path:
-                log.info("[%d] ✓ downloaded via pipeline", track_id)
-                await report_fn(job_id, True, {"local_path": local_path}, None)
-            else:
-                log.warning("[%d] No matching file (all peers exhausted)", track_id)
-                await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
+                if local_path:
+                    log.info("[%d] ✓ downloaded via pipeline", track_id)
+                    await report_fn(job_id, True, {"local_path": local_path}, None)
+                else:
+                    log.warning("[%d] No matching file (all peers exhausted)", track_id)
+                    await report_fn(job_id, False, None, f"No matching file for: {track.get('artist')} - {track.get('title')}")
 
-        except Exception as exc:
-            if "not logged in" in str(exc).lower():
-                session_lost.set()
-                log.error("[%d] Session lost — flagging batch abort", track_id)
-                await report_fn(job_id, False, None, "Soulseek session lost")
-            else:
-                log.exception("[%d] Pipeline worker error", track_id)
-                await report_fn(job_id, False, None, str(exc))
+            except Exception as exc:
+                if "not logged in" in str(exc).lower():
+                    session_lost.set()
+                    log.error("[%d] Session lost — flagging batch abort", track_id)
+                    await report_fn(job_id, False, None, "Soulseek session lost")
+                else:
+                    log.exception("[%d] Pipeline worker error", track_id)
+                    await report_fn(job_id, False, None, str(exc))
 
     if status_fn:
         status_fn("downloading")
@@ -431,7 +428,7 @@ async def _collect_viable(
     Polls ``request.results`` periodically and runs ``_rank_candidates`` to
     check viability.  Returns the full result list on success, empty on timeout.
     """
-    POLL_INTERVAL = 1.0
+    POLL_INTERVAL = 2.0
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
 
