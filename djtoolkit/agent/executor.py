@@ -48,6 +48,26 @@ async def _slsk_session(cfg: Config, credentials: dict):
             logging.getLogger(_noisy).setLevel(logging.CRITICAL)
         _noisy_loggers_suppressed = True
 
+    # Suppress noisy aioslsk peer connection errors that bubble through the
+    # event loop exception handler (same pattern as _run_async in the CLI).
+    loop = asyncio.get_running_loop()
+    _orig_handler = loop.get_exception_handler()
+
+    def _quiet_exception_handler(loop, context):
+        exc = context.get("exception")
+        if exc and (
+            type(exc).__module__.startswith("aioslsk")
+            or isinstance(exc, (ConnectionError, TimeoutError, OSError))
+        ):
+            return
+        if _orig_handler:
+            _orig_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(_quiet_exception_handler)
+    loop.call_exception_handler = lambda ctx: _quiet_exception_handler(loop, ctx)
+
     async with SoulSeekClient(settings) as client:
         # Retry login with exponential backoff — Soulseek server sometimes
         # rejects rapid reconnections after a per-batch disconnect.
