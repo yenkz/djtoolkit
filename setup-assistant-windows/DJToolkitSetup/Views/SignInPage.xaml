@@ -20,6 +20,6 @@
                     Click="ContinueButton_Click" />
         </StackPanel>
 
-        <TextBlock x:Name="StatusText" Foreground="Gray" TextWrapping="Wrap" />
+        <TextBlock x:Name="StatusText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" />
     </StackPanel>
 </Page>

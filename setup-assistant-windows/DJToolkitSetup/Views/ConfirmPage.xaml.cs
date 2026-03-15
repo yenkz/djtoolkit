@@ -49,10 +49,7 @@ public sealed partial class ConfirmPage : Page
         picker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
         picker.FileTypeFilter.Add("*");
 
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(
-            (Application.Current as App)!.GetType().GetProperty("_window",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.GetValue(Application.Current) as Window);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
         var folder = await picker.PickSingleFolderAsync();
