@@ -648,13 +648,12 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
   const [agentName, setAgentName] = useState("");
   const [pendingJobs, setPendingJobs] = useState<number | null>(null);
   const [pollErrors, setPollErrors] = useState(0);
-  const [registering, setRegistering] = useState(false);
+  const [registering, setRegistering] = useState(!apiKey);
   const supabase = createClient();
 
   useEffect(() => {
     if (apiKey) return;
     // Check if an agent already exists before registering a new one
-    setRegistering(true);
     fetchAgents()
       .then((agents) => {
         const existing = agents.find((a) => a.machine_name === machineName);
