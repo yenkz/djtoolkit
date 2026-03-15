@@ -121,10 +121,16 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore Setup Assistant
+        run: msbuild setup-assistant-windows/DJToolkitSetup.sln /t:Restore /p:Configuration=Release /p:Platform=x64
+
       - name: Build Setup Assistant
         run: |
-          dotnet build setup-assistant-windows/DJToolkitSetup.sln -c Release
-          Copy-Item "setup-assistant-windows/DJToolkitSetup/bin/Release/net8.0-windows10.0.22621.0/win-x64/DJToolkit Setup.exe" "dist/"
+          msbuild setup-assistant-windows/DJToolkitSetup.sln /p:Configuration=Release /p:Platform=x64
+          Copy-Item "setup-assistant-windows/DJToolkitSetup/bin/x64/Release/net8.0-windows10.0.22621.0/win-x64/DJToolkit Setup.exe" "dist/"
         shell: pwsh
 
       - name: Install WiX 4
