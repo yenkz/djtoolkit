@@ -92,7 +92,7 @@ export default function OnboardingPage() {
   );
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = "";
 const SESSION_KEY = "djtoolkit_onboarding_state";
 
 interface Step1Props {

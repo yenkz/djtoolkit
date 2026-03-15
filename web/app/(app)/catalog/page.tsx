@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
   duplicate: "bg-gray-700 text-gray-400",
 };
 
-const API_URL = `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api`;
+const API_URL = "/api";
 
 export default function CatalogPage() {
   const [tracks, setTracks] = useState<Track[]>([]);

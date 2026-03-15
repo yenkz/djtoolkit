@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { fetchAgents, registerAgent, deleteAgent, type Agent } from "@/lib/api";
 
-const CLOUD_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const CLOUD_URL = typeof window !== "undefined" ? window.location.origin : "";
 
 function relativeTime(iso: string): string {
   if (!iso) return "never";
