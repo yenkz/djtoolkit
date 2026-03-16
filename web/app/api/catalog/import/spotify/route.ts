@@ -197,18 +197,20 @@ export async function POST(request: NextRequest) {
 
   // Re-fetch all track IDs by spotify_uri (includes pre-existing duplicates)
   // so the review step shows every track, not just newly inserted ones.
+  // Batch in chunks of 100 to avoid PostgREST URL length limits.
   const spotifyUris = trackRows
     .map((r) => r.spotify_uri as string)
     .filter(Boolean);
 
   let trackIds: number[] = [];
-  if (spotifyUris.length > 0) {
-    const { data: allRows } = await supabase
+  for (let i = 0; i < spotifyUris.length; i += 100) {
+    const batch = spotifyUris.slice(i, i + 100);
+    const { data: batchRows } = await supabase
       .from("tracks")
       .select("id")
       .eq("user_id", user.userId)
-      .in("spotify_uri", spotifyUris);
-    trackIds = (allRows ?? []).map((r) => r.id);
+      .in("spotify_uri", batch);
+    trackIds.push(...(batchRows ?? []).map((r) => r.id));
   }
 
   // Create pipeline jobs for newly imported tracks
