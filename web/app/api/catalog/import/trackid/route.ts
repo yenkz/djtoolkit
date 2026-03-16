@@ -148,6 +148,7 @@ export async function POST(request: NextRequest) {
     }));
 
     let insertedIds: number[] = [];
+    let newlyInsertedCount = 0;
     let jobsCreated = 0;
 
     if (trackRows.length > 0) {
@@ -157,6 +158,7 @@ export async function POST(request: NextRequest) {
         .select("id, search_string, artist, title, duration_ms");
 
       const newlyInserted = inserted ?? [];
+      newlyInsertedCount = newlyInsertedCount;
 
       // Re-fetch ALL matching track IDs (upsert with ignoreDuplicates returns
       // nothing for existing rows). Batch in chunks of 100 for URL safety.
@@ -175,7 +177,7 @@ export async function POST(request: NextRequest) {
       // Deduplicate IDs (a title may match multiple rows across batches)
       insertedIds = [...new Set(allTrackIds)];
 
-      if (queueJobs && newlyInserted.length > 0) {
+      if (queueJobs && newlyInsertedCount > 0) {
         const jobRows = newlyInserted.map((track) => ({
           user_id: user.userId,
           track_id: track.id,
@@ -207,8 +209,8 @@ export async function POST(request: NextRequest) {
       progress: 100,
       step: `Done — ${insertedIds.length} track${insertedIds.length !== 1 ? "s" : ""} identified (cached)`,
       result: JSON.stringify({
-        imported: newlyInserted.length,
-        skipped_duplicates: trackRows.length - newlyInserted.length,
+        imported: newlyInsertedCount,
+        skipped_duplicates: trackRows.length - newlyInsertedCount,
         jobs_created: jobsCreated,
         track_ids: insertedIds,
       }),
