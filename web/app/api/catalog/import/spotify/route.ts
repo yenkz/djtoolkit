@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     return jsonError(message, 401);
   }
 
-  // Paginate through items — use /me/tracks for Liked Songs, /playlists/{id}/tracks otherwise
+  // Paginate through items — use /me/tracks for Liked Songs, /playlists/{id}/items otherwise
   // Fetch up to MAX_PAGES pages per request to stay within Vercel's 10s timeout.
   const MAX_PAGES = 8; // 8 × 50 = 400 tracks per request
   const allItems: SpotifyPlaylistItem[] = [];
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
   const offset = parseInt(request.nextUrl.searchParams.get("offset") ?? "0", 10) || 0;
   let url: string | null = isLiked
     ? `${SPOTIFY_API}/me/tracks?limit=50&offset=${offset}`
-    : `${SPOTIFY_API}/playlists/${encodeURIComponent(playlistId)}/tracks?limit=50&offset=${offset}`;
+    : `${SPOTIFY_API}/playlists/${encodeURIComponent(playlistId)}/items?limit=50&offset=${offset}`;
 
   let pagesRead = 0;
   let hasMore = false;

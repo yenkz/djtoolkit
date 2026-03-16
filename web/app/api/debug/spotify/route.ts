@@ -68,20 +68,26 @@ export async function GET(request: NextRequest) {
   const ownedId = firstOwnedPlaylist?.id;
   const headers = { Authorization: `Bearer ${accessToken}` };
 
-  // Variant 1: /playlists/{id}/tracks (current approach — returns 403)
+  // Variant 1: /playlists/{id}/tracks (old endpoint — returns 403 in dev mode)
   const v1 = ownedId
     ? await fetch(`${SPOTIFY_API}/playlists/${ownedId}/tracks?limit=2`, { headers })
         .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }))
     : null;
 
-  // Variant 2: /playlists/{id} (full playlist object — tracks embedded)
+  // Variant 2: /playlists/{id}/items (newer endpoint — used by FastAPI version)
   const v2 = ownedId
+    ? await fetch(`${SPOTIFY_API}/playlists/${ownedId}/items?limit=2`, { headers })
+        .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }))
+    : null;
+
+  // Variant 3: /playlists/{id} (full playlist object — tracks embedded)
+  const v3 = ownedId
     ? await fetch(`${SPOTIFY_API}/playlists/${ownedId}?fields=id,name,tracks.total,tracks.items(track(name,artists(name),uri))&limit=2`, { headers })
         .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }))
     : null;
 
-  // Variant 3: /me/tracks (saved/liked songs — different endpoint entirely)
-  const v3 = await fetch(`${SPOTIFY_API}/me/tracks?limit=2`, { headers })
+  // Variant 4: /me/tracks (saved/liked songs)
+  const v4 = await fetch(`${SPOTIFY_API}/me/tracks?limit=2`, { headers })
     .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }));
 
   return NextResponse.json({
@@ -97,7 +103,8 @@ export async function GET(request: NextRequest) {
     },
     test_playlist: firstOwnedPlaylist?.name ?? "(none found)",
     "v1_playlists/{id}/tracks": v1,
-    "v2_playlists/{id}_full": v2,
-    "v3_me/tracks_saved": v3,
+    "v2_playlists/{id}/items": v2,
+    "v3_playlists/{id}_full": v3,
+    "v4_me/tracks_saved": v4,
   });
 }
