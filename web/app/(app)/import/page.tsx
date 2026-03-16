@@ -184,9 +184,10 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       if (trackIdValid) {
         const { job_id } = await submitTrackIdJob(trackIdUrl);
 
-        // Poll until completed or failed
+        // Poll until completed or failed (15s — API throttles TrackID.dev
+        // polls to every 90s due to their 10 req/15min rate limit)
         while (true) {
-          await new Promise((r) => setTimeout(r, 2000));
+          await new Promise((r) => setTimeout(r, 15000));
           const s = await getTrackIdJobStatus(job_id);
           setTrackIdStatus(s);
           if (s.status === "completed") {
