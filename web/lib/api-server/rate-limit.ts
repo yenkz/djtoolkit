@@ -46,7 +46,7 @@ export const limiters = {
   agent: rl(100, "rl:agent"),
   batch: rl(60, "rl:batch"),
   write: rl(30, "rl:write"),
-  import: rl(20, "rl:import"),
+  import: rl(100, "rl:import"),
   register: rl(10, "rl:register"),
   backfill: rl(5, "rl:backfill"),
 } as const;
