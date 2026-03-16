@@ -13,7 +13,11 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { jsonError } from "./errors";
 
-const redis = Redis.fromEnv();
+const hasRedis =
+  !!process.env.UPSTASH_REDIS_REST_URL &&
+  !!process.env.UPSTASH_REDIS_REST_TOKEN;
+
+const redis = hasRedis ? Redis.fromEnv() : (null as unknown as Redis);
 
 /**
  * Pre-configured rate limiters keyed by endpoint category.
@@ -91,6 +95,8 @@ export async function rateLimit(
     request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
     request.headers.get("x-real-ip") ??
     "anonymous";
+
+  if (!hasRedis) return null; // Skip rate limiting when Redis is not configured
 
   const { success } = await limiter.limit(id);
 
