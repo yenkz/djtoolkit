@@ -1,9 +1,20 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { DM_Sans, Space_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { Grain } from "@/components/ui/Grain";
 import "./globals.css";
 
-const geist = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const dmSans = DM_Sans({
+  variable: "--font-dm-sans",
+  subsets: ["latin"],
+  weight: ["400", "500", "700", "900"],
+});
+
+const spaceMono = Space_Mono({
+  variable: "--font-space-mono",
+  subsets: ["latin"],
+  weight: ["400", "700"],
+});
 
 export const metadata: Metadata = {
   title: "djtoolkit",
@@ -15,9 +26,23 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${geist.variable} antialiased bg-gray-950 text-gray-100`}>
+      <body
+        className={`${dmSans.variable} ${spaceMono.variable} antialiased bg-hw-body text-hw-text`}
+      >
         {children}
-        <Toaster richColors position="top-right" />
+        <Grain />
+        <Toaster
+          theme="dark"
+          richColors
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: "var(--hw-surface)",
+              border: "1px solid var(--hw-border)",
+              color: "var(--hw-text)",
+            },
+          }}
+        />
       </body>
     </html>
   );

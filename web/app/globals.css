@@ -1,26 +1,107 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Hardware palette */
+  --hw-body: #141114;
+  --hw-surface: #1A171A;
+  --hw-panel: #1E1B1E;
+  --hw-raised: #252225;
+  --hw-border: #2A272A;
+  --hw-border-light: #333033;
+  --hw-groove: #0E0C0E;
+  --hw-text: #EBEED5;
+  --hw-text-dim: #EBEED566;
+
+  /* LED colors — on state */
+  --led-green: #44FF44;
+  --led-green-dim: #6A8A6A;
+  --led-green-mid: #44CC44;
+  --led-red: #FF4444;
+  --led-red-dim: #8A6A6A;
+  --led-red-mid: #CC3333;
+  --led-blue: #4488FF;
+  --led-blue-dim: #6A7A8A;
+  --led-blue-mid: #3366CC;
+  --led-orange: #FFA033;
+  --led-orange-dim: #8A7A5A;
+  --led-orange-mid: #CC8833;
+
+  /* Rubber / pad surface */
+  --rubber-base: #C8C4B8;
+  --rubber-pad: #D2CFC4;
+
+  /* Fonts */
+  --font-sans: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --font-mono: var(--font-space-mono), 'Space Mono', monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* Hardware colors → Tailwind utilities */
+  --color-hw-body: var(--hw-body);
+  --color-hw-surface: var(--hw-surface);
+  --color-hw-panel: var(--hw-panel);
+  --color-hw-raised: var(--hw-raised);
+  --color-hw-border: var(--hw-border);
+  --color-hw-border-light: var(--hw-border-light);
+  --color-hw-groove: var(--hw-groove);
+  --color-hw-text: var(--hw-text);
+  --color-hw-text-dim: var(--hw-text-dim);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* LED colors → Tailwind utilities */
+  --color-led-green: var(--led-green);
+  --color-led-green-dim: var(--led-green-dim);
+  --color-led-green-mid: var(--led-green-mid);
+  --color-led-red: var(--led-red);
+  --color-led-red-dim: var(--led-red-dim);
+  --color-led-blue: var(--led-blue);
+  --color-led-blue-dim: var(--led-blue-dim);
+  --color-led-orange: var(--led-orange);
+  --color-led-orange-dim: var(--led-orange-dim);
+
+  /* Rubber */
+  --color-rubber-base: var(--rubber-base);
+  --color-rubber-pad: var(--rubber-pad);
+
+  /* Fonts */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--hw-body);
+  color: var(--hw-text);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgba(68, 136, 255, 0.2);
+}
+
+input::placeholder {
+  color: var(--hw-text-dim);
+  font-family: var(--font-mono);
+}
+
+/* Custom scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hw-raised) var(--hw-body);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--hw-body);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--hw-raised);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--hw-border-light);
 }
