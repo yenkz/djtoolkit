@@ -40,6 +40,11 @@ echo "✓ Binary built: $BINARY ($(du -sh "$BINARY" | cut -f1))"
 # ── 3b. Build Setup Assistant ─────────────────────────────────────────────
 if [ -d "setup-assistant/DJToolkitSetup.xcodeproj" ]; then
     echo "Building Setup Assistant..."
+    # Ensure Config.xcconfig exists (gitignored — use CI placeholder if missing)
+    if [ ! -f "setup-assistant/Config.xcconfig" ]; then
+        cp setup-assistant/Config.xcconfig.ci setup-assistant/Config.xcconfig
+        echo "  (using CI placeholder for Config.xcconfig)"
+    fi
     xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj \
         -scheme DJToolkitSetup \
         -configuration Release \

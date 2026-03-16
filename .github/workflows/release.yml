@@ -36,7 +36,15 @@ jobs:
         run: poetry run pip install pyinstaller
 
       - name: Build Setup Assistant
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
+          # Write Config.xcconfig from secret (or fall back to CI placeholder)
+          if [ -n "$SUPABASE_URL" ]; then
+            echo "SUPABASE_URL = ${SUPABASE_URL}" > setup-assistant/Config.xcconfig
+          else
+            cp setup-assistant/Config.xcconfig.ci setup-assistant/Config.xcconfig
+          fi
           xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj \
             -scheme DJToolkitSetup \
             -configuration Release \

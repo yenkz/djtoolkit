@@ -1,0 +1,3 @@
+// CI build placeholder — the real Config.xcconfig is gitignored.
+// The app reads SupabaseURL at runtime; an empty value here is fine for CI builds.
+SUPABASE_URL =
