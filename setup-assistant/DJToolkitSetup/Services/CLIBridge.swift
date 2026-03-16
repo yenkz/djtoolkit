@@ -70,6 +70,16 @@ enum CLIBridge {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        // Inherit user environment so PyInstaller can extract to TMPDIR
+        var env = ProcessInfo.processInfo.environment
+        if env["TMPDIR"] == nil {
+            env["TMPDIR"] = NSTemporaryDirectory()
+        }
+        // Ensure PATH includes Homebrew so child processes can find dependencies
+        let brewPrefix = "/opt/homebrew/bin:/usr/local/bin"
+        env["PATH"] = brewPrefix + ":" + (env["PATH"] ?? "/usr/bin:/bin")
+        process.environment = env
+
         if let stdin {
             let stdinPipe = Pipe()
             process.standardInput = stdinPipe

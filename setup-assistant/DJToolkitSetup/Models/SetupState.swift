@@ -26,12 +26,10 @@ class SetupState {
     // Step 5: Advanced Settings
     var downloadsDir: String = "~/Music/djtoolkit/downloads"
     var pollInterval: Int = 30
-    var cloudURL: String = "https://api.djtoolkit.com"
+    var cloudURL: String = "https://www.djtoolkit.net"
 
-    // Supabase URL for OAuth — derived from env or config, NOT hardcoded
-    // Set via SUPABASE_URL environment variable or build-time config
-    var supabaseURL: String = ProcessInfo.processInfo.environment["SUPABASE_URL"]
-        ?? "https://CONFIGURE_ME.supabase.co"
+    // Supabase URL for OAuth — read from Info.plist (set via Config.xcconfig)
+    var supabaseURL: String = Bundle.main.object(forInfoDictionaryKey: "SupabaseURL") as? String ?? ""
 
     // Status
     var isLoading: Bool = false

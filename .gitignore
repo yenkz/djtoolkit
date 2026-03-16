@@ -78,6 +78,7 @@ postman/
 *.log
 
 # Xcode
+setup-assistant/Config.xcconfig
 setup-assistant/build/
 setup-assistant/DJToolkitSetup.xcodeproj/xcuserdata/
 setup-assistant/DJToolkitSetup.xcodeproj/project.xcworkspace/xcuserdata/

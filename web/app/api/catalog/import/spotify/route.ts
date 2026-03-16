@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
     .map((r) => r.spotify_uri as string)
     .filter(Boolean);
 
-  let trackIds: number[] = [];
+  const trackIds: number[] = [];
   for (let i = 0; i < spotifyUris.length; i += 100) {
     const batch = spotifyUris.slice(i, i + 100);
     const { data: batchRows } = await supabase

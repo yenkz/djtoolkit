@@ -62,7 +62,7 @@ function buildSearchString(artist: string, title: string): string {
   // Take first artist before semicolon, strip feat./ft./vs. and parentheses
   let a = artist.split(";")[0].trim();
   a = a.replace(/\s*(feat\.?|ft\.?|vs\.?).*$/i, "").trim();
-  let t = title.replace(/\(.*?\)/g, "").trim();
+  const t = title.replace(/\(.*?\)/g, "").trim();
   return `${a} ${t}`
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")

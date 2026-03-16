@@ -4,5 +4,7 @@
 <dict>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
+    <key>SupabaseURL</key>
+    <string>$(SUPABASE_URL)</string>
 </dict>
 </plist>

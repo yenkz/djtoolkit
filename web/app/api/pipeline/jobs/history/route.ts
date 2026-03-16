@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     ),
   ];
 
-  let trackMap: Record<
+  const trackMap: Record<
     string,
     {
       title: string | null;

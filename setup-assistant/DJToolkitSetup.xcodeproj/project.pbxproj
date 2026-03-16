@@ -47,6 +47,7 @@
 		A2000101000000000000000D /* DJToolkit Setup.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "DJToolkit Setup.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000101000000000000000E /* DJToolkitSetupTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DJToolkitSetupTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A2000101000000000000000F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20001010000000000000010 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +71,7 @@
 		A70001010000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				A20001010000000000000010 /* Config.xcconfig */,
 				A70001010000000000000002 /* DJToolkitSetup */,
 				A70001010000000000000006 /* DJToolkitSetupTests */,
 				A70001010000000000000007 /* Products */,
@@ -269,6 +271,7 @@
 /* Begin XCBuildConfiguration section */
 		B10001010000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20001010000000000000010 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -331,6 +334,7 @@
 		};
 		B10001010000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20001010000000000000010 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
