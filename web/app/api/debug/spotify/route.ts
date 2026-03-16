@@ -5,14 +5,22 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthUser, isAuthError } from "@/lib/api-server/auth";
+import {
+  getAuthUser,
+  getAuthUserFromCookies,
+  isAuthError,
+} from "@/lib/api-server/auth";
 import { getSpotifyToken } from "@/lib/api-server/spotify";
 
 const SPOTIFY_API = "https://api.spotify.com/v1";
 
 export async function GET(request: NextRequest) {
-  const user = await getAuthUser(request);
-  if (isAuthError(user)) return user;
+  // Try Bearer token first, fall back to cookie auth (so you can visit in browser)
+  let user = await getAuthUser(request);
+  if (isAuthError(user)) {
+    user = await getAuthUserFromCookies();
+    if (isAuthError(user)) return user;
+  }
 
   let accessToken: string;
   try {
