@@ -44,20 +44,30 @@ export async function GET(request: NextRequest) {
   });
   const playlistsData = await playlistsResp.json();
 
-  // 3. Try to access first owned playlist's tracks
-  let tracksResult: unknown = null;
-  const firstPlaylist = playlistsData.items?.[0];
-  if (firstPlaylist?.id) {
-    const tracksResp = await fetch(
-      `${SPOTIFY_API}/playlists/${firstPlaylist.id}/tracks?limit=5`,
+  // 3. Test tracks on first playlist (any owner) AND first user-owned playlist
+  const spotifyUserId = meData.id;
+
+  async function testTracks(playlistId: string) {
+    const resp = await fetch(
+      `${SPOTIFY_API}/playlists/${playlistId}/tracks?limit=5`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
-    tracksResult = {
-      status: tracksResp.status,
-      statusText: tracksResp.statusText,
-      body: await tracksResp.json().catch(() => tracksResp.text()),
+    return {
+      status: resp.status,
+      statusText: resp.statusText,
+      body: await resp.json().catch(() => resp.text()),
     };
   }
+
+  const firstPlaylist = playlistsData.items?.[0];
+  const firstOwnedPlaylist = playlistsData.items?.find(
+    (p: { owner?: { id?: string } }) => p.owner?.id === spotifyUserId
+  );
+
+  const tracksAny = firstPlaylist?.id ? await testTracks(firstPlaylist.id) : null;
+  const tracksOwned = firstOwnedPlaylist?.id && firstOwnedPlaylist.id !== firstPlaylist?.id
+    ? await testTracks(firstOwnedPlaylist.id)
+    : firstOwnedPlaylist?.id === firstPlaylist?.id ? "same as first — see tracks_any" : null;
 
   return NextResponse.json({
     me: { status: meResp.status, data: meData },
@@ -70,6 +80,7 @@ export async function GET(request: NextRequest) {
         owner_id: p.owner?.id,
       })),
     },
-    tracks_test: tracksResult,
+    tracks_any: { playlist: firstPlaylist?.name, owner: firstPlaylist?.owner?.id, result: tracksAny },
+    tracks_owned: { playlist: firstOwnedPlaylist?.name, owner: firstOwnedPlaylist?.owner?.id, result: tracksOwned },
   });
 }
