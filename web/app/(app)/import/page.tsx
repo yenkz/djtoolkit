@@ -75,7 +75,7 @@ const SRC_ICONS = {
 
 // ─── MiniArt ───────────────────────────────────────────────────────────────────
 
-function MiniArt({ name, size = 40 }: { name: string; size?: number }) {
+function MiniArt({ name, src, size = 40 }: { name: string; src?: string | null; size?: number }) {
   // Generate a deterministic gradient color from the name
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -84,6 +84,22 @@ function MiniArt({ name, size = 40 }: { name: string; size?: number }) {
   const hue = Math.abs(hash) % 360;
   const color = `hsl(${hue}, 55%, 45%)`;
   const abbrev = name.slice(0, 2).toUpperCase();
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        className="flex-shrink-0 object-cover"
+        style={{
+          width: size,
+          height: size,
+          minWidth: size,
+          borderRadius: 5,
+        }}
+      />
+    );
+  }
 
   return (
     <div
@@ -317,7 +333,7 @@ function TrackReviewRow({
         checked={isSelected}
         onChange={() => onToggle()}
       />
-      <MiniArt name={track.artist ?? track.title ?? "??"} size={40} />
+      <MiniArt name={track.artist ?? track.title ?? "??"} src={track.artwork_url} size={40} />
       <span
         className="font-sans text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap"
         style={{ color: isSelected ? "var(--hw-text)" : "var(--hw-text-dim)" }}
