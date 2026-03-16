@@ -6,7 +6,7 @@
  * duplicates by spotify_uri), and optionally creates pipeline jobs.
  */
 
-export const maxDuration = 60;
+export const maxDuration = 10;
 
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, isAuthError } from "@/lib/api-server/auth";
