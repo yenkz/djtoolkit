@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Download, LayoutGrid, SlidersHorizontal, Bot, Settings, LogOut, Menu, X, Sun, Moon, Monitor } from "lucide-react";
+import { Download, LayoutGrid, SlidersHorizontal, Bot, Settings, LogOut, Menu, X, Sun, Moon, Monitor, ChevronsLeft } from "lucide-react";
 import { useTheme } from "@/lib/theme-provider";
 import Logo from "@/components/ui/Logo";
 import type { LucideIcon } from "lucide-react";
@@ -23,14 +23,21 @@ const THEME_OPTIONS = [
   { value: "dark" as const, icon: Moon, label: "Dark" },
 ];
 
-function SidebarLogo() {
+function SidebarLogo({ collapsed }: { collapsed: boolean }) {
   const [hovered, setHovered] = useState(false);
 
   return (
     <Link
       href="/catalog"
-      className="flex items-center gap-3 px-5 py-4 no-underline"
-      style={{ textDecoration: "none" }}
+      className="flex items-center no-underline"
+      style={{
+        textDecoration: "none",
+        padding: collapsed ? "16px 0" : "16px 20px",
+        gap: collapsed ? 0 : 12,
+        justifyContent: collapsed ? "center" : "flex-start",
+        borderBottom: "1px solid var(--hw-border)",
+        minHeight: 56,
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -43,23 +50,26 @@ function SidebarLogo() {
         }}
       >
         <Logo
-          w={32}
-          h={22}
+          w={collapsed ? 26 : 32}
+          h={collapsed ? 18 : 22}
           color={hovered ? "var(--led-blue)" : "var(--sidebar-logo-color)"}
         />
       </span>
-      <span
-        className="font-mono text-xs font-bold uppercase tracking-widest"
-        style={{
-          transition: "color 0.2s ease, text-shadow 0.2s ease",
-          color: hovered ? "var(--led-blue)" : "var(--hw-text-dim)",
-          textShadow: hovered
-            ? "0 0 12px color-mix(in srgb, var(--led-blue) 50%, transparent)"
-            : "none",
-        }}
-      >
-        djtoolkit
-      </span>
+      {!collapsed && (
+        <span
+          className="font-mono text-xs font-bold uppercase tracking-widest"
+          style={{
+            transition: "color 0.2s ease, text-shadow 0.2s ease",
+            color: hovered ? "var(--led-blue)" : "var(--hw-text-dim)",
+            textShadow: hovered
+              ? "0 0 12px color-mix(in srgb, var(--led-blue) 50%, transparent)"
+              : "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          djtoolkit
+        </span>
+      )}
     </Link>
   );
 }
@@ -68,6 +78,7 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const { theme, setTheme } = useTheme();
 
   // Close on route change
@@ -88,30 +99,34 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   const sidebarContent = (
-    <aside className="flex w-56 flex-col border-r border-hw-border bg-hw-surface h-full">
-      <SidebarLogo />
+    <aside
+      className="flex flex-col border-r border-hw-border bg-hw-surface h-full"
+      style={{
+        width: collapsed ? 56 : 224,
+        transition: "width 0.2s ease",
+        overflow: "hidden",
+      }}
+    >
+      <SidebarLogo collapsed={collapsed} />
 
-      <nav className="flex-1 space-y-0.5 px-3 py-2">
+      <nav className="flex-1 space-y-0.5 py-2" style={{ padding: collapsed ? "8px 4px" : "8px 12px" }}>
         {NAV.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link
               key={href}
               href={href}
-              className="flex items-center gap-3 px-3 py-2 text-sm font-medium transition-all duration-200"
+              className="flex items-center text-sm font-medium transition-all duration-200"
+              title={collapsed ? label : undefined}
               style={{
-                color: active
-                  ? "var(--led-blue)"
-                  : "var(--hw-text-dim)",
-                background: active
-                  ? "rgba(68, 136, 255, 0.08)"
-                  : "transparent",
-                borderLeft: active
-                  ? "2px solid var(--led-blue)"
-                  : "2px solid transparent",
-                textShadow: active
-                  ? "0 0 14px rgba(68, 136, 255, 0.4)"
-                  : "none",
+                gap: collapsed ? 0 : 12,
+                padding: collapsed ? "10px 0" : "10px 14px",
+                justifyContent: collapsed ? "center" : "flex-start",
+                color: active ? "var(--led-blue)" : "var(--hw-text-dim)",
+                background: active ? "rgba(68, 136, 255, 0.08)" : "transparent",
+                borderLeft: active ? "2px solid var(--led-blue)" : "2px solid transparent",
+                textShadow: active ? "0 0 14px rgba(68, 136, 255, 0.4)" : "none",
+                borderRadius: collapsed ? 6 : 0,
               }}
               onMouseEnter={(e) => {
                 if (!active) {
@@ -126,16 +141,16 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
                 }
               }}
             >
-              <Icon size={16} strokeWidth={2} />
-              {label}
+              <Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+              {!collapsed && label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-hw-border px-4 py-3">
-        <p className="truncate text-xs text-hw-text-dim">{userEmail}</p>
-        <div className="mt-2 mb-2 flex items-center justify-center gap-1">
+      <div className="border-t border-hw-border" style={{ padding: collapsed ? "12px 4px" : "12px 16px" }}>
+        {!collapsed && <p className="truncate text-xs text-hw-text-dim">{userEmail}</p>}
+        <div className="flex items-center justify-center gap-1" style={{ marginTop: collapsed ? 0 : 8, marginBottom: collapsed ? 8 : 8 }}>
           {THEME_OPTIONS.map(({ value, icon: Icon, label }) => {
             const active = theme === value;
             return (
@@ -159,17 +174,48 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
         </div>
         <button
           onClick={signOut}
-          className="mt-1 flex items-center gap-1.5 text-xs transition-colors duration-200"
-          style={{ color: "var(--hw-text-dim)" }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "var(--led-red)";
+          className="flex items-center text-xs transition-colors duration-200"
+          title={collapsed ? "Sign out" : undefined}
+          style={{
+            color: "var(--hw-text-dim)",
+            gap: collapsed ? 0 : 6,
+            justifyContent: collapsed ? "center" : "flex-start",
+            width: "100%",
+            marginTop: 4,
           }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "var(--hw-text-dim)";
-          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--led-red)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hw-text-dim)"; }}
         >
-          <LogOut size={12} strokeWidth={2} />
-          Sign out
+          <LogOut size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+          {!collapsed && "Sign out"}
+        </button>
+
+        {/* Collapse toggle */}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center text-xs transition-colors duration-200"
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          style={{
+            color: "var(--hw-text-dim)",
+            gap: collapsed ? 0 : 6,
+            justifyContent: collapsed ? "center" : "flex-start",
+            width: "100%",
+            marginTop: 8,
+            padding: "4px 0",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--hw-text)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hw-text-dim)"; }}
+        >
+          <ChevronsLeft
+            size={14}
+            strokeWidth={2}
+            style={{
+              flexShrink: 0,
+              transform: collapsed ? "rotate(180deg)" : "none",
+              transition: "transform 0.2s ease",
+            }}
+          />
+          {!collapsed && "Collapse"}
         </button>
       </div>
     </aside>
