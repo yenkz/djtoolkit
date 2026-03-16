@@ -27,7 +27,7 @@ const STEP_LABELS = ["Import", "Review", "Download Agent"] as const;
 
 function StepBar({ current }: { current: Step }) {
   return (
-    <div className="flex border-b border-gray-800">
+    <div className="flex border-b border-hw-border">
       {STEP_LABELS.map((label, i) => {
         const stepNum = (i + 1) as Step;
         const isDone = stepNum < current;
@@ -37,10 +37,10 @@ function StepBar({ current }: { current: Step }) {
             key={label}
             className={`flex-1 py-3.5 text-center text-xs font-semibold tracking-widest uppercase border-b-2 transition-colors ${
               isActive
-                ? "text-indigo-400 border-indigo-500"
+                ? "text-led-blue border-led-blue"
                 : isDone
-                ? "text-green-400 border-transparent"
-                : "text-gray-600 border-transparent"
+                ? "text-led-green border-transparent"
+                : "text-hw-text-dim border-transparent"
             }`}
           >
             {isDone ? `✓ ${label}` : `${stepNum} · ${label}`}
@@ -253,35 +253,35 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
 
   return (
     <div className="max-w-lg mx-auto px-6 py-10">
-      <h1 className="text-xl font-bold text-white mb-1">Where&apos;s your music coming from?</h1>
-      <p className="text-sm text-gray-500 mb-7">
+      <h1 className="text-xl font-bold text-hw-text mb-1">Where&apos;s your music coming from?</h1>
+      <p className="text-sm text-hw-text-dim mb-7">
         You can import from multiple sources — all tracks will be combined in step 2.
       </p>
 
       {/* Spotify card */}
       <div
         className={`border rounded-xl p-4 mb-3 ${
-          spotifyConnected ? "border-indigo-500 bg-indigo-950/40" : "border-gray-700 bg-gray-900"
+          spotifyConnected ? "border-led-blue bg-led-blue/10" : "border-hw-border bg-hw-surface"
         }`}
       >
         <div className="flex items-center gap-3 mb-3">
           <span className="text-2xl">🎵</span>
           <div className="flex-1">
-            <div className="text-sm font-bold text-white">Spotify</div>
+            <div className="text-sm font-bold text-hw-text">Spotify</div>
             {spotifyConnected ? (
-              <div className="text-xs text-indigo-400">Connected</div>
+              <div className="text-xs text-led-blue">Connected</div>
             ) : (
-              <div className="text-xs text-gray-500">Connect your Spotify account</div>
+              <div className="text-xs text-hw-text-dim">Connect your Spotify account</div>
             )}
           </div>
           {spotifyConnected ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-semibold">
+              <span className="text-xs bg-led-green/20 text-led-green px-2 py-0.5 rounded font-semibold">
                 ✓ Connected
               </span>
               <button
                 onClick={handleSpotifyDisconnect}
-                className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                className="text-xs text-hw-text-dim hover:text-led-red transition-colors"
               >
                 Disconnect
               </button>
@@ -289,15 +289,15 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
           ) : (
             <button
               onClick={handleSpotifyConnect}
-              className="text-xs border border-indigo-500 text-indigo-400 px-3 py-1.5 rounded-lg hover:bg-indigo-900/30"
+              className="text-xs border border-led-blue text-led-blue px-3 py-1.5 rounded-lg hover:bg-led-blue/10"
             >
               Connect Spotify
             </button>
           )}
         </div>
         {spotifyConnected && playlists.length > 0 && (
-          <div className="bg-gray-950 border border-indigo-900 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
+          <div className="bg-hw-body border border-led-blue/30 rounded-lg overflow-hidden">
+            <div className="px-3 py-2 text-xs text-hw-text-dim uppercase tracking-wider border-b border-hw-border">
               Select playlist
             </div>
             <div className="max-h-64 overflow-y-auto">
@@ -307,36 +307,36 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
                 <button
                   key={p.id}
                   onClick={() => setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b border-gray-800 last:border-0 transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b border-hw-border last:border-0 transition-colors ${
                     selectedPlaylistId === p.id
-                      ? "bg-indigo-950/60"
-                      : "hover:bg-gray-900"
+                      ? "bg-led-blue/15"
+                      : "hover:bg-hw-surface"
                   }`}
                 >
                   <div
                     className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
                       selectedPlaylistId === p.id
-                        ? "bg-indigo-500 border-indigo-500"
-                        : "border-gray-600"
+                        ? "bg-led-blue border-led-blue"
+                        : "border-hw-border"
                     }`}
                   />
                   {isLiked ? (
-                    <div className="w-8 h-8 rounded flex-shrink-0 bg-gradient-to-br from-indigo-600 to-blue-400 flex items-center justify-center text-white text-sm">&#9829;</div>
+                    <div className="w-8 h-8 rounded flex-shrink-0 bg-gradient-to-br from-led-blue to-led-blue/60 flex items-center justify-center text-hw-text text-sm">&#9829;</div>
                   ) : p.image_url ? (
                     <img src={p.image_url} alt="" className="w-8 h-8 rounded flex-shrink-0 object-cover" />
                   ) : (
-                    <div className="w-8 h-8 rounded flex-shrink-0 bg-gray-800" />
+                    <div className="w-8 h-8 rounded flex-shrink-0 bg-hw-raised" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white truncate">{p.name}</div>
-                    <div className="text-xs text-gray-500 truncate">
+                    <div className="text-sm text-hw-text truncate">{p.name}</div>
+                    <div className="text-xs text-hw-text-dim truncate">
                       {p.owner ? `by ${p.owner}` : ""}
                       {!isLiked && p.is_owner === false && (
                         <span className="ml-1.5 text-yellow-500/80"> &middot; better via CSV export</span>
                       )}
                     </div>
                   </div>
-                  <span className="text-xs text-gray-500 flex-shrink-0">
+                  <span className="text-xs text-hw-text-dim flex-shrink-0">
                     {p.track_count != null ? `${p.track_count} tracks` : "—"}
                   </span>
                 </button>
@@ -348,16 +348,16 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       </div>
 
       {/* CSV card */}
-      <div className="border border-gray-700 rounded-xl p-4 mb-3 bg-gray-900">
+      <div className="border border-hw-border rounded-xl p-4 mb-3 bg-hw-surface">
         <div className="flex items-center gap-3">
           <span className="text-2xl">📄</span>
           <div className="flex-1">
-            <div className="text-sm font-bold text-white">Exported Spotify Playlist (CSV)</div>
-            <div className="text-xs text-gray-500">Upload a CSV exported from exportify.app</div>
+            <div className="text-sm font-bold text-hw-text">Exported Spotify Playlist (CSV)</div>
+            <div className="text-xs text-hw-text-dim">Upload a CSV exported from exportify.app</div>
           </div>
           <button
             onClick={() => document.getElementById("csv-upload")?.click()}
-            className="text-xs border border-gray-600 text-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-800"
+            className="text-xs border border-hw-border text-hw-text px-3 py-1.5 rounded-lg hover:bg-hw-raised"
           >
             {csvFile ? "Change" : "Upload file"}
           </button>
@@ -373,7 +373,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
           />
         </div>
         {csvFile && (
-          <div className="mt-3 text-xs text-green-400">✓ {csvFile.name} ({csvRowCount} tracks)</div>
+          <div className="mt-3 text-xs text-led-green">✓ {csvFile.name} ({csvRowCount} tracks)</div>
         )}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -385,7 +385,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
             if (f) handleCsvFile(f);
           }}
           className={`mt-3 border-2 border-dashed rounded-lg p-4 text-center text-xs transition-colors ${
-            dragging ? "border-indigo-500 bg-indigo-900/20 text-indigo-300" : "border-gray-700 text-gray-600"
+            dragging ? "border-led-blue bg-led-blue/10 text-led-blue" : "border-hw-border text-hw-text-dim"
           }`}
         >
           Or drag &amp; drop CSV here
@@ -393,17 +393,17 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       </div>
 
       {/* TrackID */}
-      <div className={`border rounded-xl p-4 mb-8 ${trackIdValid ? "border-indigo-500 bg-indigo-950/40" : "border-gray-700 bg-gray-900"}`}>
+      <div className={`border rounded-xl p-4 mb-8 ${trackIdValid ? "border-led-blue bg-led-blue/10" : "border-hw-border bg-hw-surface"}`}>
         <div className="flex items-center gap-3 mb-3">
           <span className="text-2xl">🎧</span>
           <div className="flex-1">
-            <div className="text-sm font-bold text-white">TrackID</div>
-            <div className="text-xs text-gray-500">
+            <div className="text-sm font-bold text-hw-text">TrackID</div>
+            <div className="text-xs text-hw-text-dim">
               Identify tracks from a YouTube DJ set or mix
             </div>
           </div>
           {trackIdValid && (
-            <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-semibold">
+            <span className="text-xs bg-led-green/20 text-led-green px-2 py-0.5 rounded font-semibold">
               ✓ URL set
             </span>
           )}
@@ -413,22 +413,22 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
           placeholder="https://www.youtube.com/watch?v=..."
           value={trackIdUrl}
           onChange={(e) => setTrackIdUrl(e.target.value)}
-          className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+          className="w-full bg-hw-body border border-hw-border rounded-lg px-3 py-2 text-sm text-hw-text placeholder-hw-text-dim focus:outline-none focus:border-led-blue"
         />
         {trackIdValid && !trackIdStatus && (
-          <p className="mt-2 text-xs text-yellow-500">
+          <p className="mt-2 text-xs text-led-orange">
             Track identification runs during import and may take a few minutes.
           </p>
         )}
         {trackIdStatus && (
           <div className="mt-3">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-indigo-300">{trackIdStatus.step}</span>
-              <span className="text-xs text-gray-500">{trackIdStatus.progress}%</span>
+              <span className="text-xs text-led-blue">{trackIdStatus.step}</span>
+              <span className="text-xs text-hw-text-dim">{trackIdStatus.progress}%</span>
             </div>
-            <div className="w-full bg-gray-800 rounded-full h-1.5">
+            <div className="w-full bg-hw-raised rounded-full h-1.5">
               <div
-                className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                className="bg-led-blue h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${trackIdStatus.progress}%` }}
               />
             </div>
@@ -438,7 +438,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
 
       {/* CTA */}
       <div className="flex items-center justify-between">
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-hw-text-dim">
           {sourcesSelected > 0
             ? `${sourcesSelected} source${sourcesSelected > 1 ? "s" : ""} selected` +
               (totalTracks > 0 ? ` · ${totalTracks} tracks` : "") +
@@ -448,7 +448,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
         <button
           onClick={handleContinue}
           disabled={sourcesSelected === 0 || loading}
-          className="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-led-blue text-hw-text text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-led-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {trackIdStatus && loading
             ? "Identifying tracks…"
@@ -573,8 +573,8 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
 
   return (
     <div className="max-w-2xl mx-auto px-6 py-8">
-      <h1 className="text-xl font-bold text-white mb-1">Confirm your download list</h1>
-      <p className="text-sm text-gray-500 mb-5">
+      <h1 className="text-xl font-bold text-hw-text mb-1">Confirm your download list</h1>
+      <p className="text-sm text-hw-text-dim mb-5">
         Deselect any tracks you don&apos;t want. Already-owned tracks are excluded automatically.
       </p>
 
@@ -585,9 +585,9 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
           { label: "Already owned", value: ownedCount },
           { label: "Total imported", value: candidates.length },
         ].map(({ label, value }) => (
-          <div key={label} className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-white">{value}</div>
-            <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+          <div key={label} className="bg-hw-surface border border-hw-border rounded-lg p-3 text-center">
+            <div className="text-2xl font-bold text-hw-text">{value}</div>
+            <div className="text-xs text-hw-text-dim mt-0.5">{label}</div>
           </div>
         ))}
       </div>
@@ -598,24 +598,24 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
         placeholder="Search by title or artist…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 mb-2 focus:outline-none focus:border-indigo-500"
+        className="w-full bg-hw-raised border border-hw-border rounded-lg px-3 py-2 text-sm text-hw-text placeholder-hw-text-dim mb-2 focus:outline-none focus:border-led-blue"
       />
 
       {/* Select all */}
-      <div className="flex items-center gap-2.5 px-3 py-2 bg-gray-800 rounded-t-lg border-b border-gray-900">
+      <div className="flex items-center gap-2.5 px-3 py-2 bg-hw-raised rounded-t-lg border-b border-hw-border">
         <input
           type="checkbox"
           checked={allSelected}
           onChange={toggleAll}
-          className="w-3.5 h-3.5 accent-indigo-500"
+          className="w-3.5 h-3.5 accent-[#4488FF]"
         />
-        <span className="text-xs text-gray-300 font-semibold flex-1">Select all</span>
-        <span className="text-xs text-gray-500">{selectedCount} selected</span>
+        <span className="text-xs text-hw-text font-semibold flex-1">Select all</span>
+        <span className="text-xs text-hw-text-dim">{selectedCount} selected</span>
       </div>
 
       {/* Track list */}
       <div
-        className="border border-gray-800 border-t-0 rounded-b-lg overflow-y-auto"
+        className="border border-hw-border border-t-0 rounded-b-lg overflow-y-auto"
         style={{ maxHeight: "calc(100vh - 420px)" }}
       >
         {filtered.map((t) => {
@@ -625,27 +625,27 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
             <div
               key={t.id}
               onClick={() => setSelected((p) => ({ ...p, [t.id]: !p[t.id] }))}
-              className={`flex items-center gap-3 px-3 py-2.5 border-b border-gray-900 last:border-0 cursor-pointer transition-colors ${
-                isSelected ? "bg-gray-900 hover:bg-gray-800/60" : "bg-gray-950 opacity-50"
+              className={`flex items-center gap-3 px-3 py-2.5 border-b border-hw-border last:border-0 cursor-pointer transition-colors ${
+                isSelected ? "bg-hw-surface hover:bg-hw-raised/60" : "bg-hw-body opacity-50"
               }`}
             >
               <input
                 type="checkbox"
                 checked={isSelected}
                 onChange={() => {}}
-                className="w-3.5 h-3.5 accent-indigo-500 flex-shrink-0"
+                className="w-3.5 h-3.5 accent-[#4488FF] flex-shrink-0"
                 onClick={(e) => e.stopPropagation()}
               />
               <div className="flex-1 min-w-0">
                 <span
-                  className={`text-sm ${isSelected ? "text-white" : "text-gray-500 line-through"}`}
+                  className={`text-sm ${isSelected ? "text-hw-text" : "text-hw-text-dim line-through"}`}
                 >
                   {t.title}
                 </span>
               </div>
-              <div className="w-40 text-xs text-gray-500 truncate">{t.artist}</div>
+              <div className="w-40 text-xs text-hw-text-dim truncate">{t.artist}</div>
               {isOwned && (
-                <span className="text-xs bg-gray-800 text-gray-500 px-1.5 py-0.5 rounded flex-shrink-0">
+                <span className="text-xs bg-hw-raised text-hw-text-dim px-1.5 py-0.5 rounded flex-shrink-0">
                   Already owned
                 </span>
               )}
@@ -656,13 +656,13 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
 
       {/* CTA */}
       <div className="flex items-center justify-between mt-5">
-        <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-300">
+        <button onClick={onBack} className="text-sm text-hw-text-dim hover:text-hw-text">
           ← Back
         </button>
         <button
           onClick={handleConfirm}
           disabled={selectedCount === 0 || loading}
-          className="bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-led-blue text-hw-text text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-led-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {loading ? "Queuing…" : `Queue ${selectedCount} download${selectedCount !== 1 ? "s" : ""} →`}
         </button>
@@ -675,15 +675,15 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
 function CopyBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 mb-2">
-      <code className="text-green-300 text-xs font-mono break-all">{text}</code>
+    <div className="bg-hw-body border border-hw-border rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 mb-2">
+      <code className="text-led-green text-xs font-mono break-all">{text}</code>
       <button
         onClick={() => {
           navigator.clipboard.writeText(text);
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         }}
-        className="text-xs text-gray-500 hover:text-white flex-shrink-0"
+        className="text-xs text-hw-text-dim hover:text-hw-text flex-shrink-0"
       >
         {copied ? "Copied!" : "Copy"}
       </button>
@@ -764,36 +764,36 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
 
   return (
     <div className="max-w-lg mx-auto px-6 py-10">
-      <h1 className="text-xl font-bold text-white mb-1">Install the djtoolkit agent</h1>
-      <p className="text-sm text-gray-500 mb-6">
+      <h1 className="text-xl font-bold text-hw-text mb-1">Install the djtoolkit agent</h1>
+      <p className="text-sm text-hw-text-dim mb-6">
         The agent runs on your Mac and handles downloading, fingerprinting, and tagging
         — your files never leave your machine.
       </p>
 
       {/* Homebrew (recommended) */}
-      <div className="border border-indigo-500 bg-indigo-950/30 rounded-xl p-4 mb-3">
+      <div className="border border-led-blue bg-led-blue/10 rounded-xl p-4 mb-3">
         <div className="flex items-center gap-3 mb-3">
           <span className="text-2xl">🍺</span>
           <div className="flex-1">
-            <div className="text-sm font-bold text-white">Homebrew <span className="text-xs font-normal text-indigo-400 ml-1">recommended</span></div>
-            <div className="text-xs text-indigo-300">Automatic updates &middot; includes all dependencies</div>
+            <div className="text-sm font-bold text-hw-text">Homebrew <span className="text-xs font-normal text-led-blue ml-1">recommended</span></div>
+            <div className="text-xs text-led-blue">Automatic updates &middot; includes all dependencies</div>
           </div>
         </div>
         <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
       </div>
 
       {/* Direct download */}
-      <div className="border border-gray-700 bg-gray-900 rounded-xl p-4 mb-3 flex items-center gap-3">
+      <div className="border border-hw-border bg-hw-surface rounded-xl p-4 mb-3 flex items-center gap-3">
         <span className="text-2xl">💿</span>
         <div className="flex-1">
-          <div className="text-sm font-bold text-white">Direct download</div>
-          <div className="text-xs text-gray-500">macOS .dmg &middot; arm64 + x86_64</div>
+          <div className="text-sm font-bold text-hw-text">Direct download</div>
+          <div className="text-xs text-hw-text-dim">macOS .dmg &middot; arm64 + x86_64</div>
         </div>
         <a
           href="https://github.com/yenkz/djtoolkit/releases/latest"
           target="_blank"
           rel="noopener noreferrer"
-          className="bg-gray-700 text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-gray-600"
+          className="bg-hw-raised text-hw-text text-xs font-semibold px-4 py-2 rounded-lg hover:bg-hw-raised"
         >
           GitHub Releases
         </a>
@@ -801,17 +801,17 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
 
       {/* pip alternative */}
       <div className="mb-5">
-        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Or install via pip</div>
+        <div className="text-xs text-hw-text-dim uppercase tracking-wider mb-2">Or install via pip</div>
         <CopyBlock text="pip install djtoolkit" />
       </div>
 
       {/* Configure + start */}
       <div className="mb-6">
-        <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">
+        <div className="text-xs text-hw-text-dim uppercase tracking-wider mb-2">
           Configure &amp; start
         </div>
         {registering || !apiKey ? (
-          <div className="text-xs text-gray-500 py-2">Generating API key…</div>
+          <div className="text-xs text-hw-text-dim py-2">Generating API key…</div>
         ) : (
           <>
             <CopyBlock text={`djtoolkit agent configure --api-key ${apiKey}`} />
@@ -825,37 +825,37 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
       <div
         className={`border rounded-lg px-4 py-3 flex items-center gap-3 mb-5 ${
           statusState === "connected"
-            ? "border-green-700 bg-green-950/30"
+            ? "border-led-green/40 bg-led-green/10"
             : statusState === "error"
-            ? "border-yellow-700 bg-yellow-950/20"
-            : "border-gray-700 bg-gray-900"
+            ? "border-led-orange/40 bg-led-orange/10"
+            : "border-hw-border bg-hw-surface"
         }`}
       >
         <div
           className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
             statusState === "connected"
-              ? "bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.5)]"
+              ? "bg-led-green shadow-[0_0_8px_2px_rgba(0,255,50,0.4)]"
               : statusState === "error"
-              ? "bg-yellow-400 shadow-[0_0_8px_2px_rgba(250,204,21,0.4)]"
-              : "bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.4)]"
+              ? "bg-led-orange shadow-[0_0_8px_2px_rgba(255,165,0,0.4)]"
+              : "bg-led-red shadow-[0_0_8px_2px_rgba(255,0,50,0.4)]"
           }`}
         />
         <div>
           {statusState === "connected" ? (
             <>
-              <div className="text-sm font-semibold text-green-300">
+              <div className="text-sm font-semibold text-led-green">
                 Agent connected — {agentName}
               </div>
-              <div className="text-xs text-green-700">
+              <div className="text-xs text-led-green/60">
                 {pendingJobs !== null ? `${pendingJobs} download jobs queued and ready` : ""}
               </div>
             </>
           ) : statusState === "error" ? (
-            <div className="text-sm text-yellow-300">Connection check failed — retrying…</div>
+            <div className="text-sm text-led-orange">Connection check failed — retrying…</div>
           ) : (
             <>
-              <div className="text-sm text-gray-300">Agent not connected</div>
-              <div className="text-xs text-gray-600">Checking every 5s…</div>
+              <div className="text-sm text-hw-text">Agent not connected</div>
+              <div className="text-xs text-hw-text-dim">Checking every 5s…</div>
             </>
           )}
         </div>
@@ -868,15 +868,15 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
           disabled={!agentConnected}
           className={`text-sm font-bold px-6 py-2.5 rounded-lg transition-colors ${
             agentConnected
-              ? "bg-green-600 text-white hover:bg-green-500"
-              : "bg-gray-800 text-gray-600 cursor-not-allowed"
+              ? "bg-led-green text-hw-text hover:bg-led-green/80"
+              : "bg-hw-raised text-hw-text-dim cursor-not-allowed"
           }`}
         >
           Go to Pipeline →
         </button>
         <button
           onClick={() => { window.location.href = "/catalog"; }}
-          className="text-xs text-gray-600 hover:text-gray-400"
+          className="text-xs text-hw-text-dim hover:text-hw-text-dim"
         >
           Skip for now
         </button>

@@ -14,9 +14,9 @@ import { createClient } from "@/lib/supabase/client";
 
 function agentStatusColor(lastSeen: string): string {
   const diff = Date.now() - new Date(lastSeen).getTime();
-  if (diff < 2 * 60 * 1000) return "bg-green-500";
-  if (diff < 10 * 60 * 1000) return "bg-yellow-500";
-  return "bg-red-500";
+  if (diff < 2 * 60 * 1000) return "bg-led-green";
+  if (diff < 10 * 60 * 1000) return "bg-led-orange";
+  return "bg-led-red";
 }
 
 function relativeTime(iso: string): string {
@@ -30,31 +30,31 @@ function relativeTime(iso: string): string {
 function jobStatusBadge(s: string): string {
   switch (s) {
     case "pending":
-      return "bg-yellow-900/50 text-yellow-400 border-yellow-800";
+      return "bg-led-orange/20 text-led-orange border-led-orange/40";
     case "claimed":
     case "running":
-      return "bg-blue-900/50 text-blue-400 border-blue-800";
+      return "bg-led-blue/20 text-led-blue border-led-blue/40";
     case "done":
-      return "bg-green-900/50 text-green-400 border-green-800";
+      return "bg-led-green/20 text-led-green border-led-green/40";
     case "failed":
-      return "bg-red-900/50 text-red-400 border-red-800";
+      return "bg-led-red/20 text-led-red border-led-red/40";
     default:
-      return "bg-gray-800 text-gray-400 border-gray-700";
+      return "bg-hw-raised text-hw-text-dim border-hw-border";
   }
 }
 
 function jobTypeBadge(t: string): string {
   switch (t) {
     case "download":
-      return "bg-purple-900/50 text-purple-400";
+      return "bg-led-blue/20 text-led-blue";
     case "fingerprint":
-      return "bg-cyan-900/50 text-cyan-400";
+      return "bg-led-green/20 text-led-green";
     case "cover_art":
-      return "bg-pink-900/50 text-pink-400";
+      return "bg-led-red/20 text-led-red";
     case "metadata":
-      return "bg-amber-900/50 text-amber-400";
+      return "bg-led-orange/20 text-led-orange";
     default:
-      return "bg-gray-800 text-gray-400";
+      return "bg-hw-raised text-hw-text-dim";
   }
 }
 
@@ -90,7 +90,7 @@ function processingDuration(claimed: string | null, completed: string | null): s
 
 function JsonBlock({ data }: { data: Record<string, unknown> }) {
   return (
-    <pre className="rounded bg-gray-950 border border-gray-800 p-3 text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap break-all">
+    <pre className="rounded bg-hw-body border border-hw-border p-3 text-xs text-hw-text overflow-x-auto whitespace-pre-wrap break-all">
       {JSON.stringify(data, null, 2)}
     </pre>
   );
@@ -122,14 +122,14 @@ function JobRow({
   const procDur = processingDuration(job.claimed_at, job.completed_at);
 
   return (
-    <div className="border-b border-gray-800 last:border-b-0">
-      <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-800/50 transition-colors">
+    <div className="border-b border-hw-border last:border-b-0">
+      <div className="flex items-center gap-3 px-4 py-3 hover:bg-hw-raised/50 transition-colors">
         {canRetry && (
           <input
             type="checkbox"
             checked={selected}
             onChange={(e) => onSelect(job.id, e.target.checked)}
-            className="h-3.5 w-3.5 shrink-0 accent-blue-500 cursor-pointer"
+            className="h-3.5 w-3.5 shrink-0 accent-[#4488FF] cursor-pointer"
             onClick={(e) => e.stopPropagation()}
           />
         )}
@@ -143,7 +143,7 @@ function JobRow({
             className="h-8 w-8 rounded shrink-0 object-cover"
           />
         ) : (
-          <span className="h-8 w-8 rounded bg-gray-800 shrink-0 flex items-center justify-center text-gray-600 text-xs">
+          <span className="h-8 w-8 rounded bg-hw-raised shrink-0 flex items-center justify-center text-hw-text-dim text-xs">
             {job.job_type === "download" ? "DL" : job.job_type === "fingerprint" ? "FP" : job.job_type === "cover_art" ? "CA" : "MD"}
           </span>
         )}
@@ -153,7 +153,7 @@ function JobRow({
           className="flex items-center gap-3 flex-1 min-w-0 text-left"
         >
           <svg
-            className={`h-3.5 w-3.5 text-gray-500 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
+            className={`h-3.5 w-3.5 text-hw-text-dim shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -170,43 +170,43 @@ function JobRow({
           </span>
 
           <div className="flex-1 min-w-0">
-            <span className="truncate text-sm text-white block">{label}</span>
+            <span className="truncate text-sm text-hw-text block">{label}</span>
             {job.track_album && (
-              <span className="truncate text-xs text-gray-500 block">{job.track_album}</span>
+              <span className="truncate text-xs text-hw-text-dim block">{job.track_album}</span>
             )}
           </div>
 
           {durationMs && (
-            <span className="text-xs text-gray-500 shrink-0" title="Track duration">
+            <span className="text-xs text-hw-text-dim shrink-0" title="Track duration">
               {formatDuration(durationMs)}
             </span>
           )}
 
           {ext && (
-            <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-mono text-gray-400 shrink-0">
+            <span className="rounded bg-hw-raised px-1.5 py-0.5 text-[10px] font-mono text-hw-text-dim shrink-0">
               {ext}
             </span>
           )}
 
           {job.retry_count > 0 && (
-            <span className="rounded bg-orange-900/50 px-1.5 py-0.5 text-xs text-orange-400">
+            <span className="rounded bg-led-orange/20 px-1.5 py-0.5 text-xs text-led-orange">
               retry {job.retry_count}
             </span>
           )}
 
           {procDur && (
-            <span className="text-xs text-gray-500 shrink-0" title="Processing time">
+            <span className="text-xs text-hw-text-dim shrink-0" title="Processing time">
               {procDur}
             </span>
           )}
 
-          <span className="text-xs text-gray-500 shrink-0">{relativeTime(job.created_at)}</span>
+          <span className="text-xs text-hw-text-dim shrink-0">{relativeTime(job.created_at)}</span>
         </button>
 
         {canRetry && (
           <button
             onClick={() => onRetry(job.id)}
-            className="shrink-0 rounded border border-gray-700 px-2 py-1 text-xs text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+            className="shrink-0 rounded border border-hw-border px-2 py-1 text-xs text-hw-text-dim hover:bg-hw-raised hover:text-hw-text transition-colors"
             title="Retry this job"
           >
             Retry
@@ -217,12 +217,12 @@ function JobRow({
       {expanded && (
         <div className="px-4 pb-4 pl-14 space-y-3">
           {/* Timeline */}
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-hw-text-dim">
             <span>Created: {formatTimestamp(job.created_at)}</span>
             {job.claimed_at && <span>Claimed: {formatTimestamp(job.claimed_at)}</span>}
             {job.completed_at && <span>Completed: {formatTimestamp(job.completed_at)}</span>}
             {job.completed_at && job.claimed_at && (
-              <span className="text-gray-400">
+              <span className="text-hw-text-dim">
                 Duration: {Math.round((new Date(job.completed_at).getTime() - new Date(job.claimed_at).getTime()) / 1000)}s
               </span>
             )}
@@ -231,7 +231,7 @@ function JobRow({
           {/* Payload */}
           {job.payload && (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-1">Payload</p>
+              <p className="text-xs font-medium text-hw-text-dim mb-1">Payload</p>
               <JsonBlock data={job.payload} />
             </div>
           )}
@@ -239,7 +239,7 @@ function JobRow({
           {/* Result */}
           {job.result && (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-1">Result</p>
+              <p className="text-xs font-medium text-hw-text-dim mb-1">Result</p>
               <JsonBlock data={job.result} />
             </div>
           )}
@@ -247,8 +247,8 @@ function JobRow({
           {/* Error */}
           {job.error && (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-1">Error</p>
-              <p className="rounded bg-red-950/50 border border-red-900 p-2 text-xs text-red-400">{job.error}</p>
+              <p className="text-xs font-medium text-hw-text-dim mb-1">Error</p>
+              <p className="rounded bg-led-red/10 border border-led-red/30 p-2 text-xs text-led-red">{job.error}</p>
             </div>
           )}
         </div>
@@ -409,7 +409,7 @@ export default function PipelinePage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-white">Pipeline</h1>
+      <h1 className="text-xl font-bold text-hw-text">Pipeline</h1>
 
       {status && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -418,30 +418,30 @@ export default function PipelinePage() {
             { label: "Running jobs", value: status.running },
             { label: "Active agents", value: status.agents.length },
           ].map(({ label, value }) => (
-            <div key={label} className="rounded-lg border border-gray-800 bg-gray-900 p-4">
-              <p className="text-3xl font-bold text-white">{value}</p>
-              <p className="text-sm text-gray-500">{label}</p>
+            <div key={label} className="rounded-lg border border-hw-border bg-hw-surface p-4">
+              <p className="text-3xl font-bold text-hw-text">{value}</p>
+              <p className="text-sm text-hw-text-dim">{label}</p>
             </div>
           ))}
         </div>
       )}
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-gray-400 uppercase tracking-wider">Agents</h2>
+        <h2 className="mb-3 text-sm font-semibold text-hw-text-dim uppercase tracking-wider">Agents</h2>
         {!status || status.agents.length === 0 ? (
-          <p className="text-sm text-gray-500">No agents registered. Go to Agents to set one up.</p>
+          <p className="text-sm text-hw-text-dim">No agents registered. Go to Agents to set one up.</p>
         ) : (
           <div className="space-y-2">
             {status.agents.map((agent) => (
-              <div key={agent.id} className="flex items-center gap-4 rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
+              <div key={agent.id} className="flex items-center gap-4 rounded-lg border border-hw-border bg-hw-surface px-4 py-3">
                 <span className={`h-2.5 w-2.5 rounded-full ${agentStatusColor(agent.last_seen_at)}`} />
                 <div className="flex-1">
-                  <p className="font-medium text-white">{agent.machine_name}</p>
-                  <p className="text-xs text-gray-500">Last seen {relativeTime(agent.last_seen_at)}</p>
+                  <p className="font-medium text-hw-text">{agent.machine_name}</p>
+                  <p className="text-xs text-hw-text-dim">Last seen {relativeTime(agent.last_seen_at)}</p>
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {agent.capabilities.map((cap) => (
-                    <span key={cap} className="rounded bg-gray-800 px-2 py-0.5 text-xs text-gray-400">{cap}</span>
+                    <span key={cap} className="rounded bg-hw-raised px-2 py-0.5 text-xs text-hw-text-dim">{cap}</span>
                   ))}
                 </div>
               </div>
@@ -453,7 +453,7 @@ export default function PipelinePage() {
       {/* Jobs */}
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+          <h2 className="text-sm font-semibold text-hw-text-dim uppercase tracking-wider">
             Jobs {jobData ? `(${jobData.total})` : ""}
           </h2>
           <div className="flex flex-wrap items-center gap-2">
@@ -461,7 +461,7 @@ export default function PipelinePage() {
               <button
                 onClick={() => handleRetry(Array.from(selectedIds))}
                 disabled={retrying}
-                className="rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+                className="rounded bg-led-blue px-3 py-1 text-xs font-medium text-hw-text hover:bg-led-blue/80 disabled:opacity-50 transition-colors"
               >
                 {retrying ? "Retrying..." : `Retry Selected (${selectedIds.size})`}
               </button>
@@ -470,7 +470,7 @@ export default function PipelinePage() {
               <button
                 onClick={handleRetryAllFiltered}
                 disabled={retrying}
-                className="rounded border border-blue-700 px-3 py-1 text-xs font-medium text-blue-400 hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
+                className="rounded border border-led-blue/40 px-3 py-1 text-xs font-medium text-led-blue hover:bg-led-blue/10 disabled:opacity-50 transition-colors"
               >
                 {retrying ? "Retrying..." : `Retry All ${statusFilter}${typeFilter ? ` ${typeFilter}` : ""}`}
               </button>
@@ -478,7 +478,7 @@ export default function PipelinePage() {
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setJobPage(1); setSelectedIds(new Set()); }}
-              className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-300"
+              className="rounded border border-hw-border bg-hw-surface px-2 py-1 text-xs text-hw-text"
             >
               <option value="">All statuses</option>
               <option value="pending">Pending</option>
@@ -490,7 +490,7 @@ export default function PipelinePage() {
             <select
               value={typeFilter}
               onChange={(e) => { setTypeFilter(e.target.value); setJobPage(1); setSelectedIds(new Set()); }}
-              className="rounded border border-gray-700 bg-gray-900 px-2 py-1 text-xs text-gray-300"
+              className="rounded border border-hw-border bg-hw-surface px-2 py-1 text-xs text-hw-text"
             >
               <option value="">All types</option>
               <option value="download">Download</option>
@@ -501,20 +501,20 @@ export default function PipelinePage() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-gray-800 bg-gray-900 overflow-hidden">
+        <div className="rounded-lg border border-hw-border bg-hw-surface overflow-hidden">
           {!jobData || jobData.jobs.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-gray-500">No jobs found.</p>
+            <p className="px-4 py-6 text-center text-sm text-hw-text-dim">No jobs found.</p>
           ) : (
             <>
               {retryableJobs.length > 0 && (
-                <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800 bg-gray-900/50">
+                <div className="flex items-center gap-2 px-4 py-2 border-b border-hw-border bg-hw-surface/50">
                   <input
                     type="checkbox"
                     checked={allRetryableSelected}
                     onChange={(e) => toggleSelectAll(e.target.checked)}
-                    className="h-3.5 w-3.5 accent-blue-500 cursor-pointer"
+                    className="h-3.5 w-3.5 accent-[#4488FF] cursor-pointer"
                   />
-                  <span className="text-xs text-gray-500">Select all retryable on this page</span>
+                  <span className="text-xs text-hw-text-dim">Select all retryable on this page</span>
                 </div>
               )}
               {jobData.jobs.map((job) => (
@@ -532,7 +532,7 @@ export default function PipelinePage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
+          <div className="mt-3 flex items-center justify-between text-xs text-hw-text-dim">
             <span>
               Page {jobData?.page} of {totalPages}
             </span>
@@ -540,14 +540,14 @@ export default function PipelinePage() {
               <button
                 onClick={() => setJobPage((p) => Math.max(1, p - 1))}
                 disabled={jobPage <= 1}
-                className="rounded border border-gray-700 px-3 py-1 text-gray-400 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="rounded border border-hw-border px-3 py-1 text-hw-text-dim hover:bg-hw-raised disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Prev
               </button>
               <button
                 onClick={() => setJobPage((p) => Math.min(totalPages, p + 1))}
                 disabled={jobPage >= totalPages}
-                className="rounded border border-gray-700 px-3 py-1 text-gray-400 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="rounded border border-hw-border px-3 py-1 text-hw-text-dim hover:bg-hw-raised disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Next
               </button>
@@ -558,8 +558,8 @@ export default function PipelinePage() {
 
       {events.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-gray-400 uppercase tracking-wider">Live Events</h2>
-          <div className="rounded-lg border border-gray-800 bg-gray-950 p-3 font-mono text-xs text-gray-400 space-y-1 max-h-48 overflow-y-auto">
+          <h2 className="mb-3 text-sm font-semibold text-hw-text-dim uppercase tracking-wider">Live Events</h2>
+          <div className="rounded-lg border border-hw-border bg-hw-body p-3 font-mono text-xs text-led-green space-y-1 max-h-48 overflow-y-auto">
             {events.map((e, i) => <p key={i}>{e}</p>)}
           </div>
         </section>

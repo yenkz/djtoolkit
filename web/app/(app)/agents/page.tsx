@@ -49,41 +49,41 @@ export default function AgentsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white">Agents</h1>
+        <h1 className="text-xl font-bold text-hw-text">Agents</h1>
         <button
           onClick={() => setShowWizard(true)}
-          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          className="rounded-lg bg-led-blue px-3 py-1.5 text-sm font-medium text-hw-text hover:bg-led-blue/80"
         >
           Register new agent
         </button>
       </div>
 
       {loading ? (
-        <p className="text-sm text-gray-500">Loading...</p>
+        <p className="text-sm text-hw-text-dim">Loading...</p>
       ) : agents.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-700 p-10 text-center">
-          <p className="text-gray-400">No agents registered yet.</p>
-          <p className="mt-1 text-sm text-gray-500">Register an agent to start downloading music.</p>
+        <div className="rounded-xl border border-dashed border-hw-border p-10 text-center">
+          <p className="text-hw-text-dim">No agents registered yet.</p>
+          <p className="mt-1 text-sm text-hw-text-dim">Register an agent to start downloading music.</p>
         </div>
       ) : (
         <div className="space-y-2">
           {agents.map((agent) => (
-            <div key={agent.id} className="flex items-center gap-4 rounded-lg border border-gray-800 bg-gray-900 px-4 py-3">
+            <div key={agent.id} className="flex items-center gap-4 rounded-lg border border-hw-border bg-hw-surface px-4 py-3">
               <div className="flex-1">
-                <p className="font-medium text-white">{agent.machine_name}</p>
-                <p className="text-xs text-gray-500">
+                <p className="font-medium text-hw-text">{agent.machine_name}</p>
+                <p className="text-xs text-hw-text-dim">
                   Last seen {relativeTime(agent.last_seen_at)} · Registered {new Date(agent.created_at).toLocaleDateString()}
                 </p>
               </div>
               <div className="flex flex-wrap gap-1">
                 {agent.capabilities?.map((cap) => (
-                  <span key={cap} className="rounded bg-gray-800 px-2 py-0.5 text-xs text-gray-400">{cap}</span>
+                  <span key={cap} className="rounded bg-hw-raised px-2 py-0.5 text-xs text-hw-text-dim">{cap}</span>
                 ))}
               </div>
               <button
                 onClick={() => handleDelete(agent.id)}
                 disabled={deleting === agent.id}
-                className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-900/30 disabled:opacity-50"
+                className="rounded px-2 py-1 text-xs text-led-red hover:bg-led-red/10 disabled:opacity-50"
               >
                 Revoke
               </button>
@@ -104,7 +104,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300 hover:bg-gray-600"
+      className="rounded bg-hw-raised px-2 py-0.5 text-xs text-hw-text hover:bg-hw-raised/80"
     >
       {copied ? "Copied!" : "Copy"}
     </button>
@@ -113,8 +113,8 @@ function CopyButton({ text }: { text: string }) {
 
 function CodeBlock({ code }: { code: string }) {
   return (
-    <div className="relative rounded-lg border border-gray-700 bg-gray-950 p-3">
-      <pre className="font-mono text-sm text-green-300 overflow-x-auto whitespace-pre-wrap break-all">{code}</pre>
+    <div className="relative rounded-lg border border-hw-border bg-hw-body p-3">
+      <pre className="font-mono text-sm text-led-green overflow-x-auto whitespace-pre-wrap break-all">{code}</pre>
       <div className="mt-2 flex justify-end">
         <CopyButton text={code} />
       </div>
@@ -162,53 +162,53 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+      <div className="w-full max-w-lg rounded-xl border border-hw-border bg-hw-surface p-6 shadow-2xl">
         <div className="mb-5 flex items-center gap-2">
           {STEPS.map((s, i) => (
             <div key={s} className="flex items-center gap-2">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${i <= step ? "bg-indigo-600 text-white" : "bg-gray-700 text-gray-400"}`}>{i + 1}</span>
-              <span className={`text-sm ${i === step ? "text-white font-medium" : "text-gray-500"}`}>{s}</span>
-              {i < STEPS.length - 1 && <span className="text-gray-700 mx-1">→</span>}
+              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${i <= step ? "bg-led-blue text-hw-text" : "bg-hw-raised text-hw-text-dim"}`}>{i + 1}</span>
+              <span className={`text-sm ${i === step ? "text-hw-text font-medium" : "text-hw-text-dim"}`}>{s}</span>
+              {i < STEPS.length - 1 && <span className="text-hw-border mx-1">&rarr;</span>}
             </div>
           ))}
         </div>
 
         {step === 0 && (
           <div className="space-y-3">
-            <p className="text-sm text-gray-300">Install the djtoolkit agent on your macOS machine:</p>
+            <p className="text-sm text-hw-text">Install the djtoolkit agent on your macOS machine:</p>
 
             {/* Homebrew (recommended) */}
-            <div className="rounded-lg border border-indigo-600 bg-indigo-950/30 p-3">
+            <div className="rounded-lg border border-led-blue bg-led-blue/10 p-3">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium text-white">Homebrew</span>
-                <span className="rounded bg-indigo-600/40 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-300 uppercase">recommended</span>
+                <span className="text-sm font-medium text-hw-text">Homebrew</span>
+                <span className="rounded bg-led-blue/40 px-1.5 py-0.5 text-[10px] font-semibold text-led-blue uppercase">recommended</span>
               </div>
               <CodeBlock code="brew tap yenkz/djtoolkit && brew install djtoolkit" />
             </div>
 
             {/* Direct download */}
-            <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-3">
+            <div className="rounded-lg border border-hw-border bg-hw-raised/50 p-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-white">Direct download</span>
+                <span className="text-sm font-medium text-hw-text">Direct download</span>
                 <a
                   href="https://github.com/yenkz/djtoolkit/releases/latest"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded bg-gray-700 px-2.5 py-1 text-xs font-medium text-gray-300 hover:bg-gray-600"
+                  className="rounded bg-hw-raised px-2.5 py-1 text-xs font-medium text-hw-text hover:bg-hw-raised/80"
                 >
                   GitHub Releases
                 </a>
               </div>
-              <p className="text-xs text-gray-500">Download the .dmg from the latest release (arm64 + x86_64)</p>
+              <p className="text-xs text-hw-text-dim">Download the .dmg from the latest release (arm64 + x86_64)</p>
             </div>
 
             {/* pip fallback */}
-            <div className="rounded-lg border border-gray-700 bg-gray-800/50 p-3">
-              <p className="text-xs text-gray-500 mb-1.5">Or install via pip:</p>
+            <div className="rounded-lg border border-hw-border bg-hw-raised/50 p-3">
+              <p className="text-xs text-hw-text-dim mb-1.5">Or install via pip:</p>
               <CodeBlock code="pip install djtoolkit" />
             </div>
 
-            <button onClick={() => setStep(1)} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+            <button onClick={() => setStep(1)} className="w-full rounded-lg bg-led-blue py-2 text-sm font-medium text-hw-text hover:bg-led-blue/80">
               Next: Generate API key
             </button>
           </div>
@@ -216,18 +216,18 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
 
         {step === 1 && (
           <div className="space-y-3">
-            <p className="text-sm text-gray-300">Name this machine so you can identify it later:</p>
+            <p className="text-sm text-hw-text">Name this machine so you can identify it later:</p>
             <input
               type="text"
               placeholder="e.g. MacBook Pro"
               value={machineName}
               onChange={(e) => setMachineName(e.target.value)}
-              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
+              className="w-full rounded-lg border border-hw-border bg-hw-raised px-3 py-2 text-hw-text placeholder-hw-text-dim focus:border-led-blue focus:outline-none"
             />
             <button
               onClick={handleRegister}
               disabled={registering}
-              className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+              className="w-full rounded-lg bg-led-blue py-2 text-sm font-medium text-hw-text hover:bg-led-blue/80 disabled:opacity-50"
             >
               {registering ? "Generating..." : "Generate API Key"}
             </button>
@@ -236,14 +236,14 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
 
         {step === 2 && (
           <div className="space-y-3">
-            <div className="rounded-lg border border-yellow-800 bg-yellow-900/20 px-3 py-2 text-sm text-yellow-300">
+            <div className="rounded-lg border border-led-orange/40 bg-led-orange/10 px-3 py-2 text-sm text-led-orange">
               This key is shown <strong>once</strong>. Copy it now — you cannot retrieve it again.
             </div>
             <CodeBlock code={apiKey} />
-            <p className="text-sm text-gray-300">Run these on your machine:</p>
+            <p className="text-sm text-hw-text">Run these on your machine:</p>
             <CodeBlock code={`djtoolkit agent configure --cloud-url ${cloudUrl} --api-key ${apiKey}`} />
             <CodeBlock code="djtoolkit agent install" />
-            <button onClick={startPolling} className="w-full rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+            <button onClick={startPolling} className="w-full rounded-lg bg-led-blue py-2 text-sm font-medium text-hw-text hover:bg-led-blue/80">
               Next: Start agent
             </button>
           </div>
@@ -251,25 +251,25 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
 
         {step === 3 && (
           <div className="space-y-3">
-            <p className="text-sm text-gray-300">Start the agent on your machine:</p>
+            <p className="text-sm text-hw-text">Start the agent on your machine:</p>
             <CodeBlock code="djtoolkit agent start" />
-            <div className="flex items-center gap-3 rounded-lg border border-gray-700 bg-gray-800 px-3 py-3">
+            <div className="flex items-center gap-3 rounded-lg border border-hw-border bg-hw-raised px-3 py-3">
               {agentOnline ? (
                 <>
-                  <span className="h-3 w-3 rounded-full bg-green-500" />
-                  <p className="text-sm text-green-300 font-medium">Agent connected!</p>
+                  <span className="h-3 w-3 rounded-full bg-led-green" />
+                  <p className="text-sm text-led-green font-medium">Agent connected!</p>
                 </>
               ) : polling ? (
                 <>
-                  <span className="h-3 w-3 rounded-full bg-yellow-500 animate-pulse" />
-                  <p className="text-sm text-gray-400">Waiting for agent to connect...</p>
+                  <span className="h-3 w-3 rounded-full bg-led-orange animate-pulse" />
+                  <p className="text-sm text-hw-text-dim">Waiting for agent to connect...</p>
                 </>
               ) : null}
             </div>
             <button
               onClick={onClose}
               disabled={polling && !agentOnline}
-              className="w-full rounded-lg border border-gray-700 py-2 text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50"
+              className="w-full rounded-lg border border-hw-border py-2 text-sm text-hw-text hover:bg-hw-raised disabled:opacity-50"
             >
               {agentOnline ? "Done" : "Close anyway"}
             </button>
@@ -277,7 +277,7 @@ function AgentWizard({ cloudUrl, onClose }: { cloudUrl: string; onClose: () => v
         )}
 
         {step < 3 && (
-          <button onClick={onClose} className="mt-3 w-full rounded py-1.5 text-sm text-gray-500 hover:text-gray-300">
+          <button onClick={onClose} className="mt-3 w-full rounded py-1.5 text-sm text-hw-text-dim hover:text-hw-text">
             Cancel
           </button>
         )}

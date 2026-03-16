@@ -37,11 +37,11 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-xl">
-      <h1 className="text-xl font-bold text-white">Settings</h1>
+      <h1 className="text-xl font-bold text-hw-text">Settings</h1>
 
-      <section className="rounded-xl border border-gray-800 bg-gray-900 p-5 space-y-4">
-        <h2 className="font-semibold text-white">Spotify</h2>
-        <p className="text-sm text-gray-400">
+      <section className="rounded-xl border border-hw-border bg-hw-surface p-5 space-y-4">
+        <h2 className="font-semibold text-hw-text">Spotify</h2>
+        <p className="text-sm text-hw-text-dim">
           Connect your Spotify account to import playlists directly.
         </p>
         <div className="flex gap-3">
@@ -52,14 +52,14 @@ export default function SettingsPage() {
               const token = session?.access_token ?? "";
               window.location.href = `${API_URL}/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/settings`;
             }}
-            className="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-600"
+            className="rounded-lg bg-led-green px-4 py-2 text-sm font-medium text-hw-text hover:bg-led-green/80"
           >
             Connect Spotify
           </button>
           <button
             onClick={handleDisconnect}
             disabled={disconnecting}
-            className="rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 disabled:opacity-50"
+            className="rounded-lg border border-hw-border px-4 py-2 text-sm text-hw-text-dim hover:bg-hw-raised disabled:opacity-50"
           >
             {disconnecting ? "Disconnecting..." : "Disconnect"}
           </button>
