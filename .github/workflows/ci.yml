@@ -44,7 +44,6 @@ jobs:
       # Placeholder values — next build needs these present but they don't need to be valid.
       NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
-      NEXT_PUBLIC_API_URL: "http://localhost:8000"
     steps:
       - uses: actions/checkout@v4
 

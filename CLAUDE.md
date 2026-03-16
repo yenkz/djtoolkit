@@ -42,9 +42,9 @@ make normalize                    # ReplayGain/EBU R128 loudness normalization
 make playlist                     # generate M3U playlists grouped by genre/style
 
 # Dev
-make api                          # start FastAPI API server at http://localhost:8000
 poetry run pytest                 # run all tests
 poetry run pytest tests/test_X.py # run single test file
+cd web && npm run dev             # start Next.js dev server (API routes + UI)
 ```
 
 ---
@@ -76,11 +76,8 @@ djtoolkit/
 │   │   └── art.py              # cover art fetcher (CoverArtArchive, iTunes, Deezer, Spotify, Last.fm) + mutagen embedder
 │   ├── library/
 │   │   └── mover.py            # move tagged files to library_dir, set in_library=1
-│   ├── utils/
-│   │   └── search_string.py    # build Soulseek search query from track metadata
-│   └── api/
-│       ├── app.py              # FastAPI app, mounts static UI
-│       └── routes.py           # REST endpoints for the UI
+│   └── utils/
+│       └── search_string.py    # build Soulseek search query from track metadata
 ├── legacy/
 │   └── spotify_oauth/          # deprecated OAuth-based Spotify import — DO NOT USE
 ├── tests/
@@ -169,7 +166,7 @@ Each module queries only its relevant `acquisition_status` + flag combination �
 - Optional (Linux/macOS x86_64, Python ≤3.11): `essentia-tensorflow` for MusicNN embeddings → Discogs genre + vocal/instrumental classifiers
 - Key algorithm: Krumhansl-Schmuckler on chroma_cqt
 
-**UI**: Next.js app in `web/`, communicates with the FastAPI backend via REST API.
+**UI + API**: Next.js app in `web/`, deployed to Vercel. API route handlers in `web/app/api/` replace the former FastAPI backend. Backend state lives in Supabase (PostgreSQL + Auth + Realtime).
 
 **Legacy**: `legacy/spotify_oauth/` contains the old rate-unlimited, deprecated-endpoint Spotify OAuth import. Never import from it in new code.
 
