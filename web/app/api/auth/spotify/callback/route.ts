@@ -99,19 +99,18 @@ export async function GET(request: NextRequest) {
     Date.now() + tokens.expires_in * 1000
   ).toISOString();
 
-  // Upsert user's Spotify tokens
-  const { error: upsertError } = await supabase.from("users").upsert(
-    {
-      id: userId,
+  // Update user's Spotify tokens
+  const { error: updateError } = await supabase
+    .from("users")
+    .update({
       spotify_access_token: encryptedAccess,
       spotify_refresh_token: encryptedRefresh,
       spotify_token_expires_at: expiresAtIso,
-    },
-    { onConflict: "id" }
-  );
+    })
+    .eq("id", userId);
 
-  if (upsertError) {
-    console.error("users upsert failed:", upsertError.message, upsertError.code);
+  if (updateError) {
+    console.error("users update failed:", updateError.message, updateError.code);
     return NextResponse.redirect(
       new URL(`${frontendUrl}${returnTo}?spotify=error&reason=save_failed`)
     );
