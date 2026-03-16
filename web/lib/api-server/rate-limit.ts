@@ -42,7 +42,7 @@ function rl(max: number, prefix: string): Ratelimit | null {
  * Values are null when Redis is not available — rateLimit() handles this gracefully.
  */
 export const limiters = {
-  read: rl(300, "rl:read"),
+  read: rl(600, "rl:read"),
   agent: rl(100, "rl:agent"),
   batch: rl(60, "rl:batch"),
   write: rl(30, "rl:write"),
