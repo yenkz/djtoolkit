@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Download, LayoutGrid, SlidersHorizontal, Bot, Settings, LogOut, Menu, X } from "lucide-react";
+import { Download, LayoutGrid, SlidersHorizontal, Bot, Settings, LogOut, Menu, X, Sun, Moon, Monitor } from "lucide-react";
+import { useTheme } from "@/lib/theme-provider";
 import Logo from "@/components/ui/Logo";
 import type { LucideIcon } from "lucide-react";
 
@@ -16,10 +17,17 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+const THEME_OPTIONS = [
+  { value: "light" as const, icon: Sun, label: "Light" },
+  { value: "system" as const, icon: Monitor, label: "System" },
+  { value: "dark" as const, icon: Moon, label: "Dark" },
+];
+
 export default function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   // Close on route change
   useEffect(() => { setOpen(false); }, [pathname]);
@@ -93,6 +101,28 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
 
       <div className="border-t border-hw-border px-4 py-3">
         <p className="truncate text-xs text-hw-text-dim">{userEmail}</p>
+        <div className="mt-2 mb-2 flex items-center justify-center gap-1">
+          {THEME_OPTIONS.map(({ value, icon: Icon, label }) => {
+            const active = theme === value;
+            return (
+              <button
+                key={value}
+                onClick={() => setTheme(value)}
+                aria-label={`${label} theme`}
+                className="flex items-center justify-center rounded transition-colors duration-200"
+                style={{
+                  width: 28,
+                  height: 28,
+                  color: active ? "var(--led-blue)" : "var(--hw-text-dim)",
+                  background: active ? "rgba(68, 136, 255, 0.12)" : "transparent",
+                  boxShadow: active ? "0 0 8px rgba(68, 136, 255, 0.25)" : "none",
+                }}
+              >
+                <Icon size={14} strokeWidth={2} />
+              </button>
+            );
+          })}
+        </div>
         <button
           onClick={signOut}
           className="mt-1 flex items-center gap-1.5 text-xs transition-colors duration-200"

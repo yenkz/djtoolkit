@@ -50,7 +50,7 @@ export const STEEL = {
     "conic-gradient(from 0deg, #6B7B8D, #8E9BAA, #A3B1BF, #7D8FA0, #95A7B5, #6B7B8D, #8E9BAA, #A3B1BF, #7D8FA0, #6B7B8D)",
 } as const;
 
-// CDJ hardware body/surface palette
+// CDJ hardware body/surface palette — dark theme
 export const HARDWARE = {
   body: "#141114",
   surface: "#1A171A",
@@ -60,7 +60,24 @@ export const HARDWARE = {
   borderLight: "#333033",
   groove: "#0E0C0E",
   text: "#EBEED5",
-  textDim: "#EBEED566",
+  textSec: "#EBEED5aa",
+  textDim: "#EBEED577",
+  textMuted: "#EBEED544",
+} as const;
+
+// Light palette
+export const HARDWARE_LIGHT = {
+  body: "#EDEADF",
+  surface: "#F5F3EA",
+  panel: "#F0EDE5",
+  raised: "#E0DDD0",
+  border: "#C8C5B5",
+  borderLight: "#D5D1C4",
+  groove: "#E5E2D6",
+  text: "#1A1418",
+  textSec: "#1A141899",
+  textDim: "#1A141866",
+  textMuted: "#1A141844",
 } as const;
 
 // Rubber / silicone pad surface
@@ -113,8 +130,25 @@ export const STATUS_LED = {
   candidate: "orange",
   downloading: "blue",
   failed: "red",
-  duplicate: "green", // dim green
+  duplicate: "green",
+} as const;
+
+// Job status → LED color mapping (pipeline)
+export const JOB_STATUS_LED = {
+  pending: "orange",
+  running: "blue",
+  done: "green",
+  failed: "red",
+} as const;
+
+// Job type → LED color mapping (pipeline)
+export const JOB_TYPE_LED = {
+  download: "blue",
+  fingerprint: "green",
+  tag: "orange",
 } as const;
 
 export type LEDColor = keyof typeof LED_COLORS;
 export type StatusKey = keyof typeof STATUS_LED;
+export type JobStatus = keyof typeof JOB_STATUS_LED;
+export type JobType = keyof typeof JOB_TYPE_LED;

@@ -12,7 +12,7 @@ import JogWheel from "@/components/ui/JogWheel";
 import VUMeter from "@/components/ui/VUMeter";
 import TempoFader from "@/components/ui/TempoFader";
 import ActionButton from "@/components/ui/ActionButton";
-import { LED_COLORS, HARDWARE, FONTS } from "@/lib/design-system/tokens";
+import { LED_COLORS, FONTS } from "@/lib/design-system/tokens";
 
 // ─── Responsive hook ───
 function useIsMobile() {
@@ -30,9 +30,9 @@ function useIsMobile() {
 function Divider({ children, color = "green" }: { children: React.ReactNode; color?: "green" | "blue" | "orange" | "red" }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "clamp(16px, 3vw, 32px)" }}>
-      <div style={{ height: 1, flex: 1, background: HARDWARE.borderLight }} />
+      <div style={{ height: 1, flex: 1, background: "var(--hw-border-light)" }} />
       <LEDText color={color} style={{ fontFamily: FONTS.mono, fontSize: "clamp(8px, 1.2vw, 9px)", letterSpacing: 3, textTransform: "uppercase" }}>{children}</LEDText>
-      <div style={{ height: 1, flex: 1, background: HARDWARE.borderLight }} />
+      <div style={{ height: 1, flex: 1, background: "var(--hw-border-light)" }} />
     </div>
   );
 }
@@ -57,9 +57,9 @@ function FilterButton({ label, active = false, color = "green", onClick }: {
         textTransform: "uppercase",
         padding: "8px 16px",
         cursor: "pointer",
-        background: lit ? `${c.on}15` : HARDWARE.raised,
+        background: lit ? `${c.on}15` : "var(--hw-raised)",
         color: lit ? c.on : c.dim,
-        border: `1.5px solid ${lit ? c.on + "55" : HARDWARE.borderLight}`,
+        border: `1.5px solid ${lit ? c.on + "55" : "var(--hw-border-light)"}`,
         textShadow: lit ? c.glow : "none",
         boxShadow: lit ? `0 0 12px ${c.on}22, inset 0 0 8px ${c.on}11` : `inset 0 1px 0 rgba(255,255,255,0.04)`,
         borderRadius: 3,
@@ -85,8 +85,8 @@ function PricingCard({ tier, price, desc, features, cta, color = "green", featur
       onMouseEnter={() => setH(true)}
       onMouseLeave={() => setH(false)}
       style={{
-        background: featured ? HARDWARE.surface : HARDWARE.raised,
-        border: `1.5px solid ${lit ? c.on + "33" : HARDWARE.borderLight}`,
+        background: featured ? "var(--hw-surface)" : "var(--hw-raised)",
+        border: `1.5px solid ${lit ? c.on + "33" : "var(--hw-border-light)"}`,
         padding: "clamp(20px, 4vw, 32px) clamp(16px, 3vw, 24px)",
         position: "relative",
         boxShadow: lit ? `0 0 24px ${c.on}11` : "none",
@@ -97,7 +97,7 @@ function PricingCard({ tier, price, desc, features, cta, color = "green", featur
         <div style={{
           position: "absolute", top: -10, right: 16,
           fontFamily: FONTS.mono, fontSize: 8, fontWeight: 700, letterSpacing: 1.5,
-          background: c.on, color: HARDWARE.body, padding: "3px 10px", textTransform: "uppercase",
+          background: c.on, color: "#141114", padding: "3px 10px", textTransform: "uppercase",
         }}>
           COMING SOON
         </div>
@@ -107,9 +107,9 @@ function PricingCard({ tier, price, desc, features, cta, color = "green", featur
       </LEDText>
       <div style={{ fontSize: "clamp(28px, 5vw, 40px)", fontWeight: 900, letterSpacing: -2, marginBottom: 4 }}>
         {price}
-        {price !== "FREE" && <span style={{ fontSize: 13, fontWeight: 400, color: HARDWARE.textDim }}>/yr</span>}
+        {price !== "FREE" && <span style={{ fontSize: 13, fontWeight: 400, color: "var(--hw-text-dim)" }}>/yr</span>}
       </div>
-      <p style={{ fontSize: 12, color: HARDWARE.textDim, lineHeight: 1.55, marginBottom: 16 }}>{desc}</p>
+      <p style={{ fontSize: 12, color: "var(--hw-text-dim)", lineHeight: 1.55, marginBottom: 16 }}>{desc}</p>
       <Link href={href}>
         <FilterButton label={cta} color={color} active={featured} />
       </Link>
@@ -117,7 +117,7 @@ function PricingCard({ tier, price, desc, features, cta, color = "green", featur
         {features.map(f => (
           <span key={f} style={{
             fontFamily: FONTS.mono, fontSize: "clamp(8px, 1.2vw, 9px)",
-            color: HARDWARE.textDim, letterSpacing: 0.5,
+            color: "var(--hw-text-dim)", letterSpacing: 0.5,
             display: "flex", alignItems: "center", gap: 8,
           }}>
             <div style={{
@@ -156,13 +156,13 @@ export default function LandingPage() {
     return () => window.removeEventListener("scroll", fn);
   }, []);
 
-  if (!mounted) return <div style={{ background: HARDWARE.body, minHeight: "100vh" }} />;
+  if (!mounted) return <div style={{ background: "var(--hw-body)", minHeight: "100vh" }} />;
 
   const ctaHref = user ? "/import" : "/login";
   const ctaLabel = user ? "DASHBOARD" : "GET STARTED";
 
   return (
-    <div style={{ background: HARDWARE.body, color: HARDWARE.text, fontFamily: FONTS.sans, minHeight: "100vh", overflowX: "hidden" }}>
+    <div style={{ background: "var(--hw-body)", color: "var(--hw-text)", fontFamily: FONTS.sans, minHeight: "100vh", overflowX: "hidden" }}>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
         .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
@@ -184,9 +184,9 @@ export default function LandingPage() {
       {/* ═══ NAV ═══ */}
       <nav style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
-        background: scrollY > 40 ? `${HARDWARE.body}ee` : HARDWARE.surface,
+        background: scrollY > 40 ? "color-mix(in srgb, var(--hw-body) 93%, transparent)" : "var(--hw-surface)",
         backdropFilter: scrollY > 40 ? "blur(8px)" : "none",
-        borderBottom: `1px solid ${scrollY > 40 ? HARDWARE.borderLight : HARDWARE.border}`,
+        borderBottom: `1px solid ${scrollY > 40 ? "var(--hw-border-light)" : "var(--hw-border)"}`,
         transition: "all 0.3s",
       }}>
         <div style={{
@@ -238,7 +238,7 @@ export default function LandingPage() {
             </h1>
             <p style={{
               fontSize: "clamp(13px, 2vw, 15px)", lineHeight: 1.65,
-              color: HARDWARE.textDim, maxWidth: 400,
+              color: "var(--hw-text-dim)", maxWidth: 400,
               marginBottom: "clamp(20px, 4vw, 32px)",
             }}>
               Make music available, enrich every track with metadata, and keep your library organized across Rekordbox, Serato, and Traktor.
@@ -258,7 +258,7 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div style={{ borderTop: `1px solid ${HARDWARE.borderLight}`, marginTop: "clamp(24px, 5vw, 48px)", paddingTop: 14 }}>
+        <div style={{ borderTop: "1px solid var(--hw-border-light)", marginTop: "clamp(24px, 5vw, 48px)", paddingTop: 14 }}>
           <div className="compat-strip">
             <LEDText color="green" style={{ fontFamily: FONTS.mono, fontSize: "clamp(7px, 1vw, 8px)", textTransform: "uppercase", letterSpacing: 2, whiteSpace: "nowrap" }}>
               Compatible
@@ -344,14 +344,14 @@ export default function LandingPage() {
             ]}
           />
         </div>
-        <p style={{ fontFamily: FONTS.mono, fontSize: 9, color: HARDWARE.textDim, marginTop: 14, letterSpacing: 1 }}>
+        <p style={{ fontFamily: FONTS.mono, fontSize: 9, color: "var(--hw-text-dim)", marginTop: 14, letterSpacing: 1 }}>
           Free during beta. No credit card required.
         </p>
       </section>
 
       {/* ═══ CTA ═══ */}
       <section style={{ maxWidth: 1100, margin: "0 auto", padding: "clamp(32px, 5vw, 48px) clamp(16px, 3vw, 32px) clamp(48px, 8vw, 80px)" }}>
-        <div style={{ borderTop: `1px solid ${HARDWARE.borderLight}`, paddingTop: "clamp(24px, 5vw, 48px)" }}>
+        <div style={{ borderTop: "1px solid var(--hw-border-light)", paddingTop: "clamp(24px, 5vw, 48px)" }}>
           <div className="cta-grid">
             <h2 style={{
               fontSize: "clamp(28px, 5vw, 60px)", fontWeight: 900,
@@ -361,7 +361,7 @@ export default function LandingPage() {
               <span style={{ color: LED_COLORS.red.on, textShadow: LED_COLORS.red.glow }}>?</span>
             </h2>
             <div>
-              <p style={{ fontSize: "clamp(12px, 2vw, 14px)", color: HARDWARE.textDim, lineHeight: 1.6, marginBottom: 20 }}>
+              <p style={{ fontSize: "clamp(12px, 2vw, 14px)", color: "var(--hw-text-dim)", lineHeight: 1.6, marginBottom: 20 }}>
                 Free to start. No credit card required.
               </p>
               <Link href={ctaHref} style={{ textDecoration: "none" }}>
@@ -374,14 +374,14 @@ export default function LandingPage() {
 
       {/* ═══ FOOTER ═══ */}
       <footer style={{ maxWidth: 1100, margin: "0 auto", padding: "0 clamp(16px, 3vw, 32px) 32px" }}>
-        <div style={{ borderTop: `1px solid ${HARDWARE.borderLight}`, paddingTop: 24 }}>
+        <div style={{ borderTop: "1px solid var(--hw-border-light)", paddingTop: 24 }}>
           <div className="footer-grid">
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <Logo color={c.dim} w={22} h={16} />
                 <LEDText color="green" style={{ fontFamily: FONTS.mono, fontWeight: 700, fontSize: 12 }}>DJToolKit</LEDText>
               </div>
-              <p style={{ fontFamily: FONTS.mono, fontSize: 9, color: HARDWARE.textDim, letterSpacing: 1 }}>
+              <p style={{ fontFamily: FONTS.mono, fontSize: 9, color: "var(--hw-text-dim)", letterSpacing: 1 }}>
                 Import. Organize. Play.
               </p>
             </div>
@@ -403,7 +403,7 @@ export default function LandingPage() {
             ))}
           </div>
           <div style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-            <span style={{ fontFamily: FONTS.mono, fontSize: 9, color: HARDWARE.textDim }}>
+            <span style={{ fontFamily: FONTS.mono, fontSize: 9, color: "var(--hw-text-dim)" }}>
               © 2026 DJToolKit
             </span>
           </div>

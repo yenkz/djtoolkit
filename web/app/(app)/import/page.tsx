@@ -20,30 +20,266 @@ import {
   type TrackIdJobStatus,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
+import LCDDisplay from "@/components/ui/LCDDisplay";
+import Checkbox from "@/components/ui/Checkbox";
+import ActionButton from "@/components/ui/ActionButton";
+
+// ─── Source Icons (SVG) ────────────────────────────────────────────────────────
+
+const SRC_ICONS = {
+  spotify: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="#1DB954" strokeWidth="1.5" />
+      <path d="M7.5 10.5c2.5-1 5.5-1 8 0" stroke="#1DB954" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M8.5 13c2-.8 4.5-.8 6.5 0" stroke="#1DB954" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M9.5 15.5c1.5-.6 3.5-.6 5 0" stroke="#1DB954" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  ),
+  csv: (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hw-text-dim)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="12" y2="17" />
+    </svg>
+  ),
+  trackid: (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hw-text-dim)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="10 8 16 12 10 16 10 8" />
+    </svg>
+  ),
+  agent: (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hw-text-dim)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+      <path d="M16 3l2 2-2 2" />
+    </svg>
+  ),
+  homebrew: (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#D4A030" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 2v2" /><path d="M12 2v2" />
+      <path d="M6 6h10v10a4 4 0 01-4 4H10a4 4 0 01-4-4V6z" />
+      <path d="M16 8h2a2 2 0 012 2v2a2 2 0 01-2 2h-2" />
+      <path d="M6 6c0 0-1-1.5 2-3" /><path d="M10 6c0 0 0-2 2-3" />
+    </svg>
+  ),
+  download: (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hw-text-dim)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  ),
+};
+
+// ─── MiniArt ───────────────────────────────────────────────────────────────────
+
+function MiniArt({ name, size = 40 }: { name: string; size?: number }) {
+  // Generate a deterministic gradient color from the name
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  const color = `hsl(${hue}, 55%, 45%)`;
+  const abbrev = name.slice(0, 2).toUpperCase();
+
+  return (
+    <div
+      className="flex items-center justify-center flex-shrink-0"
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: 5,
+        background: `linear-gradient(135deg, ${color} 0%, ${color}88 100%)`,
+      }}
+    >
+      <span
+        className="font-sans font-extrabold text-white"
+        style={{
+          fontSize: size * 0.3,
+          textShadow: "0 1px 2px rgba(0,0,0,0.3)",
+        }}
+      >
+        {abbrev}
+      </span>
+    </div>
+  );
+}
+
+// ─── SourceCard ────────────────────────────────────────────────────────────────
+
+function SourceCard({
+  icon,
+  title,
+  desc,
+  active,
+  disabled,
+  comingSoon,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  active?: boolean;
+  disabled?: boolean;
+  comingSoon?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      className="relative transition-all duration-200"
+      style={{
+        background: active ? "var(--hw-card-hover)" : "var(--hw-card-bg)",
+        border: `1.5px solid ${active ? "color-mix(in srgb, var(--led-blue) 35%, transparent)" : "var(--hw-card-border)"}`,
+        borderRadius: 8,
+        padding: "clamp(18px, 2.5vw, 24px)",
+        boxShadow: active
+          ? "0 0 20px color-mix(in srgb, var(--led-blue) 8%, transparent), 0 4px 12px rgba(0,0,0,0.1)"
+          : "none",
+        opacity: disabled ? 0.4 : 1,
+        cursor: disabled ? "not-allowed" : "default",
+      }}
+    >
+      <div
+        className="flex items-center justify-between gap-3.5"
+        style={{ marginBottom: children ? 16 : 0 }}
+      >
+        <div className="flex items-center gap-3.5">
+          <div className="w-9 h-9 flex items-center justify-center flex-shrink-0">
+            {icon}
+          </div>
+          <div>
+            <div className="font-sans text-base font-bold" style={{ color: "var(--hw-text)", letterSpacing: -0.2 }}>
+              {title}
+            </div>
+            <div className="font-sans text-[13px] mt-0.5" style={{ color: "var(--hw-text-dim)", lineHeight: 1.4 }}>
+              {desc}
+            </div>
+          </div>
+        </div>
+        {comingSoon && (
+          <span
+            className="font-mono text-[9px] font-bold uppercase whitespace-nowrap"
+            style={{
+              letterSpacing: 1.5,
+              color: "var(--hw-text-muted)",
+              background: "var(--hw-raised)",
+              padding: "4px 12px",
+              borderRadius: 4,
+            }}
+          >
+            COMING SOON
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── CopyBlock ─────────────────────────────────────────────────────────────────
+
+function CopyBlock({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 mb-2 transition-colors"
+      style={{
+        background: "var(--hw-code-bg)",
+        border: "1px solid var(--hw-code-border)",
+        borderRadius: 5,
+        padding: "12px 16px",
+      }}
+    >
+      <code className="font-mono text-[13px] break-all" style={{ color: "var(--hw-text)", letterSpacing: 0.3 }}>
+        {text}
+      </code>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+        className="font-mono text-[10px] font-bold flex-shrink-0 cursor-pointer transition-colors"
+        style={{
+          letterSpacing: 1,
+          color: copied ? "var(--hw-success-text)" : "var(--hw-text-dim)",
+          padding: "4px 10px",
+          borderRadius: 3,
+        }}
+      >
+        {copied ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+// ─── StepBar ───────────────────────────────────────────────────────────────────
 
 type Step = 1 | 2 | 3;
 
-const STEP_LABELS = ["Import", "Review", "Download Agent"] as const;
+const STEP_LABELS = ["IMPORT", "REVIEW", "DOWNLOAD AGENT"] as const;
 
 function StepBar({ current }: { current: Step }) {
   return (
-    <div className="flex border-b border-hw-border">
+    <div
+      className="flex items-center"
+      style={{
+        padding: "0 clamp(16px, 2vw, 32px)",
+        height: 48,
+        borderBottom: "1px solid var(--hw-border-light)",
+      }}
+    >
       {STEP_LABELS.map((label, i) => {
         const stepNum = (i + 1) as Step;
         const isDone = stepNum < current;
         const isActive = stepNum === current;
         return (
-          <div
-            key={label}
-            className={`flex-1 py-3.5 text-center text-xs font-semibold tracking-widest uppercase border-b-2 transition-colors ${
-              isActive
-                ? "text-led-blue border-led-blue"
-                : isDone
-                ? "text-led-green border-transparent"
-                : "text-hw-text-dim border-transparent"
-            }`}
-          >
-            {isDone ? `✓ ${label}` : `${stepNum} · ${label}`}
+          <div key={label} className="flex-1 flex items-center">
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              {isDone ? (
+                <span className="font-mono text-[11px] font-bold" style={{ color: "var(--hw-success-text)" }}>
+                  ✓
+                </span>
+              ) : (
+                <span
+                  className="font-mono text-[11px] font-bold flex items-center justify-center transition-all duration-300"
+                  style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    background: isActive ? "var(--led-blue)" : "transparent",
+                    color: isActive ? "#fff" : "var(--hw-text-muted)",
+                    border: isActive ? "none" : "1.5px solid var(--hw-border-light)",
+                  }}
+                >
+                  {stepNum}
+                </span>
+              )}
+              <span
+                className="font-mono text-[11px] font-bold transition-all duration-300"
+                style={{
+                  letterSpacing: 1.5,
+                  color: isDone ? "var(--hw-success-text)" : isActive ? "var(--hw-text)" : "var(--hw-text-muted)",
+                }}
+              >
+                {label}
+              </span>
+            </div>
+            {i < 2 && (
+              <div
+                className="flex-1 transition-all duration-300"
+                style={{
+                  height: 2,
+                  margin: "0 16px",
+                  background: isDone ? "var(--led-blue)" : "var(--hw-border-light)",
+                }}
+              />
+            )}
           </div>
         );
       })}
@@ -51,56 +287,208 @@ function StepBar({ current }: { current: Step }) {
   );
 }
 
-export default function OnboardingPage() {
-  const [step, setStep] = useState<Step>(1);
-  const [candidates, setCandidates] = useState<Track[]>([]);
-  const [apiKey, setApiKey] = useState<string>("");
-  const [machineName] = useState("My Mac");
-  const router = useRouter();
-  const searchParams = useSearchParams();
+// ─── TrackReviewRow ────────────────────────────────────────────────────────────
 
+function TrackReviewRow({
+  track,
+  isSelected,
+  isOwned,
+  onToggle,
+}: {
+  track: Track;
+  isSelected: boolean;
+  isOwned: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="flex flex-col min-h-screen">
-      <StepBar current={step} />
-      <div className="flex-1 overflow-y-auto">
-        {step === 1 && (
-          <Step1Import
-            searchParams={searchParams}
-            onComplete={(tracks) => {
-              setCandidates(tracks);
-              setStep(2);
+    <div
+      onClick={onToggle}
+      className="grid items-center cursor-pointer transition-colors duration-100 border-b last:border-0"
+      style={{
+        gridTemplateColumns: "28px 44px 2fr 1.5fr 1fr",
+        padding: "10px 16px",
+        gap: 12,
+        borderColor: "var(--hw-border)",
+        background: isSelected ? "transparent" : "var(--hw-body)",
+        opacity: isSelected ? 1 : 0.5,
+      }}
+    >
+      <Checkbox
+        checked={isSelected}
+        onChange={() => onToggle()}
+      />
+      <MiniArt name={track.artist ?? track.title ?? "??"} size={40} />
+      <span
+        className="font-sans text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap"
+        style={{ color: isSelected ? "var(--hw-text)" : "var(--hw-text-dim)" }}
+      >
+        {track.title}
+      </span>
+      <span
+        className="font-sans text-[13px] overflow-hidden text-ellipsis whitespace-nowrap"
+        style={{ color: "var(--hw-text-sec)" }}
+      >
+        {track.artist}
+      </span>
+      <div className="flex items-center justify-end">
+        {isOwned && (
+          <span
+            className="font-mono text-[10px] font-bold uppercase whitespace-nowrap"
+            style={{
+              color: "var(--hw-text-muted)",
+              background: "var(--hw-raised)",
+              padding: "3px 8px",
+              borderRadius: 4,
+              letterSpacing: 0.5,
             }}
-          />
-        )}
-        {step === 2 && (
-          <Step2Review
-            candidates={candidates}
-            onBack={() => setStep(1)}
-            onComplete={() => setStep(3)}
-          />
-        )}
-        {step === 3 && (
-          <Step3Agent
-            apiKey={apiKey}
-            setApiKey={setApiKey}
-            machineName={machineName}
-            onDone={() => router.push("/pipeline")}
-          />
+          >
+            Already owned
+          </span>
         )}
       </div>
     </div>
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN PAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export default function ImportPage() {
+  const [step, setStep] = useState<Step>(1);
+  const [candidates, setCandidates] = useState<Track[]>([]);
+  const [apiKey, setApiKey] = useState<string>("");
+  const [machineName] = useState("My Mac");
+  const [step1HasSource, setStep1HasSource] = useState(false);
+  const [step1SourceSummary, setStep1SourceSummary] = useState("");
+  const [step2SelectedCount, setStep2SelectedCount] = useState(0);
+  const [agentConnected, setAgentConnected] = useState(false);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  return (
+    <div className="flex flex-col h-full">
+      <StepBar current={step} />
+
+      <div className="flex-1 overflow-y-auto" style={{ paddingBottom: 80 }}>
+        <div className="max-w-[800px] mx-auto">
+          {step === 1 && (
+            <Step1Import
+              searchParams={searchParams}
+              onSourceChange={(has, summary) => {
+                setStep1HasSource(has);
+                setStep1SourceSummary(summary);
+              }}
+              onComplete={(tracks) => {
+                setCandidates(tracks);
+                setStep(2);
+              }}
+            />
+          )}
+          {step === 2 && (
+            <Step2Review
+              candidates={candidates}
+              onSelectedChange={setStep2SelectedCount}
+              onBack={() => setStep(1)}
+              onComplete={() => setStep(3)}
+            />
+          )}
+          {step === 3 && (
+            <Step3Agent
+              apiKey={apiKey}
+              setApiKey={setApiKey}
+              machineName={machineName}
+              onAgentChange={setAgentConnected}
+              onDone={() => router.push("/pipeline")}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Sticky footer */}
+      <div
+        className="flex items-center justify-between flex-shrink-0"
+        style={{
+          borderTop: "1px solid var(--hw-border-light)",
+          background: "color-mix(in srgb, var(--hw-surface) 94%, transparent)",
+          backdropFilter: "blur(8px)",
+          padding: "14px clamp(16px, 3vw, 32px)",
+        }}
+      >
+        <div>
+          {step === 1 && (
+            <span className="font-sans text-sm" style={{ color: "var(--hw-text-dim)" }}>
+              {step1HasSource ? step1SourceSummary : "Select at least one source"}
+            </span>
+          )}
+          {step > 1 && (
+            <button
+              onClick={() => setStep((step - 1) as Step)}
+              className="font-sans text-sm cursor-pointer py-2"
+              style={{ color: "var(--hw-text-dim)" }}
+            >
+              &#8592; Back
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          {step === 1 && (
+            <ActionButton
+              disabled={!step1HasSource}
+              onClick={() => {
+                // Trigger the import from step 1 - handled via form submit
+                const btn = document.getElementById("step1-continue-btn");
+                if (btn) btn.click();
+              }}
+            >
+              Review tracks &#8594;
+            </ActionButton>
+          )}
+          {step === 2 && (
+            <ActionButton
+              disabled={step2SelectedCount === 0}
+              onClick={() => {
+                const btn = document.getElementById("step2-confirm-btn");
+                if (btn) btn.click();
+              }}
+            >
+              Queue {step2SelectedCount} download{step2SelectedCount !== 1 ? "s" : ""} &#8594;
+            </ActionButton>
+          )}
+          {step === 3 && agentConnected && (
+            <ActionButton onClick={() => router.push("/pipeline")}>
+              Go to Pipeline &#8594;
+            </ActionButton>
+          )}
+          {step === 3 && (
+            <span
+              onClick={() => { window.location.href = "/catalog"; }}
+              className="font-sans text-[13px] cursor-pointer"
+              style={{ color: "var(--hw-text-muted)" }}
+            >
+              Skip for now
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STEP 1: IMPORT SOURCES
+// ═══════════════════════════════════════════════════════════════════════════════
+
 const API_URL = "";
 const SESSION_KEY = "djtoolkit_onboarding_state";
 
 interface Step1Props {
   searchParams: ReturnType<typeof useSearchParams>;
+  onSourceChange: (hasSource: boolean, summary: string) => void;
   onComplete: (tracks: Track[]) => void;
 }
 
-function Step1Import({ searchParams, onComplete }: Step1Props) {
+function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [playlists, setPlaylists] = useState<
     { id: string; name: string; track_count?: number | null; owner?: string; image_url?: string; is_owner?: boolean }[]
   >([]);
@@ -122,7 +510,6 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       setSpotifyConnected(true);
     } catch (err: unknown) {
       setSpotifyConnected(false);
-      // Only show error if we expected to be connected
       if (err instanceof Error && !err.message.includes("not connected")) {
         toast.error(`Couldn't load playlists: ${err.message}`);
       }
@@ -132,7 +519,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   useEffect(() => {
     const isReturningFromSpotify = searchParams.get("spotify") === "connected";
     if (isReturningFromSpotify) {
-      toast.success("Spotify connected! Loading your playlists…");
+      toast.success("Spotify connected! Loading your playlists...");
       window.history.replaceState({}, "", "/import");
       const saved = sessionStorage.getItem(SESSION_KEY);
       if (saved) {
@@ -170,18 +557,27 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   const trackIdValid = /youtu\.?be/.test(trackIdUrl) || trackIdUrl.includes("youtube.com/watch");
   const sourcesSelected = (selectedPlaylistId ? 1 : 0) + (csvFile ? 1 : 0) + (trackIdValid ? 1 : 0);
 
+  // Notify parent of source state
+  useEffect(() => {
+    const summary =
+      sourcesSelected > 0
+        ? `${sourcesSelected} source${sourcesSelected > 1 ? "s" : ""} selected` +
+          (totalTracks > 0 ? ` \u00b7 ${totalTracks} tracks` : "") +
+          (trackIdValid ? " + YouTube mix" : "")
+        : "Select at least one source";
+    onSourceChange(sourcesSelected > 0, summary);
+  }, [sourcesSelected, totalTracks, trackIdValid, onSourceChange]);
+
   async function handleContinue() {
     if (sourcesSelected === 0) return;
     setLoading(true);
     setTrackIdStatus(null);
     try {
-      // Run Spotify + CSV in parallel (fast, no progress needed)
       const parallelCalls: Promise<{ track_ids: number[] }>[] = [];
       if (selectedPlaylistId) parallelCalls.push(importSpotifyPlaylistNoJobs(selectedPlaylistId));
       if (csvFile) parallelCalls.push(importCsvNoJobs(csvFile));
       const parallelResults = await Promise.all(parallelCalls);
 
-      // Submit TrackID job and poll for progress
       let trackIdIds: number[] = [];
       if (trackIdValid) {
         const { job_id } = await submitTrackIdJob(trackIdUrl);
@@ -252,270 +648,299 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   }
 
   return (
-    <div className="max-w-lg mx-auto px-6 py-10">
-      <h1 className="text-xl font-bold text-hw-text mb-1">Where&apos;s your music coming from?</h1>
-      <p className="text-sm text-hw-text-dim mb-7">
+    <div style={{ padding: "clamp(24px, 4vw, 40px)" }}>
+      <h2
+        className="font-sans font-black"
+        style={{ fontSize: "clamp(24px, 3.5vw, 32px)", letterSpacing: -1, marginBottom: 8, lineHeight: 1.1 }}
+      >
+        Where&apos;s your music coming from?
+      </h2>
+      <p
+        className="font-sans text-[15px]"
+        style={{ color: "var(--hw-text-sec)", marginBottom: 32, lineHeight: 1.6, maxWidth: 500 }}
+      >
         You can import from multiple sources — all tracks will be combined in step 2.
       </p>
 
-      {/* Spotify card */}
-      <div
-        className={`border rounded-xl p-4 mb-3 ${
-          spotifyConnected ? "border-led-blue bg-led-blue/10" : "border-hw-border bg-hw-surface"
-        }`}
-      >
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-2xl">🎵</span>
-          <div className="flex-1">
-            <div className="text-sm font-bold text-hw-text">Spotify</div>
-            {spotifyConnected ? (
-              <div className="text-xs text-led-blue">Connected</div>
-            ) : (
-              <div className="text-xs text-hw-text-dim">Connect your Spotify account</div>
-            )}
-          </div>
-          {spotifyConnected ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs bg-led-green/20 text-led-green px-2 py-0.5 rounded font-semibold">
-                ✓ Connected
-              </span>
-              <button
-                onClick={handleSpotifyDisconnect}
-                className="text-xs text-hw-text-dim hover:text-led-red transition-colors"
-              >
-                Disconnect
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleSpotifyConnect}
-              className="text-xs border border-led-blue text-led-blue px-3 py-1.5 rounded-lg hover:bg-led-blue/10"
-            >
-              Connect Spotify
-            </button>
-          )}
-        </div>
-        {spotifyConnected && playlists.length > 0 && (
-          <div className="bg-hw-body border border-led-blue/30 rounded-lg overflow-hidden">
-            <div className="px-3 py-2 text-xs text-hw-text-dim uppercase tracking-wider border-b border-hw-border">
-              Select playlist
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-            {playlists.map((p) => {
-              const isLiked = p.id === "liked";
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b border-hw-border last:border-0 transition-colors ${
-                    selectedPlaylistId === p.id
-                      ? "bg-led-blue/15"
-                      : "hover:bg-hw-surface"
-                  }`}
-                >
-                  <div
-                    className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
-                      selectedPlaylistId === p.id
-                        ? "bg-led-blue border-led-blue"
-                        : "border-hw-border"
-                    }`}
-                  />
-                  {isLiked ? (
-                    <div className="w-8 h-8 rounded flex-shrink-0 bg-gradient-to-br from-led-blue to-led-blue/60 flex items-center justify-center text-hw-text text-sm">&#9829;</div>
-                  ) : p.image_url ? (
-                    <img src={p.image_url} alt="" className="w-8 h-8 rounded flex-shrink-0 object-cover" />
-                  ) : (
-                    <div className="w-8 h-8 rounded flex-shrink-0 bg-hw-raised" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-hw-text truncate">{p.name}</div>
-                    <div className="text-xs text-hw-text-dim truncate">
-                      {p.owner ? `by ${p.owner}` : ""}
-                      {!isLiked && p.is_owner === false && (
-                        <span className="ml-1.5 text-yellow-500/80"> &middot; better via CSV export</span>
-                      )}
-                    </div>
-                  </div>
-                  <span className="text-xs text-hw-text-dim flex-shrink-0">
-                    {p.track_count != null ? `${p.track_count} tracks` : "—"}
-                  </span>
-                </button>
-              );
-            })}
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Hidden button for sticky footer trigger */}
+      <button id="step1-continue-btn" onClick={handleContinue} className="hidden" />
 
-      {/* CSV card */}
-      <div className="border border-hw-border rounded-xl p-4 mb-3 bg-hw-surface">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">📄</span>
-          <div className="flex-1">
-            <div className="text-sm font-bold text-hw-text">Exported Spotify Playlist (CSV)</div>
-            <div className="text-xs text-hw-text-dim">Upload a CSV exported from exportify.app</div>
+      <div className="flex flex-col gap-3.5">
+        {/* ── Spotify ── */}
+        <SourceCard
+          icon={SRC_ICONS.spotify}
+          title="Spotify"
+          desc={spotifyConnected ? "Connected to your account" : "Connect your Spotify account"}
+          active={spotifyConnected}
+        >
+          {!spotifyConnected ? (
+            <ActionButton onClick={handleSpotifyConnect}>Connect Spotify</ActionButton>
+          ) : (
+            <div>
+              <div className="flex items-center gap-2.5 mb-3.5">
+                <span
+                  className="font-mono text-[10px] font-bold uppercase"
+                  style={{
+                    color: "var(--hw-success-text)",
+                    background: "var(--hw-success-bg)",
+                    border: "1px solid var(--hw-success-border)",
+                    padding: "4px 12px",
+                    borderRadius: 4,
+                    letterSpacing: 1,
+                  }}
+                >
+                  ✓ CONNECTED
+                </span>
+                <span
+                  onClick={handleSpotifyDisconnect}
+                  className="font-sans text-[13px] cursor-pointer underline decoration-1"
+                  style={{
+                    color: "var(--hw-text-dim)",
+                    textDecorationColor: "var(--hw-text-muted)",
+                    textUnderlineOffset: 2,
+                  }}
+                >
+                  Disconnect
+                </span>
+              </div>
+              <div
+                className="font-mono text-[10px] font-bold uppercase mb-2.5"
+                style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}
+              >
+                Select Playlist
+              </div>
+              <div
+                className="overflow-hidden"
+                style={{
+                  maxHeight: 260,
+                  overflowY: "auto",
+                  border: "1px solid var(--hw-border-light)",
+                  borderRadius: 6,
+                }}
+              >
+                {playlists.map((p) => {
+                  const isLiked = p.id === "liked";
+                  const sel = selectedPlaylistId === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
+                      className="flex items-center justify-between cursor-pointer transition-colors duration-150"
+                      style={{
+                        padding: "12px 16px",
+                        borderBottom: "1px solid var(--hw-border)",
+                        background: sel ? "color-mix(in srgb, var(--led-blue) 12%, transparent)" : "transparent",
+                        gap: 14,
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="flex items-center justify-center flex-shrink-0 transition-colors"
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            border: `2px solid ${sel ? "var(--led-blue)" : "var(--hw-border-light)"}`,
+                          }}
+                        >
+                          {sel && (
+                            <div
+                              style={{
+                                width: 9,
+                                height: 9,
+                                borderRadius: "50%",
+                                background: "var(--led-blue)",
+                                boxShadow: "0 0 12px color-mix(in srgb, var(--led-blue) 33%, transparent)",
+                              }}
+                            />
+                          )}
+                        </div>
+                        {isLiked ? (
+                          <div
+                            className="w-11 h-11 rounded flex-shrink-0 flex items-center justify-center text-white text-sm"
+                            style={{
+                              background: "linear-gradient(135deg, var(--led-blue), color-mix(in srgb, var(--led-blue) 60%, transparent))",
+                            }}
+                          >
+                            &#9829;
+                          </div>
+                        ) : p.image_url ? (
+                          <img src={p.image_url} alt="" className="w-11 h-11 rounded flex-shrink-0 object-cover" />
+                        ) : (
+                          <MiniArt name={p.name} size={44} />
+                        )}
+                        <div>
+                          <div className="font-sans text-sm font-semibold" style={{ color: "var(--hw-text)", lineHeight: 1.3 }}>
+                            {p.name}
+                          </div>
+                          <div className="font-sans text-xs mt-0.5" style={{ color: "var(--hw-text-dim)" }}>
+                            {p.owner ? `by ${p.owner}` : ""}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className="font-mono text-xs font-semibold whitespace-nowrap"
+                        style={{ color: "var(--hw-text-muted)" }}
+                      >
+                        {p.track_count != null ? `${p.track_count} tracks` : "\u2014"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </SourceCard>
+
+        {/* ── CSV Upload ── */}
+        <SourceCard
+          icon={SRC_ICONS.csv}
+          title="Exported Spotify Playlist (CSV)"
+          desc="Upload a CSV exported from exportify.app"
+          active={!!csvFile}
+        >
+          <div className="flex items-center gap-3">
+            <ActionButton
+              variant="outline"
+              onClick={() => document.getElementById("csv-upload")?.click()}
+            >
+              {csvFile ? "Change" : "Upload file"}
+            </ActionButton>
+            <input
+              id="csv-upload"
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleCsvFile(f);
+              }}
+            />
           </div>
-          <button
-            onClick={() => document.getElementById("csv-upload")?.click()}
-            className="text-xs border border-hw-border text-hw-text px-3 py-1.5 rounded-lg hover:bg-hw-raised"
-          >
-            {csvFile ? "Change" : "Upload file"}
-          </button>
-          <input
-            id="csv-upload"
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
+          {csvFile && (
+            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
+              ✓ {csvFile.name} ({csvRowCount} tracks)
+            </div>
+          )}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const f = e.dataTransfer.files[0];
               if (f) handleCsvFile(f);
             }}
-          />
-        </div>
-        {csvFile && (
-          <div className="mt-3 text-xs text-led-green">✓ {csvFile.name} ({csvRowCount} tracks)</div>
-        )}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const f = e.dataTransfer.files[0];
-            if (f) handleCsvFile(f);
-          }}
-          className={`mt-3 border-2 border-dashed rounded-lg p-4 text-center text-xs transition-colors ${
-            dragging ? "border-led-blue bg-led-blue/10 text-led-blue" : "border-hw-border text-hw-text-dim"
-          }`}
-        >
-          Or drag &amp; drop CSV here
-        </div>
-      </div>
-
-      {/* TrackID */}
-      <div className={`border rounded-xl p-4 mb-8 ${trackIdValid ? "border-led-blue bg-led-blue/10" : "border-hw-border bg-hw-surface"}`}>
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-2xl">🎧</span>
-          <div className="flex-1">
-            <div className="text-sm font-bold text-hw-text">TrackID</div>
-            <div className="text-xs text-hw-text-dim">
-              Identify tracks from a YouTube DJ set or mix
-            </div>
-          </div>
-          {trackIdValid && (
-            <span className="text-xs bg-led-green/20 text-led-green px-2 py-0.5 rounded font-semibold">
-              ✓ URL set
+            className="text-center mt-3"
+            style={{
+              border: `1.5px dashed ${dragging ? "var(--led-blue)" : "var(--hw-border-light)"}`,
+              borderRadius: 6,
+              padding: 18,
+              background: dragging ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
+              transition: "all 0.2s",
+            }}
+          >
+            <span className="font-sans text-[13px]" style={{ color: dragging ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
+              Or drag &amp; drop CSV here
             </span>
-          )}
-        </div>
-        <input
-          type="url"
-          placeholder="https://www.youtube.com/watch?v=..."
-          value={trackIdUrl}
-          onChange={(e) => setTrackIdUrl(e.target.value)}
-          className="w-full bg-hw-body border border-hw-border rounded-lg px-3 py-2 text-sm text-hw-text placeholder-hw-text-dim focus:outline-none focus:border-led-blue"
-        />
-        {trackIdValid && !trackIdStatus && (
-          <p className="mt-2 text-xs text-led-orange">
-            Track identification runs during import and may take a few minutes.
-          </p>
-        )}
-        {trackIdStatus && (
-          <div className="mt-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs text-led-blue">{trackIdStatus.step}</span>
-              <span className="text-xs text-hw-text-dim">{trackIdStatus.progress}%</span>
-            </div>
-            <div className="w-full bg-hw-raised rounded-full h-1.5">
-              <div
-                className="bg-led-blue h-1.5 rounded-full transition-all duration-500"
-                style={{ width: `${trackIdStatus.progress}%` }}
-              />
-            </div>
           </div>
-        )}
-      </div>
+        </SourceCard>
 
-      {/* CTA */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-hw-text-dim">
-          {sourcesSelected > 0
-            ? `${sourcesSelected} source${sourcesSelected > 1 ? "s" : ""} selected` +
-              (totalTracks > 0 ? ` · ${totalTracks} tracks` : "") +
-              (trackIdValid ? " + YouTube mix" : "")
-            : "Select at least one source"}
-        </span>
-        <button
-          onClick={handleContinue}
-          disabled={sourcesSelected === 0 || loading}
-          className="bg-led-blue text-hw-text text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-led-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
+        {/* ── TrackID ── */}
+        <SourceCard
+          icon={SRC_ICONS.trackid}
+          title="TrackID"
+          desc="Identify tracks from a YouTube DJ set or mix"
+          active={trackIdValid}
         >
-          {trackIdStatus && loading
-            ? "Identifying tracks…"
-            : loading
-            ? "Importing…"
-            : "Review tracks →"}
-        </button>
+          <input
+            type="url"
+            placeholder="https://www.youtube.com/watch?v=..."
+            value={trackIdUrl}
+            onChange={(e) => setTrackIdUrl(e.target.value)}
+            className="w-full font-mono text-[13px] outline-none transition-all duration-200"
+            style={{
+              color: "var(--hw-text)",
+              background: trackIdUrl ? "var(--hw-input-focus)" : "var(--hw-input-bg)",
+              border: `1.5px solid ${trackIdUrl ? "color-mix(in srgb, var(--led-blue) 35%, transparent)" : "var(--hw-input-border)"}`,
+              borderRadius: 5,
+              padding: "12px 16px",
+              boxShadow: trackIdUrl ? "0 0 0 3px color-mix(in srgb, var(--led-blue) 7%, transparent)" : "none",
+            }}
+          />
+          {trackIdValid && !trackIdStatus && (
+            <div className="mt-2.5">
+              <span
+                className="font-mono text-[10px] font-bold uppercase"
+                style={{
+                  color: "var(--hw-success-text)",
+                  background: "var(--hw-success-bg)",
+                  border: "1px solid var(--hw-success-border)",
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                }}
+              >
+                ✓ URL SET
+              </span>
+              <p className="mt-2 font-sans text-xs" style={{ color: "var(--hw-warning-text)" }}>
+                Track identification runs during import and may take a few minutes.
+              </p>
+            </div>
+          )}
+          {trackIdStatus && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-mono text-xs" style={{ color: "var(--led-blue)" }}>{trackIdStatus.step}</span>
+                <span className="font-mono text-xs" style={{ color: "var(--hw-text-dim)" }}>{trackIdStatus.progress}%</span>
+              </div>
+              <div className="w-full rounded-full h-1.5" style={{ background: "var(--hw-raised)" }}>
+                <div
+                  className="h-1.5 rounded-full transition-all duration-500"
+                  style={{ width: `${trackIdStatus.progress}%`, background: "var(--led-blue)" }}
+                />
+              </div>
+            </div>
+          )}
+        </SourceCard>
+
+        {/* ── Agent Import (coming soon placeholder) ── */}
+        <SourceCard
+          icon={SRC_ICONS.agent}
+          title="Agent Import"
+          desc="Import from your local library via agent"
+          disabled
+          comingSoon
+        />
       </div>
 
-      {/* Exportify hint dialog for non-owned playlists */}
-      <dialog
-        ref={dialogRef}
-        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-900 border border-gray-700 rounded-xl p-0 max-w-md w-full backdrop:bg-black/60"
-        onClose={() => setShowExportifyHint(false)}
-      >
-        {showExportifyHint && (
-          <div className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <span className="text-2xl">⚠️</span>
-              <h2 className="text-lg font-bold text-white">Can&apos;t read this playlist</h2>
-            </div>
-            <p className="text-sm text-gray-300 mb-3">
-              Spotify doesn&apos;t allow reading tracks from playlists you don&apos;t own via the API.
-            </p>
-            <p className="text-sm text-gray-400 mb-5">
-              You can export it as a CSV from{" "}
-              <a
-                href="https://exportify.app"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-indigo-400 underline hover:text-indigo-300"
-              >
-                exportify.app
-              </a>{" "}
-              and then import it using the <strong className="text-gray-200">CSV upload</strong> option above.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  dialogRef.current?.close();
-                  setSelectedPlaylistId(null);
-                }}
-                className="text-sm text-gray-400 hover:text-white px-4 py-2 rounded-lg"
-              >
-                Deselect playlist
-              </button>
-              <button
-                onClick={() => dialogRef.current?.close()}
-                className="text-sm bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-500"
-              >
-                Got it
-              </button>
-            </div>
-          </div>
-        )}
-      </dialog>
+      {/* Loading overlay for import */}
+      {loading && (
+        <div className="mt-6 flex items-center gap-3">
+          <div
+            className="w-3 h-3 rounded-full animate-pulse"
+            style={{ background: "var(--led-blue)", boxShadow: "0 0 8px var(--led-blue)" }}
+          />
+          <span className="font-sans text-sm" style={{ color: "var(--led-blue)" }}>
+            {trackIdStatus ? "Identifying tracks..." : "Importing..."}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// STEP 2: REVIEW TRACKS
+// ═══════════════════════════════════════════════════════════════════════════════
+
 interface Step2Props {
   candidates: Track[];
+  onSelectedChange: (count: number) => void;
   onBack: () => void;
   onComplete: () => void;
 }
 
-function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
+function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2Props) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Record<number, boolean>>(() => {
     const initial: Record<number, boolean> = {};
@@ -540,6 +965,11 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
   const selectedCount = Object.values(selected).filter(Boolean).length;
   const ownedCount = candidates.filter((t) => t.already_owned).length;
   const allSelected = filtered.length > 0 && filtered.every((t) => selected[t.id]);
+
+  // Notify parent of selection count
+  useEffect(() => {
+    onSelectedChange(selectedCount);
+  }, [selectedCount, onSelectedChange]);
 
   function toggleAll() {
     const newVal = !allSelected;
@@ -572,133 +1002,128 @@ function Step2Review({ candidates, onBack, onComplete }: Step2Props) {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8">
-      <h1 className="text-xl font-bold text-hw-text mb-1">Confirm your download list</h1>
-      <p className="text-sm text-hw-text-dim mb-5">
+    <div style={{ padding: "clamp(24px, 4vw, 40px)" }}>
+      <h2
+        className="font-sans font-black"
+        style={{ fontSize: "clamp(24px, 3.5vw, 32px)", letterSpacing: -1, marginBottom: 8 }}
+      >
+        Confirm your download list
+      </h2>
+      <p
+        className="font-sans text-[15px]"
+        style={{ color: "var(--hw-text-sec)", marginBottom: 28, lineHeight: 1.6 }}
+      >
         Deselect any tracks you don&apos;t want. Already-owned tracks are excluded automatically.
       </p>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        {[
-          { label: "To download", value: selectedCount },
-          { label: "Already owned", value: ownedCount },
-          { label: "Total imported", value: candidates.length },
-        ].map(({ label, value }) => (
-          <div key={label} className="bg-hw-surface border border-hw-border rounded-lg p-3 text-center">
-            <div className="text-2xl font-bold text-hw-text">{value}</div>
-            <div className="text-xs text-hw-text-dim mt-0.5">{label}</div>
-          </div>
-        ))}
+      {/* Hidden button for sticky footer trigger */}
+      <button id="step2-confirm-btn" onClick={handleConfirm} className="hidden" />
+
+      {/* LCD Stats */}
+      <div className="grid grid-cols-3 gap-2.5 mb-6">
+        <LCDDisplay value={selectedCount} label="To download" />
+        <LCDDisplay value={ownedCount} label="Already owned" />
+        <LCDDisplay value={candidates.length} label="Total imported" />
       </div>
 
       {/* Search */}
       <input
         type="text"
-        placeholder="Search by title or artist…"
+        placeholder="Search by title or artist..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-full bg-hw-raised border border-hw-border rounded-lg px-3 py-2 text-sm text-hw-text placeholder-hw-text-dim mb-2 focus:outline-none focus:border-led-blue"
+        className="w-full font-sans text-sm outline-none transition-all duration-200 mb-3.5"
+        style={{
+          color: "var(--hw-text)",
+          background: "var(--hw-input-bg)",
+          border: "1.5px solid var(--hw-input-border)",
+          borderRadius: 6,
+          padding: "12px 16px",
+        }}
+        onFocus={(e) => {
+          e.target.style.borderColor = "color-mix(in srgb, var(--led-blue) 35%, transparent)";
+          e.target.style.boxShadow = "0 0 0 3px color-mix(in srgb, var(--led-blue) 7%, transparent)";
+        }}
+        onBlur={(e) => {
+          e.target.style.borderColor = "var(--hw-input-border)";
+          e.target.style.boxShadow = "none";
+        }}
       />
-
-      {/* Select all */}
-      <div className="flex items-center gap-2.5 px-3 py-2 bg-hw-raised rounded-t-lg border-b border-hw-border">
-        <input
-          type="checkbox"
-          checked={allSelected}
-          onChange={toggleAll}
-          className="w-3.5 h-3.5 accent-[#4488FF]"
-        />
-        <span className="text-xs text-hw-text font-semibold flex-1">Select all</span>
-        <span className="text-xs text-hw-text-dim">{selectedCount} selected</span>
-      </div>
 
       {/* Track list */}
       <div
-        className="border border-hw-border border-t-0 rounded-b-lg overflow-y-auto"
-        style={{ maxHeight: "calc(100vh - 420px)" }}
-      >
-        {filtered.map((t) => {
-          const isOwned = alreadyOwnedIds.has(t.id);
-          const isSelected = selected[t.id];
-          return (
-            <div
-              key={t.id}
-              onClick={() => setSelected((p) => ({ ...p, [t.id]: !p[t.id] }))}
-              className={`flex items-center gap-3 px-3 py-2.5 border-b border-hw-border last:border-0 cursor-pointer transition-colors ${
-                isSelected ? "bg-hw-surface hover:bg-hw-raised/60" : "bg-hw-body opacity-50"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => {}}
-                className="w-3.5 h-3.5 accent-[#4488FF] flex-shrink-0"
-                onClick={(e) => e.stopPropagation()}
-              />
-              <div className="flex-1 min-w-0">
-                <span
-                  className={`text-sm ${isSelected ? "text-hw-text" : "text-hw-text-dim line-through"}`}
-                >
-                  {t.title}
-                </span>
-              </div>
-              <div className="w-40 text-xs text-hw-text-dim truncate">{t.artist}</div>
-              {isOwned && (
-                <span className="text-xs bg-hw-raised text-hw-text-dim px-1.5 py-0.5 rounded flex-shrink-0">
-                  Already owned
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* CTA */}
-      <div className="flex items-center justify-between mt-5">
-        <button onClick={onBack} className="text-sm text-hw-text-dim hover:text-hw-text">
-          ← Back
-        </button>
-        <button
-          onClick={handleConfirm}
-          disabled={selectedCount === 0 || loading}
-          className="bg-led-blue text-hw-text text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-led-blue/80 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          {loading ? "Queuing…" : `Queue ${selectedCount} download${selectedCount !== 1 ? "s" : ""} →`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// CopyBlock is defined at module scope so it doesn't remount on every render
-function CopyBlock({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="bg-hw-body border border-hw-border rounded-lg px-4 py-2.5 flex items-center justify-between gap-3 mb-2">
-      <code className="text-led-green text-xs font-mono break-all">{text}</code>
-      <button
-        onClick={() => {
-          navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
+        className="overflow-hidden"
+        style={{
+          border: "1px solid var(--hw-border-light)",
+          borderRadius: 6,
+          maxHeight: 420,
+          overflowY: "auto",
         }}
-        className="text-xs text-hw-text-dim hover:text-hw-text flex-shrink-0"
       >
-        {copied ? "Copied!" : "Copy"}
-      </button>
+        {/* Header */}
+        <div
+          className="grid items-center sticky top-0 z-10"
+          style={{
+            gridTemplateColumns: "28px 44px 2fr 1.5fr 1fr",
+            padding: "10px 16px",
+            gap: 12,
+            background: "var(--hw-raised)",
+            borderBottom: "1px solid var(--hw-border-light)",
+          }}
+        >
+          <Checkbox
+            checked={allSelected}
+            onChange={() => toggleAll()}
+          />
+          <span />
+          <span className="font-mono text-[9px] font-bold uppercase" style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}>
+            TRACK
+          </span>
+          <span className="font-mono text-[9px] font-bold uppercase" style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}>
+            ARTIST
+          </span>
+          <span className="font-mono text-[9px] font-bold uppercase text-right" style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}>
+            STATUS
+          </span>
+        </div>
+
+        {filtered.map((t) => (
+          <TrackReviewRow
+            key={t.id}
+            track={t}
+            isSelected={selected[t.id]}
+            isOwned={alreadyOwnedIds.has(t.id)}
+            onToggle={() => setSelected((p) => ({ ...p, [t.id]: !p[t.id] }))}
+          />
+        ))}
+      </div>
+
+      {loading && (
+        <div className="mt-4 flex items-center gap-3">
+          <div
+            className="w-3 h-3 rounded-full animate-pulse"
+            style={{ background: "var(--led-blue)", boxShadow: "0 0 8px var(--led-blue)" }}
+          />
+          <span className="font-sans text-sm" style={{ color: "var(--led-blue)" }}>Queuing downloads...</span>
+        </div>
+      )}
     </div>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STEP 3: DOWNLOAD AGENT
+// ═══════════════════════════════════════════════════════════════════════════════
 
 interface Step3Props {
   apiKey: string;
   setApiKey: (key: string) => void;
   machineName: string;
+  onAgentChange: (connected: boolean) => void;
   onDone: () => void;
 }
 
-function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
+function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone }: Step3Props) {
   const [agentConnected, setAgentConnected] = useState(false);
   const [agentName, setAgentName] = useState("");
   const [pendingJobs, setPendingJobs] = useState<number | null>(null);
@@ -708,12 +1133,10 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
 
   useEffect(() => {
     if (apiKey) return;
-    // Check if an agent already exists before registering a new one
     fetchAgents()
       .then((agents) => {
         const existing = agents.find((a) => a.machine_name === machineName);
         if (existing) {
-          // Agent already registered — skip registration, just poll for connection
           setRegistering(false);
           return;
         }
@@ -737,20 +1160,19 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
         );
         if (live) {
           setAgentConnected(true);
+          onAgentChange(true);
           setAgentName(live.machine_name ?? "your Mac");
           setPollErrors(0);
           fetchPipelineStatus()
             .then((s) => setPendingJobs(s.pending))
             .catch(() => {});
-        } else {
-          // No live agent found — don't reset error counter
         }
       } catch {
         setPollErrors((e) => e + 1);
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [agentConnected]);
+  }, [agentConnected, onAgentChange]);
 
   async function handleDone() {
     await supabase.auth.updateUser({
@@ -763,55 +1185,84 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
     agentConnected ? "connected" : pollErrors >= 3 ? "error" : "waiting";
 
   return (
-    <div className="max-w-lg mx-auto px-6 py-10">
-      <h1 className="text-xl font-bold text-hw-text mb-1">Install the djtoolkit agent</h1>
-      <p className="text-sm text-hw-text-dim mb-6">
+    <div style={{ padding: "clamp(24px, 4vw, 40px)" }}>
+      <h2
+        className="font-sans font-black"
+        style={{ fontSize: "clamp(24px, 3.5vw, 32px)", letterSpacing: -1, marginBottom: 8 }}
+      >
+        Install the djtoolkit agent
+      </h2>
+      <p
+        className="font-sans text-[15px]"
+        style={{ color: "var(--hw-text-sec)", marginBottom: 32, lineHeight: 1.6, maxWidth: 520 }}
+      >
         The agent runs on your Mac and handles downloading, fingerprinting, and tagging
         — your files never leave your machine.
       </p>
 
-      {/* Homebrew (recommended) */}
-      <div className="border border-led-blue bg-led-blue/10 rounded-xl p-4 mb-3">
-        <div className="flex items-center gap-3 mb-3">
-          <span className="text-2xl">🍺</span>
-          <div className="flex-1">
-            <div className="text-sm font-bold text-hw-text">Homebrew <span className="text-xs font-normal text-led-blue ml-1">recommended</span></div>
-            <div className="text-xs text-led-blue">Automatic updates &middot; includes all dependencies</div>
-          </div>
-        </div>
-        <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
-      </div>
-
-      {/* Direct download */}
-      <div className="border border-hw-border bg-hw-surface rounded-xl p-4 mb-3 flex items-center gap-3">
-        <span className="text-2xl">💿</span>
-        <div className="flex-1">
-          <div className="text-sm font-bold text-hw-text">Direct download</div>
-          <div className="text-xs text-hw-text-dim">macOS .dmg &middot; arm64 + x86_64</div>
-        </div>
-        <a
-          href="https://github.com/yenkz/djtoolkit/releases/latest"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-hw-raised text-hw-text text-xs font-semibold px-4 py-2 rounded-lg hover:bg-hw-raised"
+      <div className="flex flex-col gap-3.5">
+        {/* Homebrew (recommended) */}
+        <SourceCard
+          icon={SRC_ICONS.homebrew}
+          title="Homebrew"
+          desc="Automatic updates &middot; includes all dependencies"
+          active
         >
-          GitHub Releases
-        </a>
+          <span
+            className="font-mono text-[10px] font-bold uppercase inline-block mb-3"
+            style={{
+              color: "var(--hw-success-text)",
+              background: "var(--hw-success-bg)",
+              border: "1px solid var(--hw-success-border)",
+              padding: "3px 10px",
+              borderRadius: 4,
+              letterSpacing: 1,
+            }}
+          >
+            recommended
+          </span>
+          <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
+        </SourceCard>
+
+        {/* Direct download */}
+        <SourceCard
+          icon={SRC_ICONS.download}
+          title="Direct download"
+          desc="macOS .dmg &middot; arm64 + x86_64"
+        >
+          <a
+            href="https://github.com/yenkz/djtoolkit/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ActionButton variant="outline">GitHub Releases</ActionButton>
+          </a>
+        </SourceCard>
       </div>
 
       {/* pip alternative */}
-      <div className="mb-5">
-        <div className="text-xs text-hw-text-dim uppercase tracking-wider mb-2">Or install via pip</div>
+      <div className="mt-6">
+        <div
+          className="font-mono text-[10px] font-bold uppercase mb-2.5"
+          style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}
+        >
+          Or install via pip
+        </div>
         <CopyBlock text="pip install djtoolkit" />
       </div>
 
       {/* Configure + start */}
-      <div className="mb-6">
-        <div className="text-xs text-hw-text-dim uppercase tracking-wider mb-2">
+      <div className="mt-7">
+        <div
+          className="font-mono text-[10px] font-bold uppercase mb-2.5"
+          style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}
+        >
           Configure &amp; start
         </div>
         {registering || !apiKey ? (
-          <div className="text-xs text-hw-text-dim py-2">Generating API key…</div>
+          <div className="font-sans text-sm py-2" style={{ color: "var(--hw-text-dim)" }}>
+            Generating API key...
+          </div>
         ) : (
           <>
             <CopyBlock text={`djtoolkit agent configure --api-key ${apiKey}`} />
@@ -823,63 +1274,70 @@ function Step3Agent({ apiKey, setApiKey, machineName, onDone }: Step3Props) {
 
       {/* Status indicator */}
       <div
-        className={`border rounded-lg px-4 py-3 flex items-center gap-3 mb-5 ${
-          statusState === "connected"
-            ? "border-led-green/40 bg-led-green/10"
-            : statusState === "error"
-            ? "border-led-orange/40 bg-led-orange/10"
-            : "border-hw-border bg-hw-surface"
-        }`}
+        className="flex items-center gap-4 mt-6 mb-6"
+        style={{
+          border: `1.5px solid ${
+            statusState === "connected"
+              ? "var(--hw-success-border)"
+              : statusState === "error"
+              ? "var(--hw-warning-border)"
+              : "var(--hw-border)"
+          }`,
+          background:
+            statusState === "connected"
+              ? "var(--hw-success-bg)"
+              : statusState === "error"
+              ? "var(--hw-warning-bg)"
+              : "var(--hw-surface)",
+          borderRadius: 8,
+          padding: "18px 22px",
+        }}
       >
         <div
-          className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-            statusState === "connected"
-              ? "bg-led-green shadow-[0_0_8px_2px_rgba(0,255,50,0.4)]"
-              : statusState === "error"
-              ? "bg-led-orange shadow-[0_0_8px_2px_rgba(255,165,0,0.4)]"
-              : "bg-led-red shadow-[0_0_8px_2px_rgba(255,0,50,0.4)]"
-          }`}
+          className="flex-shrink-0"
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: "50%",
+            background:
+              statusState === "connected"
+                ? "var(--led-green)"
+                : statusState === "error"
+                ? "var(--led-orange)"
+                : "var(--led-red)",
+            boxShadow:
+              statusState === "connected"
+                ? "0 0 8px color-mix(in srgb, var(--led-green) 40%, transparent)"
+                : statusState === "error"
+                ? "0 0 8px color-mix(in srgb, var(--led-orange) 40%, transparent)"
+                : "0 0 8px color-mix(in srgb, var(--led-red) 40%, transparent)",
+          }}
         />
         <div>
           {statusState === "connected" ? (
             <>
-              <div className="text-sm font-semibold text-led-green">
+              <div className="font-sans text-base font-bold" style={{ color: "var(--hw-text)" }}>
                 Agent connected — {agentName}
               </div>
-              <div className="text-xs text-led-green/60">
+              <div className="font-sans text-[13px] mt-0.5" style={{ color: "var(--hw-success-text)" }}>
                 {pendingJobs !== null ? `${pendingJobs} download jobs queued and ready` : ""}
               </div>
             </>
           ) : statusState === "error" ? (
-            <div className="text-sm text-led-orange">Connection check failed — retrying…</div>
+            <div className="font-sans text-sm" style={{ color: "var(--hw-warning-text)" }}>
+              Connection check failed — retrying...
+            </div>
           ) : (
             <>
-              <div className="text-sm text-hw-text">Agent not connected</div>
-              <div className="text-xs text-hw-text-dim">Checking every 5s…</div>
+              <div className="font-sans text-sm" style={{ color: "var(--hw-text)" }}>
+                Agent not connected
+              </div>
+              <div className="font-sans text-xs" style={{ color: "var(--hw-text-dim)" }}>
+                Checking every 5s...
+              </div>
             </>
           )}
         </div>
-      </div>
-
-      {/* CTAs */}
-      <div className="flex flex-col items-end gap-2">
-        <button
-          onClick={handleDone}
-          disabled={!agentConnected}
-          className={`text-sm font-bold px-6 py-2.5 rounded-lg transition-colors ${
-            agentConnected
-              ? "bg-led-green text-hw-text hover:bg-led-green/80"
-              : "bg-hw-raised text-hw-text-dim cursor-not-allowed"
-          }`}
-        >
-          Go to Pipeline →
-        </button>
-        <button
-          onClick={() => { window.location.href = "/catalog"; }}
-          className="text-xs text-hw-text-dim hover:text-hw-text-dim"
-        >
-          Skip for now
-        </button>
       </div>
     </div>
   );

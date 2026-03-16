@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, Space_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { Grain } from "@/components/ui/Grain";
+import { ThemeProvider } from "@/lib/theme-provider";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -25,24 +26,32 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){var t=localStorage.getItem('djtoolkit-theme');if(t==='light'||(t==='system'&&matchMedia('(prefers-color-scheme: light)').matches))document.documentElement.classList.add('light')})()`,
+          }}
+        />
+      </head>
       <body
         className={`${dmSans.variable} ${spaceMono.variable} antialiased bg-hw-body text-hw-text`}
       >
-        {children}
-        <Grain />
-        <Toaster
-          theme="dark"
-          richColors
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: "var(--hw-surface)",
-              border: "1px solid var(--hw-border)",
-              color: "var(--hw-text)",
-            },
-          }}
-        />
+        <ThemeProvider>
+          {children}
+          <Grain />
+          <Toaster
+            richColors
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: "var(--hw-surface)",
+                border: "1px solid var(--hw-border)",
+                color: "var(--hw-text)",
+              },
+            }}
+          />
+        </ThemeProvider>
       </body>
     </html>
   );
