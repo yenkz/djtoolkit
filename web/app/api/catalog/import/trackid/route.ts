@@ -2,8 +2,8 @@
  * POST /api/catalog/import/trackid
  *
  * Start a TrackID import job. Accepts a YouTube URL, checks cache, and either
- * inserts tracks immediately (cache hit) or queues a background Edge Function
- * job (cache miss).
+ * inserts tracks immediately (cache hit) or submits to TrackID.dev and creates
+ * a pending job that the status endpoint will poll.
  *
  * Body: { url: string }
  * Query params:
@@ -24,15 +24,6 @@ import { randomUUID } from "crypto";
 
 const YT_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
-/**
- * Validate and normalize a YouTube URL.
- * Accepts:
- *   - youtube.com/watch?v=VIDEO_ID
- *   - youtu.be/VIDEO_ID
- *   - youtube.com/embed/VIDEO_ID
- *
- * Returns the normalized URL on success, or throws an Error if invalid.
- */
 function validateYouTubeUrl(url: string): string {
   let videoId: string | null = null;
 
@@ -84,6 +75,8 @@ interface CachedTrack {
   duration_ms: number | null;
   search_string: string | null;
 }
+
+const TRACKID_BASE = "https://trackid.dev";
 
 // ─── Route handler ───────────────────────────────────────────────────────────
 
@@ -158,7 +151,7 @@ export async function POST(request: NextRequest) {
         .select("id, search_string, artist, title, duration_ms");
 
       const newlyInserted = inserted ?? [];
-      newlyInsertedCount = newlyInsertedCount;
+      newlyInsertedCount = newlyInserted.length;
 
       // Re-fetch ALL matching track IDs (upsert with ignoreDuplicates returns
       // nothing for existing rows). Batch in chunks of 100 for URL safety.
@@ -174,7 +167,6 @@ export async function POST(request: NextRequest) {
           .in("title", batch);
         allTrackIds.push(...(rows ?? []).map((r) => r.id as number));
       }
-      // Deduplicate IDs (a title may match multiple rows across batches)
       insertedIds = [...new Set(allTrackIds)];
 
       if (queueJobs && newlyInsertedCount > 0) {
@@ -231,27 +223,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ job_id: jobId }, { status: 202 });
   }
 
-  // Cache miss — create a pending job and invoke the Edge Function
+  // Cache miss — submit to TrackID.dev directly
+  const submitResp = await fetch(`${TRACKID_BASE}/api/analyze`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "djtoolkit/1.0",
+    },
+    body: JSON.stringify({ url: normalizedUrl }),
+  });
+
+  if (submitResp.status === 429) {
+    return jsonError("TrackID.dev rate limit reached. Try again in a few minutes.", 429);
+  }
+  if (!submitResp.ok) {
+    return jsonError(`TrackID.dev submission failed: ${submitResp.status}`, 502);
+  }
+
+  const submitData = await submitResp.json();
+  const trackidJobId = submitData.jobId as string;
+
+  // Create a pending job with the TrackID job ID stored for polling
   await supabase.from("trackid_import_jobs").insert({
     id: jobId,
     user_id: user.userId,
     youtube_url: normalizedUrl,
     status: "queued",
     progress: 0,
-    step: "Queued…",
+    step: "Submitted to TrackID.dev…",
+    trackid_job_id: trackidJobId,
   });
-
-  // Fire and forget — Edge Function runs in background
-  supabase.functions
-    .invoke("trackid-poll", {
-      body: {
-        job_id: jobId,
-        url: normalizedUrl,
-        user_id: user.userId,
-        queue_jobs: queueJobs,
-      },
-    })
-    .catch((err) => console.warn("Edge function invoke failed:", err));
 
   await auditLog(user.userId, "track.import.trackid", {
     resourceType: "youtube_url",
