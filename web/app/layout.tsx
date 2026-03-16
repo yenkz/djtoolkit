@@ -3,6 +3,7 @@ import { DM_Sans, Space_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { Grain } from "@/components/ui/Grain";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "@/lib/theme-provider";
 import "./globals.css";
 
@@ -54,6 +55,7 @@ export default function RootLayout({
           />
         </ThemeProvider>
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
