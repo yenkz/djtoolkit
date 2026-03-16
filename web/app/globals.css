@@ -13,6 +13,7 @@
   --hw-text-sec: #EBEED5aa;
   --hw-text-dim: #EBEED577;
   --hw-text-muted: #EBEED544;
+  --sidebar-logo-color: #EBEED5;
 
   /* LED colors — constant across themes */
   --led-green: #44FF44;
@@ -83,6 +84,7 @@
   --hw-text-sec: #1A141899;
   --hw-text-dim: #1A141866;
   --hw-text-muted: #1A141844;
+  --sidebar-logo-color: #2A2428;
 
   /* Extended tokens — light */
   --hw-card-bg: #FFFFFF;

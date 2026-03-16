@@ -941,6 +941,97 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
           </span>
         </div>
       )}
+
+      {/* Exportify hint dialog for non-owned playlists */}
+      <dialog
+        ref={dialogRef}
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 p-0 max-w-md w-full backdrop:bg-black/60"
+        style={{
+          background: "var(--hw-modal-bg)",
+          border: "1px solid var(--hw-border)",
+          borderRadius: 12,
+        }}
+        onClose={() => setShowExportifyHint(false)}
+      >
+        {showExportifyHint && (
+          <div style={{ padding: 24 }}>
+            <div className="flex items-center gap-3 mb-4">
+              <span
+                className="flex items-center justify-center flex-shrink-0"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  background: "var(--hw-warning-bg)",
+                  border: "1px solid var(--hw-warning-border)",
+                  fontSize: 18,
+                }}
+              >
+                ⚠️
+              </span>
+              <h2
+                className="font-sans font-bold"
+                style={{ fontSize: 17, color: "var(--hw-text)" }}
+              >
+                Can&apos;t read this playlist
+              </h2>
+            </div>
+            <p
+              className="font-sans text-[14px]"
+              style={{ color: "var(--hw-text-sec)", lineHeight: 1.6, marginBottom: 12 }}
+            >
+              Spotify doesn&apos;t allow reading tracks from playlists you don&apos;t own via the API.
+            </p>
+            <p
+              className="font-sans text-[13px]"
+              style={{ color: "var(--hw-text-dim)", lineHeight: 1.6, marginBottom: 20 }}
+            >
+              You can export it as a CSV from{" "}
+              <a
+                href="https://exportify.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "var(--led-blue)", textDecoration: "underline" }}
+              >
+                exportify.app
+              </a>{" "}
+              and then import it using the <strong style={{ color: "var(--hw-text)" }}>CSV upload</strong> option above.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  dialogRef.current?.close();
+                  setSelectedPlaylistId(null);
+                }}
+                className="font-sans text-[13px] cursor-pointer"
+                style={{
+                  color: "var(--hw-text-dim)",
+                  background: "none",
+                  border: "none",
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                }}
+              >
+                Deselect playlist
+              </button>
+              <button
+                onClick={() => dialogRef.current?.close()}
+                className="font-mono text-[11px] font-bold cursor-pointer"
+                style={{
+                  letterSpacing: 0.5,
+                  background: "var(--led-blue)",
+                  color: "#fff",
+                  border: "none",
+                  padding: "8px 20px",
+                  borderRadius: 6,
+                }}
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
     </div>
   );
 }

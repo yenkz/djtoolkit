@@ -23,6 +23,47 @@ const THEME_OPTIONS = [
   { value: "dark" as const, icon: Moon, label: "Dark" },
 ];
 
+function SidebarLogo() {
+  const [hovered, setHovered] = useState(false);
+
+  return (
+    <Link
+      href="/catalog"
+      className="flex items-center gap-3 px-5 py-4 no-underline"
+      style={{ textDecoration: "none" }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <span
+        style={{
+          transition: "filter 0.2s ease",
+          filter: hovered
+            ? "drop-shadow(0 0 6px var(--led-blue)) drop-shadow(0 0 12px color-mix(in srgb, var(--led-blue) 40%, transparent))"
+            : "none",
+        }}
+      >
+        <Logo
+          w={32}
+          h={22}
+          color={hovered ? "var(--led-blue)" : "var(--sidebar-logo-color)"}
+        />
+      </span>
+      <span
+        className="font-mono text-xs font-bold uppercase tracking-widest"
+        style={{
+          transition: "color 0.2s ease, text-shadow 0.2s ease",
+          color: hovered ? "var(--led-blue)" : "var(--hw-text-dim)",
+          textShadow: hovered
+            ? "0 0 12px color-mix(in srgb, var(--led-blue) 50%, transparent)"
+            : "none",
+        }}
+      >
+        djtoolkit
+      </span>
+    </Link>
+  );
+}
+
 export default function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -48,14 +89,7 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
 
   const sidebarContent = (
     <aside className="flex w-56 flex-col border-r border-hw-border bg-hw-surface h-full">
-      <div className="flex items-center gap-3 px-5 py-4">
-        <Logo w={32} h={22} />
-        <span
-          className="font-mono text-xs font-bold uppercase tracking-widest text-hw-text-dim"
-        >
-          djtoolkit
-        </span>
-      </div>
+      <SidebarLogo />
 
       <nav className="flex-1 space-y-0.5 px-3 py-2">
         {NAV.map(({ href, label, icon: Icon }) => {
