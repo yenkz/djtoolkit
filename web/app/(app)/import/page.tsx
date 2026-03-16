@@ -293,18 +293,13 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
             </div>
             <div className="max-h-64 overflow-y-auto">
             {playlists.map((p) => {
-              const isSpotifyCurated = p.owner?.toLowerCase() === "spotify";
-              const isNotOwned = p.is_owner === false && !isSpotifyCurated;
-              const isDisabled = isSpotifyCurated;
+              const isLiked = p.id === "liked";
               return (
                 <button
                   key={p.id}
-                  onClick={() => !isDisabled && setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
-                  disabled={isDisabled}
+                  onClick={() => setSelectedPlaylistId(p.id === selectedPlaylistId ? null : p.id)}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 text-left border-b border-gray-800 last:border-0 transition-colors ${
-                    isDisabled
-                      ? "opacity-40 cursor-not-allowed"
-                      : selectedPlaylistId === p.id
+                    selectedPlaylistId === p.id
                       ? "bg-indigo-950/60"
                       : "hover:bg-gray-900"
                   }`}
@@ -316,7 +311,9 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
                         : "border-gray-600"
                     }`}
                   />
-                  {p.image_url ? (
+                  {isLiked ? (
+                    <div className="w-8 h-8 rounded flex-shrink-0 bg-gradient-to-br from-indigo-600 to-blue-400 flex items-center justify-center text-white text-sm">&#9829;</div>
+                  ) : p.image_url ? (
                     <img src={p.image_url} alt="" className="w-8 h-8 rounded flex-shrink-0 object-cover" />
                   ) : (
                     <div className="w-8 h-8 rounded flex-shrink-0 bg-gray-800" />
@@ -325,8 +322,6 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
                     <div className="text-sm text-white truncate">{p.name}</div>
                     <div className="text-xs text-gray-500 truncate">
                       {p.owner ? `by ${p.owner}` : ""}
-                      {isSpotifyCurated && <span className="ml-1 text-gray-600">(can&apos;t import via API)</span>}
-                      {isNotOwned && <span className="ml-1 text-yellow-700">· may be restricted</span>}
                     </div>
                   </div>
                   <span className="text-xs text-gray-500 flex-shrink-0">

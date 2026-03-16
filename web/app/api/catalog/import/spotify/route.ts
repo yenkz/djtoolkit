@@ -112,10 +112,12 @@ export async function POST(request: NextRequest) {
     return jsonError(message, 401);
   }
 
-  // Paginate through playlist items
+  // Paginate through items — use /me/tracks for Liked Songs, /playlists/{id}/tracks otherwise
   const allItems: SpotifyPlaylistItem[] = [];
-  let url: string | null =
-    `${SPOTIFY_API}/playlists/${encodeURIComponent(playlistId)}/tracks?limit=100`;
+  const isLiked = playlistId === "liked";
+  let url: string | null = isLiked
+    ? `${SPOTIFY_API}/me/tracks?limit=50`
+    : `${SPOTIFY_API}/playlists/${encodeURIComponent(playlistId)}/tracks?limit=100`;
 
   while (url) {
     const resp = await fetch(url, {
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest) {
 
     if (!resp.ok) {
       const errBody = await resp.text();
-      console.error("Spotify playlist tracks error:", resp.status, errBody);
+      console.error("Spotify tracks error:", resp.status, errBody);
       return jsonError(
         `Spotify API error: ${resp.status} ${resp.statusText}`,
         502
