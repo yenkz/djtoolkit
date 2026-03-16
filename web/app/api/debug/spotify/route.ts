@@ -64,13 +64,28 @@ export async function GET(request: NextRequest) {
     (p: { owner?: { id?: string } }) => p.owner?.id === spotifyUserId
   );
 
-  const tracksAny = firstPlaylist?.id ? await testTracks(firstPlaylist.id) : null;
-  const tracksOwned = firstOwnedPlaylist?.id && firstOwnedPlaylist.id !== firstPlaylist?.id
-    ? await testTracks(firstOwnedPlaylist.id)
-    : firstOwnedPlaylist?.id === firstPlaylist?.id ? "same as first — see tracks_any" : null;
+  // Test the owned playlist with multiple endpoint variants
+  const ownedId = firstOwnedPlaylist?.id;
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  // Variant 1: /playlists/{id}/tracks (current approach — returns 403)
+  const v1 = ownedId
+    ? await fetch(`${SPOTIFY_API}/playlists/${ownedId}/tracks?limit=2`, { headers })
+        .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }))
+    : null;
+
+  // Variant 2: /playlists/{id} (full playlist object — tracks embedded)
+  const v2 = ownedId
+    ? await fetch(`${SPOTIFY_API}/playlists/${ownedId}?fields=id,name,tracks.total,tracks.items(track(name,artists(name),uri))&limit=2`, { headers })
+        .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }))
+    : null;
+
+  // Variant 3: /me/tracks (saved/liked songs — different endpoint entirely)
+  const v3 = await fetch(`${SPOTIFY_API}/me/tracks?limit=2`, { headers })
+    .then(async (r) => ({ status: r.status, body: await r.json().catch(() => r.text()) }));
 
   return NextResponse.json({
-    me: { status: meResp.status, data: meData },
+    me: { status: meResp.status, spotify_user_id: meData.id, display_name: meData.display_name },
     playlists: {
       status: playlistsResp.status,
       first_three: playlistsData.items?.map((p: { id: string; name: string; tracks?: { total?: number }; owner?: { id?: string } }) => ({
@@ -80,7 +95,9 @@ export async function GET(request: NextRequest) {
         owner_id: p.owner?.id,
       })),
     },
-    tracks_any: { playlist: firstPlaylist?.name, owner: firstPlaylist?.owner?.id, result: tracksAny },
-    tracks_owned: { playlist: firstOwnedPlaylist?.name, owner: firstOwnedPlaylist?.owner?.id, result: tracksOwned },
+    test_playlist: firstOwnedPlaylist?.name ?? "(none found)",
+    "v1_playlists/{id}/tracks": v1,
+    "v2_playlists/{id}_full": v2,
+    "v3_me/tracks_saved": v3,
   });
 }
