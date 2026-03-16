@@ -12,8 +12,6 @@ import {
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 
-const API_URL = "";
-
 function agentStatusColor(lastSeen: string): string {
   const diff = Date.now() - new Date(lastSeen).getTime();
   if (diff < 2 * 60 * 1000) return "bg-green-500";
@@ -268,7 +266,7 @@ export default function PipelinePage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [retrying, setRetrying] = useState(false);
   const [events, setEvents] = useState<string[]>([]);
-  const sseRef = useRef<EventSource | null>(null);
+  const channelRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(null);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function loadStatus() {
@@ -362,28 +360,42 @@ export default function PipelinePage() {
     loadStatus();
     loadJobs();
 
-    // SSE for real-time updates
+    // Subscribe to pipeline job changes via Supabase Realtime
     (async () => {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const url = `${API_URL}/pipeline/events?token=${session.access_token}`;
-      const es = new EventSource(url);
-      sseRef.current = es;
+      const channel = supabase
+        .channel("pipeline-jobs")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "pipeline_jobs",
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          (payload) => {
+            const { eventType, new: newRow } = payload;
+            const row = newRow as Record<string, unknown> | null;
+            setEvents((prev) => [
+              `${new Date().toLocaleTimeString()} — ${eventType}: ${(row?.job_type as string) ?? "unknown"} ${(row?.status as string) ?? ""}`,
+              ...prev.slice(0, 49),
+            ]);
+            scheduleRefresh();
+          }
+        )
+        .subscribe();
 
-      es.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        setEvents((prev) => [`${new Date().toLocaleTimeString()} — ${data.type}: ${JSON.stringify(data.data)}`, ...prev.slice(0, 49)]);
-        if (data.type === "job_update" || data.type === "agent_heartbeat") {
-          scheduleRefresh();
-        }
-      };
-      es.onerror = () => es.close();
+      channelRef.current = channel;
     })();
 
     return () => {
-      sseRef.current?.close();
+      if (channelRef.current) {
+        const supabase = createClient();
+        supabase.removeChannel(channelRef.current);
+      }
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     };
   }, []);
