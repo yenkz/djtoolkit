@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   const { data: oauthState, error: stateError } = await supabase
     .from("oauth_states")
     .select("user_id, return_to, expires_at")
-    .eq("id", state)
+    .eq("state", state)
     .single();
 
   if (stateError || !oauthState) {
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Delete the state row immediately (single-use)
-  await supabase.from("oauth_states").delete().eq("id", state);
+  await supabase.from("oauth_states").delete().eq("state", state);
 
   // Check expiry
   const expiresAt = new Date(oauthState.expires_at).getTime();

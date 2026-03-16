@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
   const { error: insertError } = await supabase.from("oauth_states").insert({
-    id: state,
+    state,
     user_id: user.userId,
     return_to: returnTo,
     expires_at: expiresAt,
