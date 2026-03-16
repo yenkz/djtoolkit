@@ -192,9 +192,24 @@ export async function POST(request: NextRequest) {
   }
 
   const insertedRows = inserted ?? [];
-  const trackIds = insertedRows.map((r) => r.id);
-  const imported = trackIds.length;
+  const imported = insertedRows.length;
   const skippedDuplicates = allItems.length - imported;
+
+  // Re-fetch all track IDs by spotify_uri (includes pre-existing duplicates)
+  // so the review step shows every track, not just newly inserted ones.
+  const spotifyUris = trackRows
+    .map((r) => r.spotify_uri as string)
+    .filter(Boolean);
+
+  let trackIds: number[] = [];
+  if (spotifyUris.length > 0) {
+    const { data: allRows } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("user_id", user.userId)
+      .in("spotify_uri", spotifyUris);
+    trackIds = (allRows ?? []).map((r) => r.id);
+  }
 
   // Create pipeline jobs for newly imported tracks
   let jobsCreated = 0;
