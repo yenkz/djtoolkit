@@ -6,6 +6,8 @@
  * duplicates by spotify_uri), and optionally creates pipeline jobs.
  */
 
+export const maxDuration = 60;
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, isAuthError } from "@/lib/api-server/auth";
 import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
@@ -121,6 +123,8 @@ export async function POST(request: NextRequest) {
     });
 
     if (!resp.ok) {
+      const errBody = await resp.text();
+      console.error("Spotify playlist tracks error:", resp.status, errBody);
       return jsonError(
         `Spotify API error: ${resp.status} ${resp.statusText}`,
         502
