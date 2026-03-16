@@ -79,6 +79,8 @@ export async function GET(request: NextRequest) {
   });
 
   if (!tokenResp.ok) {
+    const body = await tokenResp.text();
+    console.error("Spotify token exchange failed:", tokenResp.status, body);
     return NextResponse.redirect(
       new URL(`${frontendUrl}${returnTo}?spotify=error&reason=token_exchange_failed`)
     );
@@ -109,6 +111,7 @@ export async function GET(request: NextRequest) {
   );
 
   if (upsertError) {
+    console.error("users upsert failed:", upsertError.message, upsertError.code);
     return NextResponse.redirect(
       new URL(`${frontendUrl}${returnTo}?spotify=error&reason=save_failed`)
     );
