@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
+import { Filter, Search } from "lucide-react";
 import {
   fetchTracks,
   fetchStats,
@@ -13,15 +14,43 @@ import {
   type CatalogStats,
 } from "@/lib/api";
 
-const STATUS_COLORS: Record<string, string> = {
-  available: "bg-green-900 text-green-300",
-  candidate: "bg-yellow-900 text-yellow-300",
-  downloading: "bg-blue-900 text-blue-300",
-  failed: "bg-red-900 text-red-300",
-  duplicate: "bg-gray-700 text-gray-400",
-};
+import TrackCard from "@/components/ui/TrackCard";
+import TrackListRow from "@/components/ui/TrackListRow";
+import TrackCompactRow from "@/components/ui/TrackCompactRow";
+import MiniSearch from "@/components/ui/MiniSearch";
+import FilterPopover, { type Filters } from "@/components/ui/FilterPopover";
+import DetailPanel from "@/components/ui/DetailPanel";
+import ViewToggle from "@/components/ui/ViewToggle";
+import CrateItem from "@/components/ui/CrateItem";
+import LCDDisplay from "@/components/ui/LCDDisplay";
 
 const API_URL = "/api";
+
+type ViewMode = "grid" | "list" | "compact";
+
+/** Extended track fields that may come from the API but aren't in the base type. */
+interface TrackExt extends Track {
+  musical_key?: string;
+  energy?: number;
+}
+
+/** Map API Track to the shape the sub-components expect. */
+function toComponentTrack(t: Track) {
+  const ext = t as TrackExt;
+  return {
+    id: t.id,
+    title: t.title,
+    artist: t.artist,
+    album: t.album,
+    bpm: t.tempo ? Math.round(t.tempo) : undefined,
+    key: ext.musical_key,
+    genre: t.genres?.split(",")[0]?.trim() || undefined,
+    energy: ext.energy,
+    status: t.acquisition_status,
+    artwork_url: t.artwork_url,
+    local_path: t.local_path,
+  };
+}
 
 export default function CatalogPage() {
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -34,239 +63,819 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [showSpotifyModal, setShowSpotifyModal] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  // New design state
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [activeCrate, setActiveCrate] = useState("All Tracks");
+  const [filters, setFilters] = useState<Filters>({
+    genres: [],
+    statuses: [],
+    artists: [],
+    keys: [],
+    bpmMin: 70,
+    bpmMax: 180,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [tracksData, statsData] = await Promise.all([
-        fetchTracks({ page, per_page: perPage, status: statusFilter || undefined, search: search || undefined }),
+        fetchTracks({
+          page,
+          per_page: perPage,
+          status: statusFilter || undefined,
+          search: search || undefined,
+        }),
         fetchStats(),
       ]);
       setTracks(tracksData.tracks);
       setTotal(tracksData.total);
       setStats(statsData);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to load catalog");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load catalog",
+      );
     } finally {
       setLoading(false);
     }
   }, [page, perPage, statusFilter, search]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const totalPages = Math.ceil(total / perPage);
 
-  function copyPath(trackId: number, path: string) {
-    navigator.clipboard.writeText(path);
-    setCopiedId(trackId);
-    setTimeout(() => setCopiedId(null), 1500);
-  }
+  // Derive crate data from loaded tracks
+  const { crateCounts, allGenres, allArtists, allKeys, allStatuses } =
+    useMemo(() => {
+      const genreSet = new Set<string>();
+      const artistSet = new Set<string>();
+      const keySet = new Set<string>();
+      const statusSet = new Set<string>();
+      const genreCounts: Record<string, number> = {};
+
+      tracks.forEach((t) => {
+        if (t.genres) {
+          t.genres.split(",").forEach((g) => {
+            const trimmed = g.trim();
+            if (trimmed) {
+              genreSet.add(trimmed);
+              genreCounts[trimmed] = (genreCounts[trimmed] || 0) + 1;
+            }
+          });
+        }
+        if (t.artist) artistSet.add(t.artist);
+        const mk = (t as TrackExt).musical_key;
+        if (mk) keySet.add(mk);
+        if (t.acquisition_status) statusSet.add(t.acquisition_status);
+      });
+
+      const crates: Record<string, number> = { "All Tracks": tracks.length };
+      Object.entries(genreCounts)
+        .sort(([, a], [, b]) => b - a)
+        .forEach(([genre, count]) => {
+          crates[genre] = count;
+        });
+
+      return {
+        crateCounts: crates,
+        allGenres: [...genreSet].sort(),
+        allArtists: [...artistSet].sort(),
+        allKeys: [...keySet].sort(),
+        allStatuses: [...statusSet],
+      };
+    }, [tracks]);
+
+  // Client-side filtering (genres, artists, keys, bpm from the filter popover)
+  const filteredTracks = useMemo(() => {
+    return tracks.filter((t) => {
+      // Crate filter (genre-based)
+      if (activeCrate !== "All Tracks") {
+        const trackGenres =
+          t.genres?.split(",").map((g) => g.trim()) ?? [];
+        if (!trackGenres.includes(activeCrate)) return false;
+      }
+      // Genre filter
+      if (filters.genres.length > 0) {
+        const trackGenres =
+          t.genres?.split(",").map((g) => g.trim()) ?? [];
+        if (!filters.genres.some((g) => trackGenres.includes(g)))
+          return false;
+      }
+      // Status filter
+      if (
+        filters.statuses.length > 0 &&
+        !filters.statuses.includes(t.acquisition_status)
+      )
+        return false;
+      // Artist filter
+      if (filters.artists.length > 0 && !filters.artists.includes(t.artist))
+        return false;
+      // Key filter
+      if (filters.keys.length > 0) {
+        const mk = (t as TrackExt).musical_key;
+        if (!mk || !filters.keys.includes(mk)) return false;
+      }
+      // BPM range filter
+      if (t.tempo) {
+        const bpm = Math.round(t.tempo);
+        if (bpm < filters.bpmMin || bpm > filters.bpmMax) return false;
+      }
+      return true;
+    });
+  }, [tracks, activeCrate, filters]);
+
+  const activeFilterCount =
+    filters.genres.length +
+    filters.statuses.length +
+    filters.artists.length +
+    filters.keys.length +
+    (filters.bpmMin > 70 || filters.bpmMax < 180 ? 1 : 0);
+
+  const clearFilters = () =>
+    setFilters({
+      genres: [],
+      statuses: [],
+      artists: [],
+      keys: [],
+      bpmMin: 70,
+      bpmMax: 180,
+    });
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white">Catalog</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowCsvModal(true)}
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-          >
-            Import CSV
-          </button>
-          <button
-            onClick={async () => {
-              const supabase = createClient();
-              const { data: { session } } = await supabase.auth.getSession();
-              const token = session?.access_token ?? "";
-              window.location.href = `${API_URL}/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/catalog`;
-            }}
-            className="rounded-lg border border-green-600 px-3 py-1.5 text-sm font-medium text-green-400 hover:bg-green-900/30"
-          >
-            Connect Spotify
-          </button>
-          <button
-            onClick={() => setShowSpotifyModal(true)}
-            className="rounded-lg border border-gray-700 px-3 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-800"
-          >
-            Import Playlist
-          </button>
-        </div>
-      </div>
-
-      {stats && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Total", value: stats.total },
-            { label: "Available", value: stats.by_status?.available ?? 0 },
-            { label: "Downloading", value: stats.by_status?.downloading ?? 0 },
-            { label: "Failed", value: stats.by_status?.failed ?? 0 },
-          ].map(({ label, value }) => (
-            <div key={label} className="rounded-lg border border-gray-800 bg-gray-900 p-3">
-              <p className="text-2xl font-bold text-white">{value}</p>
-              <p className="text-xs text-gray-500">{label}</p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="flex gap-3">
-        <input
-          type="text"
-          placeholder="Search title or artist..."
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
+    <div className="flex h-full" style={{ minHeight: "calc(100vh - 64px)" }}>
+      {/* ── Crate Sidebar ── */}
+      <div
+        className="hidden md:flex flex-col shrink-0"
+        style={{
+          width: 200,
+          borderRight: "1px solid var(--hw-border-light)",
+          background: "var(--hw-surface)",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "16px 14px 12px",
+            borderBottom: "1px solid var(--hw-border)",
+          }}
         >
-          <option value="">All statuses</option>
-          {["candidate", "downloading", "available", "failed", "duplicate"].map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="rounded-xl border border-gray-800 bg-gray-900 overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-800 text-left text-xs text-gray-500">
-              <th className="w-10 px-2 py-3"></th>
-              <th className="px-4 py-3">Title</th>
-              <th className="px-4 py-3">Artist</th>
-              <th className="px-4 py-3">Album</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-3 py-3">BPM</th>
-              <th className="px-3 py-3">Style</th>
-              <th className="px-4 py-3">Flags</th>
-              <th className="px-3 py-3">Path</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
-            ) : tracks.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No tracks found</td></tr>
-            ) : tracks.map((t) => (
-              <tr key={t.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                <td className="px-2 py-2.5 text-center">
-                  {t.artwork_url ? (
-                    <img
-                      src={t.artwork_url}
-                      alt=""
-                      className="h-8 w-8 rounded object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className={`inline-flex h-8 w-8 items-center justify-center rounded ${t.cover_art_written ? "bg-indigo-900/50" : "bg-gray-800"}`}>
-                      <svg className={`h-4 w-4 ${t.cover_art_written ? "text-indigo-400" : "text-gray-600"}`} fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M18 3a1 1 0 00-1.196-.98l-10 2A1 1 0 006 5v9.114A4.369 4.369 0 005 14c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V7.82l8-1.6v5.894A4.37 4.37 0 0015 12c-1.657 0-3 .895-3 2s1.343 2 3 2 3-.895 3-2V3z" />
-                      </svg>
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-white">{t.title}</td>
-                <td className="px-4 py-2.5 text-gray-300">{t.artist}</td>
-                <td className="px-4 py-2.5 text-gray-400">{t.album}</td>
-                <td className="px-4 py-2.5">
-                  <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[t.acquisition_status] ?? "bg-gray-700 text-gray-300"}`}>
-                    {t.acquisition_status}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-gray-300 tabular-nums">
-                  {t.tempo ? Math.round(t.tempo) : <span className="text-gray-600">—</span>}
-                </td>
-                <td className="px-3 py-2.5 text-gray-400 max-w-[140px] truncate" title={t.genres ?? ""}>
-                  {t.genres || <span className="text-gray-600">—</span>}
-                </td>
-                <td className="px-4 py-2.5">
-                  <div className="flex gap-1">
-                    {[
-                      { label: "FP", val: t.fingerprinted },
-                      { label: "SP", val: t.enriched_spotify },
-                      { label: "MT", val: t.metadata_written },
-                      { label: "LIB", val: t.in_library },
-                    ].map(({ label, val }) => (
-                      <span
-                        key={label}
-                        className={`rounded px-1 py-0.5 text-xs ${val ? "bg-green-900 text-green-300" : "bg-gray-800 text-gray-600"}`}
-                      >
-                        {label}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5">
-                  {t.local_path && t.acquisition_status === "available" ? (
-                    <button
-                      onClick={() => copyPath(t.id, t.local_path!)}
-                      title={t.local_path}
-                      className="rounded px-2 py-0.5 text-xs text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-                    >
-                      {copiedId === t.id ? "Copied!" : "Copy path"}
-                    </button>
-                  ) : (
-                    <span className="text-gray-600 text-xs">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-gray-500">{total} tracks</p>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-gray-500">Show</span>
-            <select
-              value={perPage}
-              onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); }}
-              className="rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs text-white focus:border-indigo-500 focus:outline-none"
-            >
-              {[15, 30, 50, 100].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
+          <span
+            className="font-mono uppercase"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--hw-text-dim)",
+              letterSpacing: 1.5,
+            }}
+          >
+            CRATES
+          </span>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="rounded px-3 py-1 text-sm text-gray-400 hover:text-white disabled:opacity-30"
+
+        {/* Crate list */}
+        <div className="flex-1 overflow-auto" style={{ padding: "6px 6px" }}>
+          {Object.entries(crateCounts).map(([name, count]) => (
+            <CrateItem
+              key={name}
+              name={name}
+              count={count}
+              active={activeCrate === name}
+              onClick={() => setActiveCrate(name)}
+            />
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: "12px 14px",
+            borderTop: "1px solid var(--hw-border)",
+          }}
+        >
+          <span
+            className="font-mono"
+            style={{
+              fontSize: 10,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 0.5,
+            }}
+          >
+            {total} total tracks
+          </span>
+        </div>
+      </div>
+
+      {/* ── Main Content Area ── */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* ── Sticky Filter Bar ── */}
+        <div
+          className="shrink-0"
+          style={{
+            padding: "12px clamp(16px, 2vw, 24px)",
+            borderBottom: "1px solid var(--hw-border-light)",
+            background: "color-mix(in srgb, var(--hw-body) 94%, transparent)",
+            backdropFilter: "blur(8px)",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <h1
+              className="font-sans"
+              style={{ fontSize: 22, fontWeight: 900, letterSpacing: -0.8 }}
             >
-              Previous
-            </button>
-            <span className="text-sm text-gray-400">
-              {page} / {totalPages}
+              Catalog
+            </h1>
+            <span
+              className="font-mono"
+              style={{ fontSize: 11, color: "var(--hw-text-dim)" }}
+            >
+              {filteredTracks.length} tracks
             </span>
+            <div className="flex-1" />
+
+            {/* Import buttons */}
             <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="rounded px-3 py-1 text-sm text-gray-400 hover:text-white disabled:opacity-30"
+              onClick={() => setShowCsvModal(true)}
+              className="font-mono text-xs font-bold tracking-wide"
+              style={{
+                padding: "6px 14px",
+                borderRadius: 5,
+                background: "var(--led-blue)",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+              }}
             >
-              Next
+              Import CSV
             </button>
+            <button
+              onClick={async () => {
+                const supabase = createClient();
+                const {
+                  data: { session },
+                } = await supabase.auth.getSession();
+                const token = session?.access_token ?? "";
+                window.location.href = `${API_URL}/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/catalog`;
+              }}
+              className="font-mono text-xs font-bold tracking-wide"
+              style={{
+                padding: "6px 14px",
+                borderRadius: 5,
+                background: "transparent",
+                color: "var(--led-green)",
+                border: "1px solid var(--led-green)",
+                cursor: "pointer",
+              }}
+            >
+              Connect Spotify
+            </button>
+            <button
+              onClick={() => setShowSpotifyModal(true)}
+              className="font-mono text-xs font-bold tracking-wide"
+              style={{
+                padding: "6px 14px",
+                borderRadius: 5,
+                background: "transparent",
+                color: "var(--hw-text-dim)",
+                border: "1px solid var(--hw-border)",
+                cursor: "pointer",
+              }}
+            >
+              Import Playlist
+            </button>
+
+            {/* Search */}
+            <div style={{ width: "clamp(160px, 22vw, 260px)" }}>
+              <MiniSearch
+                value={search}
+                onChange={(v) => {
+                  setSearch(v);
+                  setPage(1);
+                }}
+                placeholder="Search..."
+              />
+            </div>
+
+            {/* Filter button */}
+            <FilterButton
+              activeCount={activeFilterCount}
+              open={showFilters}
+              onClick={() => setShowFilters(!showFilters)}
+            />
+
+            {/* View toggle */}
+            <ViewToggle mode={viewMode} onChange={setViewMode} />
+          </div>
+
+          {/* Active filter tags */}
+          {activeFilterCount > 0 && (
+            <div
+              className="flex items-center gap-1.5 flex-wrap"
+              style={{ marginTop: 10 }}
+            >
+              {filters.genres.map((g) => (
+                <ActiveTag
+                  key={`g-${g}`}
+                  label={`Genre: ${g}`}
+                  onRemove={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      genres: f.genres.filter((x) => x !== g),
+                    }))
+                  }
+                />
+              ))}
+              {filters.artists.map((a) => (
+                <ActiveTag
+                  key={`a-${a}`}
+                  label={`Artist: ${a}`}
+                  onRemove={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      artists: f.artists.filter((x) => x !== a),
+                    }))
+                  }
+                />
+              ))}
+              {filters.keys.map((k) => (
+                <ActiveTag
+                  key={`k-${k}`}
+                  label={`Key: ${k}`}
+                  onRemove={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      keys: f.keys.filter((x) => x !== k),
+                    }))
+                  }
+                />
+              ))}
+              {filters.statuses.map((s) => (
+                <ActiveTag
+                  key={`s-${s}`}
+                  label={`Status: ${s}`}
+                  onRemove={() =>
+                    setFilters((f) => ({
+                      ...f,
+                      statuses: f.statuses.filter((x) => x !== s),
+                    }))
+                  }
+                />
+              ))}
+              {(filters.bpmMin > 70 || filters.bpmMax < 180) && (
+                <ActiveTag
+                  label={`BPM: ${filters.bpmMin}\u2013${filters.bpmMax}`}
+                  onRemove={() =>
+                    setFilters((f) => ({ ...f, bpmMin: 70, bpmMax: 180 }))
+                  }
+                />
+              )}
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="font-mono"
+                style={{
+                  fontSize: 10,
+                  color: "var(--led-blue)",
+                  cursor: "pointer",
+                  marginLeft: 4,
+                  background: "none",
+                  border: "none",
+                }}
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Stats row (LCD Displays) ── */}
+        {stats && (
+          <div
+            className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0"
+            style={{ padding: "12px clamp(16px, 2vw, 24px)" }}
+          >
+            <LCDDisplay value={stats.total} label="Total" />
+            <LCDDisplay
+              value={stats.by_status?.available ?? 0}
+              label="Available"
+            />
+            <LCDDisplay
+              value={stats.by_status?.downloading ?? 0}
+              label="Downloading"
+            />
+            <LCDDisplay
+              value={stats.by_status?.failed ?? 0}
+              label="Failed"
+            />
           </div>
         )}
+
+        {/* ── Content area (multi-view) ── */}
+        <div
+          className="flex-1 overflow-auto"
+          style={{
+            padding:
+              viewMode === "grid" ? "clamp(12px, 2vw, 20px)" : 0,
+          }}
+        >
+          {loading ? (
+            <div className="text-center" style={{ padding: "60px 20px" }}>
+              <span
+                className="font-sans"
+                style={{ fontSize: 16, color: "var(--hw-text-dim)" }}
+              >
+                Loading...
+              </span>
+            </div>
+          ) : filteredTracks.length === 0 ? (
+            <div className="text-center" style={{ padding: "60px 20px" }}>
+              <span
+                className="font-sans"
+                style={{ fontSize: 16, color: "var(--hw-text-dim)" }}
+              >
+                No tracks match your filters
+              </span>
+            </div>
+          ) : viewMode === "grid" ? (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fill, minmax(220px, 1fr))",
+                gap: "clamp(10px, 1.5vw, 16px)",
+              }}
+            >
+              {filteredTracks.map((t) => (
+                <TrackCard
+                  key={t.id}
+                  track={toComponentTrack(t)}
+                  onClick={() => setSelectedTrack(t)}
+                />
+              ))}
+            </div>
+          ) : viewMode === "list" ? (
+            <div
+              style={{
+                margin: "clamp(12px, 2vw, 20px)",
+                background: "var(--hw-list-bg)",
+                border: "1.5px solid var(--hw-list-border)",
+                borderRadius: 6,
+                overflow: "hidden",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+              }}
+            >
+              {/* List header */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "44px 2fr 1.5fr 60px 0.7fr 0.5fr 1fr 48px",
+                  padding: "10px 14px",
+                  gap: 10,
+                  background: "var(--hw-list-header)",
+                  borderBottom: "1.5px solid var(--hw-list-border)",
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 2,
+                }}
+              >
+                {[
+                  "",
+                  "Track",
+                  "Artist",
+                  "Wave",
+                  "BPM / Key",
+                  "Energy",
+                  "Tags",
+                  "",
+                ].map((h, i) => (
+                  <span
+                    key={h || `col-${i}`}
+                    className="font-mono uppercase"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "var(--hw-text-dim)",
+                      letterSpacing: 1.5,
+                    }}
+                  >
+                    {h}
+                  </span>
+                ))}
+              </div>
+              {filteredTracks.map((t, i) => (
+                <TrackListRow
+                  key={t.id}
+                  track={toComponentTrack(t)}
+                  isLast={i === filteredTracks.length - 1}
+                  onClick={() => setSelectedTrack(t)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div
+              style={{
+                margin: "clamp(12px, 2vw, 20px)",
+                background: "var(--hw-list-bg)",
+                border: "1.5px solid var(--hw-list-border)",
+                borderRadius: 6,
+                overflow: "hidden",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+              }}
+            >
+              {/* Compact header */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "6px 2fr 1.5fr 0.6fr 0.5fr 0.6fr 0.5fr",
+                  padding: "8px 14px",
+                  gap: 10,
+                  background: "var(--hw-list-header)",
+                  borderBottom: "1.5px solid var(--hw-list-border)",
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 2,
+                }}
+              >
+                {[
+                  "",
+                  "Track",
+                  "Artist",
+                  "BPM",
+                  "Key",
+                  "Genre",
+                  "Energy",
+                ].map((h, i) => (
+                  <span
+                    key={h || `col-${i}`}
+                    className="font-mono uppercase"
+                    style={{
+                      fontSize: 8,
+                      fontWeight: 700,
+                      color: "var(--hw-text-dim)",
+                      letterSpacing: 1.5,
+                    }}
+                  >
+                    {h}
+                  </span>
+                ))}
+              </div>
+              {filteredTracks.map((t, i) => (
+                <TrackCompactRow
+                  key={t.id}
+                  track={toComponentTrack(t)}
+                  isLast={i === filteredTracks.length - 1}
+                  onClick={() => setSelectedTrack(t)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Pagination ── */}
+        <div
+          className="flex items-center justify-between shrink-0"
+          style={{
+            padding: "10px clamp(16px, 2vw, 24px)",
+            borderTop: "1px solid var(--hw-border)",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <p
+              className="font-mono"
+              style={{ fontSize: 11, color: "var(--hw-text-dim)" }}
+            >
+              {total} tracks
+            </p>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="font-mono"
+                style={{ fontSize: 10, color: "var(--hw-text-muted)" }}
+              >
+                Show
+              </span>
+              <select
+                value={perPage}
+                onChange={(e) => {
+                  setPerPage(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="font-mono"
+                style={{
+                  fontSize: 10,
+                  padding: "4px 8px",
+                  borderRadius: 4,
+                  border: "1px solid var(--hw-border)",
+                  background: "var(--hw-raised)",
+                  color: "var(--hw-text)",
+                  outline: "none",
+                }}
+              >
+                {[15, 30, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="font-mono disabled:opacity-30"
+                style={{
+                  fontSize: 11,
+                  padding: "4px 12px",
+                  borderRadius: 4,
+                  color: "var(--hw-text-dim)",
+                  background: "none",
+                  border: "1px solid var(--hw-border)",
+                  cursor: "pointer",
+                }}
+              >
+                Prev
+              </button>
+              <span
+                className="font-mono"
+                style={{ fontSize: 11, color: "var(--hw-text-dim)" }}
+              >
+                {page} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="font-mono disabled:opacity-30"
+                style={{
+                  fontSize: 11,
+                  padding: "4px 12px",
+                  borderRadius: 4,
+                  color: "var(--hw-text-dim)",
+                  background: "none",
+                  border: "1px solid var(--hw-border)",
+                  cursor: "pointer",
+                }}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
+      {/* ── Detail Panel ── */}
+      {selectedTrack && (
+        <DetailPanel
+          track={toComponentTrack(selectedTrack)}
+          onClose={() => setSelectedTrack(null)}
+        />
+      )}
+
+      {/* ── Filter Popover ── */}
+      {showFilters && (
+        <FilterPopover
+          filters={filters}
+          setFilters={setFilters}
+          allGenres={allGenres}
+          allStatuses={allStatuses}
+          allArtists={allArtists}
+          allKeys={allKeys}
+          onClose={() => setShowFilters(false)}
+        />
+      )}
+
+      {/* ── Modals (preserved business logic) ── */}
       {showCsvModal && (
-        <CsvImportModal onClose={() => { setShowCsvModal(false); load(); }} />
+        <CsvImportModal
+          onClose={() => {
+            setShowCsvModal(false);
+            load();
+          }}
+        />
       )}
       {showSpotifyModal && (
-        <SpotifyImportModal onClose={() => { setShowSpotifyModal(false); load(); }} />
+        <SpotifyImportModal
+          onClose={() => {
+            setShowSpotifyModal(false);
+            load();
+          }}
+        />
       )}
     </div>
   );
 }
 
+/* ── Filter Button ── */
+function FilterButton({
+  activeCount,
+  open,
+  onClick,
+}: {
+  activeCount: number;
+  open: boolean;
+  onClick: () => void;
+}) {
+  const lit = open || activeCount > 0;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 font-mono transition-all duration-150"
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 1,
+        padding: "6px 14px",
+        borderRadius: 5,
+        cursor: "pointer",
+        border: `1px solid ${lit ? "color-mix(in srgb, var(--led-blue) 27%, transparent)" : "var(--hw-border-light)"}`,
+        background: lit
+          ? "color-mix(in srgb, var(--led-blue) 5%, transparent)"
+          : "transparent",
+        color: lit ? "var(--led-blue)" : "var(--hw-text-dim)",
+      }}
+    >
+      <Filter size={14} />
+      Filters
+      {activeCount > 0 && (
+        <span
+          className="font-mono"
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            color: "#fff",
+            background: "var(--led-blue)",
+            width: 18,
+            height: 18,
+            borderRadius: "50%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {activeCount}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/* ── Active Filter Tag (removable pill) ── */
+function ActiveTag({
+  label,
+  onRemove,
+}: {
+  label: string;
+  onRemove: () => void;
+}) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 font-mono"
+      style={{
+        fontSize: 10,
+        fontWeight: 600,
+        color: "var(--led-blue)",
+        background:
+          "color-mix(in srgb, var(--led-blue) 6%, transparent)",
+        border:
+          "1px solid color-mix(in srgb, var(--led-blue) 20%, transparent)",
+        padding: "3px 10px",
+        borderRadius: 4,
+      }}
+    >
+      {label}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        style={{
+          cursor: "pointer",
+          fontSize: 13,
+          lineHeight: 1,
+          opacity: 0.7,
+          background: "none",
+          border: "none",
+          color: "inherit",
+          padding: 0,
+        }}
+      >
+        x
+      </button>
+    </span>
+  );
+}
+
+/* ── CSV Import Modal (preserved) ── */
 function CsvImportModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -277,7 +886,9 @@ function CsvImportModal({ onClose }: { onClose: () => void }) {
     setLoading(true);
     try {
       const result = await importCsv(file);
-      toast.success(`Imported ${result.imported} tracks, ${result.jobs_created} jobs created`);
+      toast.success(
+        `Imported ${result.imported} tracks, ${result.jobs_created} jobs created`,
+      );
       onClose();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Import failed");
@@ -288,28 +899,90 @@ function CsvImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
-        <h2 className="mb-4 text-lg font-bold text-white">Import Exportify CSV</h2>
+      <div
+        className="w-full max-w-md rounded-xl p-6 shadow-2xl"
+        style={{
+          border: "1px solid var(--hw-border)",
+          background: "var(--hw-modal-bg)",
+        }}
+      >
+        <h2
+          className="font-sans mb-4"
+          style={{ fontSize: 18, fontWeight: 800, color: "var(--hw-text)" }}
+        >
+          Import Exportify CSV
+        </h2>
         <div
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
           onDragLeave={() => setDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) setFile(f); }}
-          className={`flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed text-sm transition-colors ${dragging ? "border-indigo-500 bg-indigo-900/20" : "border-gray-700 text-gray-500 hover:border-gray-500"}`}
-          onClick={() => document.getElementById("csv-input")?.click()}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const f = e.dataTransfer.files[0];
+            if (f) setFile(f);
+          }}
+          className="flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed text-sm transition-colors"
+          style={{
+            borderColor: dragging
+              ? "var(--led-blue)"
+              : "var(--hw-border)",
+            background: dragging
+              ? "color-mix(in srgb, var(--led-blue) 5%, transparent)"
+              : "transparent",
+            color: "var(--hw-text-dim)",
+          }}
+          onClick={() =>
+            document.getElementById("csv-input")?.click()
+          }
         >
           {file ? (
-            <p className="text-white">{file.name}</p>
+            <p style={{ color: "var(--hw-text)" }}>{file.name}</p>
           ) : (
             <p>Drag & drop CSV or click to browse</p>
           )}
-          <input id="csv-input" type="file" accept=".csv" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input
+            id="csv-input"
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          />
         </div>
         <div className="mt-4 flex gap-2 justify-end">
-          <button onClick={onClose} className="rounded px-4 py-2 text-sm text-gray-400 hover:text-white">Cancel</button>
           <button
+            type="button"
+            onClick={onClose}
+            className="font-sans"
+            style={{
+              padding: "8px 16px",
+              fontSize: 13,
+              color: "var(--hw-text-dim)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
             onClick={handleImport}
             disabled={!file || loading}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="font-mono disabled:opacity-50"
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 1,
+              padding: "8px 20px",
+              borderRadius: 5,
+              background: "var(--led-blue)",
+              color: "#fff",
+              border: "none",
+              cursor: "pointer",
+            }}
           >
             {loading ? "Importing..." : "Import"}
           </button>
@@ -319,8 +992,11 @@ function CsvImportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+/* ── Spotify Import Modal (preserved) ── */
 function SpotifyImportModal({ onClose }: { onClose: () => void }) {
-  const [playlists, setPlaylists] = useState<{ id: string; name: string; track_count?: number | null }[]>([]);
+  const [playlists, setPlaylists] = useState<
+    { id: string; name: string; track_count?: number | null }[]
+  >([]);
   const [selected, setSelected] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -337,7 +1013,9 @@ function SpotifyImportModal({ onClose }: { onClose: () => void }) {
     setLoading(true);
     try {
       const result = await importSpotifyPlaylist(selected);
-      toast.success(`Imported ${result.imported} tracks, ${result.jobs_created} jobs created`);
+      toast.success(
+        `Imported ${result.imported} tracks, ${result.jobs_created} jobs created`,
+      );
       onClose();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Import failed");
@@ -348,30 +1026,88 @@ function SpotifyImportModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
-        <h2 className="mb-4 text-lg font-bold text-white">Import Spotify Playlist</h2>
+      <div
+        className="w-full max-w-md rounded-xl p-6 shadow-2xl"
+        style={{
+          border: "1px solid var(--hw-border)",
+          background: "var(--hw-modal-bg)",
+        }}
+      >
+        <h2
+          className="font-sans mb-4"
+          style={{ fontSize: 18, fontWeight: 800, color: "var(--hw-text)" }}
+        >
+          Import Spotify Playlist
+        </h2>
         {fetching ? (
-          <p className="text-sm text-gray-400">Loading playlists...</p>
+          <p
+            className="font-sans"
+            style={{ fontSize: 13, color: "var(--hw-text-dim)" }}
+          >
+            Loading playlists...
+          </p>
         ) : playlists.length === 0 ? (
-          <p className="text-sm text-gray-400">No playlists found. Connect Spotify first.</p>
+          <p
+            className="font-sans"
+            style={{ fontSize: 13, color: "var(--hw-text-dim)" }}
+          >
+            No playlists found. Connect Spotify first.
+          </p>
         ) : (
           <select
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
-            className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white"
+            className="w-full font-sans"
+            style={{
+              fontSize: 13,
+              padding: "8px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--hw-border)",
+              background: "var(--hw-raised)",
+              color: "var(--hw-text)",
+              outline: "none",
+            }}
           >
             <option value="">Select a playlist...</option>
             {playlists.map((p) => (
-              <option key={p.id} value={p.id}>{p.name} ({p.track_count} tracks)</option>
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.track_count} tracks)
+              </option>
             ))}
           </select>
         )}
         <div className="mt-4 flex gap-2 justify-end">
-          <button onClick={onClose} className="rounded px-4 py-2 text-sm text-gray-400 hover:text-white">Cancel</button>
           <button
+            type="button"
+            onClick={onClose}
+            className="font-sans"
+            style={{
+              padding: "8px 16px",
+              fontSize: 13,
+              color: "var(--hw-text-dim)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
             onClick={handleImport}
             disabled={!selected || loading}
-            className="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-50"
+            className="font-mono disabled:opacity-50"
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 1,
+              padding: "8px 20px",
+              borderRadius: 5,
+              background: "var(--led-green)",
+              color: "#fff",
+              border: "none",
+              cursor: "pointer",
+            }}
           >
             {loading ? "Importing..." : "Import"}
           </button>

@@ -350,3 +350,58 @@ export async function fetchTracksByIds(ids: number[]): Promise<Track[]> {
   }
   return all;
 }
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+export interface UserSettings {
+  display_name?: string;
+  downloads_dir?: string;
+  library_dir?: string;
+  soulseek_username?: string;
+  soulseek_password?: string;
+  soulseek_enabled?: boolean;
+  min_score?: number;
+  duration_tolerance_ms?: number;
+  search_timeout_sec?: number;
+  fingerprint_enabled?: boolean;
+  acoustid_api_key?: string;
+  loudnorm_target_lufs?: number;
+  loudnorm_enabled?: boolean;
+  coverart_sources?: string[];
+  coverart_enabled?: boolean;
+  export_formats?: string[];
+  export_output_path?: string;
+  analysis_essentia_model_path?: string;
+  analysis_enabled?: boolean;
+}
+
+export async function fetchSettings(): Promise<{
+  settings: UserSettings;
+  email: string | null;
+}> {
+  const res = await apiClient("/settings");
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function updateSettings(
+  partial: Partial<UserSettings>,
+): Promise<{ settings: UserSettings }> {
+  const res = await apiClient("/settings", {
+    method: "PUT",
+    body: JSON.stringify(partial),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function clearLibrary(): Promise<{ deleted: number }> {
+  const res = await apiClient("/settings/clear-library", { method: "POST" });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function deleteAccount(): Promise<void> {
+  const res = await apiClient("/settings/account", { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractError(res));
+}

@@ -1,0 +1,230 @@
+"use client";
+
+import { useState } from "react";
+import MiniWave from "./MiniWave";
+import EnergyBar from "./EnergyBar";
+import StatusDot from "./StatusDot";
+import Tag from "./Tag";
+
+interface Track {
+  id: number;
+  title: string;
+  artist: string;
+  album?: string;
+  bpm?: number;
+  key?: string;
+  genre?: string;
+  energy?: number;
+  status?: string;
+  artwork_url?: string;
+}
+
+interface TrackCardProps {
+  track: Track;
+  onClick?: () => void;
+}
+
+/** Deterministic color from artist name for gradient fallback. */
+function artistColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = name.charCodeAt(i) + ((h << 5) - h);
+  }
+  const hue = ((h % 360) + 360) % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
+
+export default function TrackCard({ track, onClick }: TrackCardProps) {
+  const [hovered, setHovered] = useState(false);
+  const color = artistColor(track.artist);
+  const initials = track.artist.slice(0, 2).toUpperCase();
+  const tags = track.genre ? [track.genre] : [];
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      className="cursor-pointer overflow-hidden"
+      style={{
+        background: hovered
+          ? "var(--hw-card-hover)"
+          : "var(--hw-card-bg)",
+        border: `1px solid ${hovered ? "var(--hw-border-light)" : "var(--hw-card-border)"}`,
+        borderRadius: 8,
+        boxShadow: hovered
+          ? "0 4px 16px rgba(0,0,0,0.1)"
+          : "0 1px 3px rgba(0,0,0,0.04)",
+        transform: hovered ? "translateY(-2px)" : "none",
+        transition: "all 0.2s ease",
+      }}
+    >
+      {/* Artwork / gradient header */}
+      <div
+        style={{
+          height: 140,
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundImage: track.artwork_url
+            ? `url(${track.artwork_url})`
+            : `linear-gradient(135deg, ${color}44 0%, ${color}11 100%)`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        {/* Initials fallback when no artwork */}
+        {!track.artwork_url && (
+          <span
+            className="font-sans"
+            style={{
+              fontSize: 36,
+              fontWeight: 900,
+              color: `${color}88`,
+              letterSpacing: -2,
+            }}
+          >
+            {initials}
+          </span>
+        )}
+
+        {/* Waveform overlay at bottom */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            padding: "0 12px 8px",
+          }}
+        >
+          <MiniWave color={color} />
+        </div>
+
+        {/* Status top-right */}
+        {track.status && (
+          <div
+            style={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <StatusDot status={track.status} />
+            <span
+              className="font-mono uppercase"
+              style={{
+                fontSize: 8,
+                color: "var(--hw-text-muted)",
+                letterSpacing: 0.5,
+              }}
+            >
+              {track.status}
+            </span>
+          </div>
+        )}
+
+        {/* BPM + Key badges top-left */}
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            left: 10,
+            display: "flex",
+            gap: 6,
+          }}
+        >
+          {track.bpm != null && (
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#fff",
+                background: "rgba(0,0,0,0.5)",
+                padding: "2px 7px",
+                borderRadius: 3,
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              {track.bpm}
+            </span>
+          )}
+          {track.key && (
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "#fff",
+                background: "rgba(0,0,0,0.5)",
+                padding: "2px 7px",
+                borderRadius: 3,
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              {track.key}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: "12px 14px 14px" }}>
+        <div
+          className="font-sans truncate"
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            color: "var(--hw-text)",
+            lineHeight: 1.3,
+            marginBottom: 2,
+          }}
+        >
+          {track.title}
+        </div>
+        <div
+          className="font-sans truncate"
+          style={{
+            fontSize: 12,
+            color: "var(--hw-text-sec)",
+            marginBottom: 8,
+          }}
+        >
+          {track.artist}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <EnergyBar level={track.energy ?? 0} />
+          {track.genre && (
+            <span
+              className="font-mono"
+              style={{ fontSize: 10, color: "var(--hw-text-dim)" }}
+            >
+              {track.genre}
+            </span>
+          )}
+        </div>
+
+        {tags.length > 0 && (
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {tags.map((t) => (
+              <Tag key={t} label={t} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

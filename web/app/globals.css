@@ -1,26 +1,224 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Hardware palette — dark (default) */
+  --hw-body: #141114;
+  --hw-surface: #1A171A;
+  --hw-panel: #1E1B1E;
+  --hw-raised: #252225;
+  --hw-border: #2A272A;
+  --hw-border-light: #333033;
+  --hw-groove: #0E0C0E;
+  --hw-text: #EBEED5;
+  --hw-text-sec: #EBEED5aa;
+  --hw-text-dim: #EBEED577;
+  --hw-text-muted: #EBEED544;
+
+  /* LED colors — constant across themes */
+  --led-green: #44FF44;
+  --led-green-dim: #6A8A6A;
+  --led-green-mid: #44CC44;
+  --led-red: #FF4444;
+  --led-red-dim: #8A6A6A;
+  --led-red-mid: #CC3333;
+  --led-blue: #4488FF;
+  --led-blue-dim: #6A7A8A;
+  --led-blue-mid: #3366CC;
+  --led-orange: #FFA033;
+  --led-orange-dim: #8A7A5A;
+  --led-orange-mid: #CC8833;
+
+  /* Extended tokens — dark */
+  --hw-card-bg: #1E1B1E;
+  --hw-card-border: #2E2B2E;
+  --hw-card-hover: #282528;
+  --hw-list-bg: #252225;
+  --hw-list-row-bg: #2A272A;
+  --hw-list-row-hover: #333033;
+  --hw-list-border: #3A373A;
+  --hw-list-header: #201D20;
+  --hw-input-bg: #1A171A;
+  --hw-input-focus: #252225;
+  --hw-input-border: #333033;
+  --hw-tag-bg: #252225;
+  --hw-tag-border: #333033;
+  --hw-lcd-bg: #0C0C08;
+  --hw-lcd-text: #FFAA22;
+  --hw-lcd-dim: #5A4A20;
+  --hw-lcd-glow: 0 0 8px #FFAA2244;
+  --hw-lcd-border: #2A2720;
+  --hw-success-bg: #44DD4415;
+  --hw-success-text: #44DD44;
+  --hw-success-border: #44DD4433;
+  --hw-error-bg: #FF444412;
+  --hw-error-text: #FF6666;
+  --hw-error-border: #FF444433;
+  --hw-warning-bg: #FFA03312;
+  --hw-warning-text: #FFA033;
+  --hw-warning-border: #FFA03333;
+  --hw-code-bg: #141114;
+  --hw-code-border: #2A272A;
+  --hw-modal-bg: #1E1B1E;
+  --hw-modal-header: #252225;
+
+  /* Rubber / pad surface */
+  --rubber-base: #C8C4B8;
+  --rubber-pad: #D2CFC4;
+
+  /* Fonts */
+  --font-sans: var(--font-dm-sans), 'DM Sans', sans-serif;
+  --font-mono: var(--font-space-mono), 'Space Mono', monospace;
+}
+
+:root.light {
+  /* Hardware palette — light */
+  --hw-body: #EDEADF;
+  --hw-surface: #F5F3EA;
+  --hw-panel: #F0EDE5;
+  --hw-raised: #E0DDD0;
+  --hw-border: #C8C5B5;
+  --hw-border-light: #D5D1C4;
+  --hw-groove: #E5E2D6;
+  --hw-text: #1A1418;
+  --hw-text-sec: #1A141899;
+  --hw-text-dim: #1A141866;
+  --hw-text-muted: #1A141844;
+
+  /* Extended tokens — light */
+  --hw-card-bg: #FFFFFF;
+  --hw-card-border: #D0CDBE;
+  --hw-card-hover: #FAFAF5;
+  --hw-list-bg: #FFFFFF;
+  --hw-list-row-bg: #FFFFFF;
+  --hw-list-row-hover: #F5F3EE;
+  --hw-list-border: #D5D1C4;
+  --hw-list-header: #F0EDE2;
+  --hw-input-bg: #FFFFFF;
+  --hw-input-focus: #FFFFFF;
+  --hw-input-border: #C8C5B5;
+  --hw-tag-bg: #E8E5DA;
+  --hw-tag-border: #D5D1C4;
+  --hw-lcd-bg: #F5F0E0;
+  --hw-lcd-text: #1A1418;
+  --hw-lcd-dim: #5A5448;
+  --hw-lcd-glow: none;
+  --hw-lcd-border: #B8B2A0;
+  --hw-success-bg: #0D7A3E18;
+  --hw-success-text: #0D7A3E;
+  --hw-success-border: #0D7A3E44;
+  --hw-error-bg: #CC333312;
+  --hw-error-text: #CC3333;
+  --hw-error-border: #CC333333;
+  --hw-warning-bg: #CC883312;
+  --hw-warning-text: #AA6600;
+  --hw-warning-border: #CC883333;
+  --hw-code-bg: #E8E5DA;
+  --hw-code-border: #D0CDBE;
+  --hw-modal-bg: #FFFFFF;
+  --hw-modal-header: #F5F3EA;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* Hardware colors → Tailwind utilities */
+  --color-hw-body: var(--hw-body);
+  --color-hw-surface: var(--hw-surface);
+  --color-hw-panel: var(--hw-panel);
+  --color-hw-raised: var(--hw-raised);
+  --color-hw-border: var(--hw-border);
+  --color-hw-border-light: var(--hw-border-light);
+  --color-hw-groove: var(--hw-groove);
+  --color-hw-text: var(--hw-text);
+  --color-hw-text-sec: var(--hw-text-sec);
+  --color-hw-text-dim: var(--hw-text-dim);
+  --color-hw-text-muted: var(--hw-text-muted);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Extended theme tokens → Tailwind utilities */
+  --color-hw-card-bg: var(--hw-card-bg);
+  --color-hw-card-border: var(--hw-card-border);
+  --color-hw-card-hover: var(--hw-card-hover);
+  --color-hw-list-bg: var(--hw-list-bg);
+  --color-hw-list-row-bg: var(--hw-list-row-bg);
+  --color-hw-list-row-hover: var(--hw-list-row-hover);
+  --color-hw-list-border: var(--hw-list-border);
+  --color-hw-list-header: var(--hw-list-header);
+  --color-hw-input-bg: var(--hw-input-bg);
+  --color-hw-input-focus: var(--hw-input-focus);
+  --color-hw-input-border: var(--hw-input-border);
+  --color-hw-tag-bg: var(--hw-tag-bg);
+  --color-hw-tag-border: var(--hw-tag-border);
+  --color-hw-lcd-bg: var(--hw-lcd-bg);
+  --color-hw-lcd-text: var(--hw-lcd-text);
+  --color-hw-lcd-dim: var(--hw-lcd-dim);
+  --color-hw-lcd-border: var(--hw-lcd-border);
+  --color-hw-success-bg: var(--hw-success-bg);
+  --color-hw-success-text: var(--hw-success-text);
+  --color-hw-success-border: var(--hw-success-border);
+  --color-hw-error-bg: var(--hw-error-bg);
+  --color-hw-error-text: var(--hw-error-text);
+  --color-hw-error-border: var(--hw-error-border);
+  --color-hw-warning-bg: var(--hw-warning-bg);
+  --color-hw-warning-text: var(--hw-warning-text);
+  --color-hw-warning-border: var(--hw-warning-border);
+  --color-hw-code-bg: var(--hw-code-bg);
+  --color-hw-code-border: var(--hw-code-border);
+  --color-hw-modal-bg: var(--hw-modal-bg);
+  --color-hw-modal-header: var(--hw-modal-header);
+
+  /* LED colors → Tailwind utilities */
+  --color-led-green: var(--led-green);
+  --color-led-green-dim: var(--led-green-dim);
+  --color-led-green-mid: var(--led-green-mid);
+  --color-led-red: var(--led-red);
+  --color-led-red-dim: var(--led-red-dim);
+  --color-led-blue: var(--led-blue);
+  --color-led-blue-dim: var(--led-blue-dim);
+  --color-led-orange: var(--led-orange);
+  --color-led-orange-dim: var(--led-orange-dim);
+
+  /* Rubber */
+  --color-rubber-base: var(--rubber-base);
+  --color-rubber-pad: var(--rubber-pad);
+
+  /* Fonts */
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--hw-body);
+  color: var(--hw-text);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: rgba(68, 136, 255, 0.2);
+}
+
+input::placeholder {
+  color: var(--hw-text-dim);
+  font-family: var(--font-mono);
+}
+
+/* Custom scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hw-raised) var(--hw-body);
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--hw-body);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--hw-raised);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--hw-border-light);
 }
