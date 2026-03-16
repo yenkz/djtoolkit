@@ -6,21 +6,23 @@
  * to the URL cache, inserts them into the tracks table, and optionally
  * creates pipeline download jobs.
  *
+ * Uses EdgeRuntime.waitUntil() to respond immediately and process in the
+ * background, avoiding the 150s wall-clock limit on HTTP responses.
+ *
  * Accepts two invocation modes:
  *   1. Fresh start: { job_id, url, user_id, queue_jobs }
  *   2. Resume (relay): { job_id, url, user_id, queue_jobs, trackid_job_id }
  *      — skips submission and jumps straight to polling with the provided
- *        TrackID job ID (used when the function needs to relay itself to
- *        stay within the 150 s Edge Function wall-clock limit).
+ *        TrackID job ID (used when the function self-relays to stay within
+ *        the Deno wall-clock limit).
  */
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TRACKID_BASE = "https://trackid.dev";
 const TRACKID_CONFIDENCE = 0.7;
 const POLL_INTERVAL_MS = 7000;
-/** Stay well under the 150 s Edge Function wall-clock limit. */
+/** Max polling time per invocation before relaying to a new invocation. */
 const MAX_POLL_DURATION_MS = 120_000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -36,23 +38,19 @@ function buildSearchString(artist: string, title: string): string {
     .trim();
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
+// ─── Main processing ─────────────────────────────────────────────────────────
 
-serve(async (req: Request) => {
-  const {
-    job_id,
-    url,
-    user_id,
-    queue_jobs,
-    trackid_job_id: resumeTrackidJobId,
-  } = await req.json();
-
+async function processJob(
+  job_id: string,
+  url: string,
+  user_id: string,
+  queue_jobs: boolean,
+  resumeTrackidJobId?: string
+): Promise<void> {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
-
-  // ── Job update helper ────────────────────────────────────────────────────
 
   async function updateJob(updates: Record<string, unknown>): Promise<void> {
     await supabase
@@ -62,17 +60,15 @@ serve(async (req: Request) => {
   }
 
   async function fail(msg: string): Promise<void> {
-    await updateJob({ status: "failed", progress: 0, step: "", error: msg });
+    await updateJob({ status: "failed", progress: 0, step: "Failed", error: msg });
   }
-
-  // ── Main logic ───────────────────────────────────────────────────────────
 
   try {
     let trackidJobId: string;
 
     if (resumeTrackidJobId) {
       // ── Resume mode: relay continuation ─────────────────────────────────
-      trackidJobId = resumeTrackidJobId as string;
+      trackidJobId = resumeTrackidJobId;
       await updateJob({ status: "processing", step: "Resuming TrackID.dev poll…" });
     } else {
       // ── Fresh start: submit URL to TrackID.dev ───────────────────────────
@@ -93,11 +89,11 @@ serve(async (req: Request) => {
 
       if (submitResp.status === 429) {
         await fail("TrackID.dev rate limit reached. Try again in a few minutes.");
-        return new Response(JSON.stringify({ ok: false }), { status: 429 });
+        return;
       }
       if (!submitResp.ok) {
         await fail(`TrackID.dev submission failed: ${submitResp.status}`);
-        return new Response(JSON.stringify({ ok: false }), { status: 502 });
+        return;
       }
 
       const submitData = await submitResp.json();
@@ -113,7 +109,8 @@ serve(async (req: Request) => {
     while (true) {
       if (Date.now() - startTime > MAX_POLL_DURATION_MS) {
         // Relay: re-invoke self to continue polling from where we left off
-        await supabase.functions.invoke("trackid-poll", {
+        await updateJob({ step: "Relaying to continue polling…" });
+        const { error: relayErr } = await supabase.functions.invoke("trackid-poll", {
           body: {
             job_id,
             url,
@@ -122,7 +119,10 @@ serve(async (req: Request) => {
             trackid_job_id: trackidJobId,
           },
         });
-        return new Response(JSON.stringify({ ok: true, relayed: true }));
+        if (relayErr) {
+          await fail(`Relay failed: ${relayErr.message ?? relayErr}`);
+        }
+        return;
       }
 
       const pollResp = await fetch(pollUrl, {
@@ -130,13 +130,12 @@ serve(async (req: Request) => {
       });
 
       if (pollResp.status === 429) {
-        // Back off on rate limit before retrying
         await new Promise((r) => setTimeout(r, 15_000));
         continue;
       }
       if (!pollResp.ok) {
         await fail(`TrackID.dev poll error: ${pollResp.status}`);
-        return new Response(JSON.stringify({ ok: false }));
+        return;
       }
 
       jobData = await pollResp.json();
@@ -149,7 +148,7 @@ serve(async (req: Request) => {
       if (jobStatus === "completed") break;
       if (jobStatus === "failed") {
         await fail("TrackID.dev job failed on server.");
-        return new Response(JSON.stringify({ ok: false }));
+        return;
       }
 
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
@@ -193,7 +192,6 @@ serve(async (req: Request) => {
         title: title || null,
         artist: artist || null,
         artists: artist || null,
-        // TrackID returns the detected window size, not the real track duration
         duration_ms: null,
         search_string: buildSearchString(artist, title) || null,
       });
@@ -211,8 +209,7 @@ serve(async (req: Request) => {
           updated_at: new Date().toISOString(),
         },
         { onConflict: "youtube_url" }
-      )
-      .then(() => {});
+      );
 
     // ── Insert tracks ────────────────────────────────────────────────────
 
@@ -275,13 +272,29 @@ serve(async (req: Request) => {
         track_ids: insertedIds,
       }),
     });
-
-    return new Response(JSON.stringify({ ok: true }));
   } catch (err) {
     await fail(`Unexpected error: ${err}`);
-    return new Response(
-      JSON.stringify({ ok: false, error: String(err) }),
-      { status: 500 }
-    );
   }
+}
+
+// ─── Handler — respond immediately, process in background ────────────────────
+
+Deno.serve(async (req: Request) => {
+  const body = await req.json();
+
+  // deno-lint-ignore no-explicit-any
+  (globalThis as any).EdgeRuntime.waitUntil(
+    processJob(
+      body.job_id,
+      body.url,
+      body.user_id,
+      body.queue_jobs ?? true,
+      body.trackid_job_id
+    )
+  );
+
+  return new Response(
+    JSON.stringify({ ok: true, job_id: body.job_id }),
+    { headers: { "Content-Type": "application/json" } }
+  );
 });
