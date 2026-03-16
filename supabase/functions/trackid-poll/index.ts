@@ -22,8 +22,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const TRACKID_BASE = "https://trackid.dev";
 const TRACKID_CONFIDENCE = 0.7;
 const POLL_INTERVAL_MS = 7000;
-/** Max polling time per invocation before relaying to a new invocation. */
-const MAX_POLL_DURATION_MS = 120_000;
+/** Max polling time per invocation before relaying to a new invocation.
+ *  Keep well under the ~150s hard kill limit. waitUntil() extends this
+ *  but the process can still be killed around 400s. Chain early. */
+const MAX_POLL_DURATION_MS = 50_000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
