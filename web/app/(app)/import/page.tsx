@@ -461,7 +461,7 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       {/* Exportify hint dialog for non-owned playlists */}
       <dialog
         ref={dialogRef}
-        className="bg-gray-900 border border-gray-700 rounded-xl p-0 max-w-md w-full backdrop:bg-black/60"
+        className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-900 border border-gray-700 rounded-xl p-0 max-w-md w-full backdrop:bg-black/60"
         onClose={() => setShowExportifyHint(false)}
       >
         {showExportifyHint && (
