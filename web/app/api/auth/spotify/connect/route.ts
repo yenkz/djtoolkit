@@ -65,6 +65,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (insertError) {
+    console.error("oauth_states insert failed:", insertError.message, insertError.code);
     return NextResponse.redirect(
       new URL(`${frontendUrl}${returnTo}?spotify=error&reason=state_error`)
     );
