@@ -83,6 +83,8 @@ export interface ImportResult {
   skipped_duplicates: number;
   jobs_created: number;
   track_ids: number[];
+  has_more?: boolean;
+  next_offset?: number | null;
 }
 
 export async function fetchTracks(params: {
@@ -247,12 +249,32 @@ export async function deleteAgent(id: string): Promise<void> {
 export async function importSpotifyPlaylistNoJobs(
   playlistId: string
 ): Promise<ImportResult> {
-  const res = await apiClient(
-    `/catalog/import/spotify?queue_jobs=false`,
-    { method: "POST", body: JSON.stringify({ playlist_id: playlistId }) }
-  );
-  if (!res.ok) throw new Error(await res.text());
-  return res.json();
+  const combined: ImportResult = {
+    imported: 0,
+    skipped_duplicates: 0,
+    jobs_created: 0,
+    track_ids: [],
+  };
+
+  let offset = 0;
+  while (true) {
+    const res = await apiClient(
+      `/catalog/import/spotify?queue_jobs=false&offset=${offset}`,
+      { method: "POST", body: JSON.stringify({ playlist_id: playlistId }) }
+    );
+    if (!res.ok) throw new Error(await res.text());
+    const chunk: ImportResult = await res.json();
+
+    combined.imported += chunk.imported;
+    combined.skipped_duplicates += chunk.skipped_duplicates;
+    combined.jobs_created += chunk.jobs_created;
+    combined.track_ids.push(...chunk.track_ids);
+
+    if (!chunk.has_more || chunk.next_offset == null) break;
+    offset = chunk.next_offset;
+  }
+
+  return combined;
 }
 
 export async function submitTrackIdJob(url: string): Promise<{ job_id: string }> {

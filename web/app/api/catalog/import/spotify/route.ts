@@ -113,13 +113,20 @@ export async function POST(request: NextRequest) {
   }
 
   // Paginate through items — use /me/tracks for Liked Songs, /playlists/{id}/tracks otherwise
+  // Fetch up to MAX_PAGES pages per request to stay within Vercel's 10s timeout.
+  const MAX_PAGES = 8; // 8 × 50 = 400 tracks per request
   const allItems: SpotifyPlaylistItem[] = [];
   const isLiked = playlistId === "liked";
+  const offset = parseInt(request.nextUrl.searchParams.get("offset") ?? "0", 10) || 0;
   let url: string | null = isLiked
-    ? `${SPOTIFY_API}/me/tracks?limit=50`
-    : `${SPOTIFY_API}/playlists/${encodeURIComponent(playlistId)}/tracks?limit=100`;
+    ? `${SPOTIFY_API}/me/tracks?limit=50&offset=${offset}`
+    : `${SPOTIFY_API}/playlists/${encodeURIComponent(playlistId)}/tracks?limit=50&offset=${offset}`;
 
-  while (url) {
+  let pagesRead = 0;
+  let hasMore = false;
+  let nextOffset = offset;
+
+  while (url && pagesRead < MAX_PAGES) {
     const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -146,7 +153,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    url = page.next;
+    pagesRead++;
+    nextOffset += page.items.length;
+
+    if (page.next && pagesRead < MAX_PAGES) {
+      url = page.next;
+    } else {
+      hasMore = !!page.next;
+      url = null;
+    }
   }
 
   if (allItems.length === 0) {
@@ -215,6 +230,8 @@ export async function POST(request: NextRequest) {
       skipped_duplicates: skippedDuplicates,
       jobs_created: jobsCreated,
       track_ids: trackIds,
+      has_more: hasMore,
+      next_offset: hasMore ? nextOffset : null,
     },
     { status: 201 }
   );
