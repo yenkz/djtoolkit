@@ -42,13 +42,13 @@ function rl(max: number, prefix: string): Ratelimit | null {
  * Values are null when Redis is not available — rateLimit() handles this gracefully.
  */
 export const limiters = {
-  read: rl(600, "rl:read"),
-  agent: rl(100, "rl:agent"),
-  batch: rl(60, "rl:batch"),
-  write: rl(30, "rl:write"),
-  import: rl(100, "rl:import"),
-  register: rl(10, "rl:register"),
-  backfill: rl(5, "rl:backfill"),
+  read: rl(2000, "rl:read"),
+  agent: rl(500, "rl:agent"),
+  batch: rl(200, "rl:batch"),
+  write: rl(100, "rl:write"),
+  import: rl(200, "rl:import"),
+  register: rl(20, "rl:register"),
+  backfill: rl(20, "rl:backfill"),
 } as const;
 
 export type LimiterKey = keyof typeof limiters;
@@ -75,10 +75,14 @@ export async function rateLimit(
     request.headers.get("x-real-ip") ??
     "anonymous";
 
-  const { success } = await limiter.limit(id);
+  const { success, remaining, reset } = await limiter.limit(id);
 
   if (!success) {
-    return jsonError("Rate limit exceeded. Please try again later.", 429);
+    const resetIn = Math.ceil((reset - Date.now()) / 1000);
+    return jsonError(
+      `Rate limit exceeded. Resets in ${resetIn}s. (key: ${id}, remaining: ${remaining})`,
+      429
+    );
   }
 
   return null;
