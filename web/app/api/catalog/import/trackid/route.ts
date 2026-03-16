@@ -156,10 +156,27 @@ export async function POST(request: NextRequest) {
         .upsert(trackRows, { onConflict: "user_id,title,artist", ignoreDuplicates: true })
         .select("id, search_string, artist, title, duration_ms");
 
-      insertedIds = (inserted ?? []).map((r) => r.id as number);
+      const newlyInserted = inserted ?? [];
 
-      if (queueJobs && insertedIds.length > 0) {
-        const jobRows = (inserted ?? []).map((track) => ({
+      // Re-fetch ALL matching track IDs (upsert with ignoreDuplicates returns
+      // nothing for existing rows). Batch in chunks of 100 for URL safety.
+      const titles = trackRows.map((r) => r.title).filter(Boolean) as string[];
+      const allTrackIds: number[] = [];
+      for (let i = 0; i < titles.length; i += 100) {
+        const batch = titles.slice(i, i + 100);
+        const { data: rows } = await supabase
+          .from("tracks")
+          .select("id")
+          .eq("user_id", user.userId)
+          .eq("source", "trackid")
+          .in("title", batch);
+        allTrackIds.push(...(rows ?? []).map((r) => r.id as number));
+      }
+      // Deduplicate IDs (a title may match multiple rows across batches)
+      insertedIds = [...new Set(allTrackIds)];
+
+      if (queueJobs && newlyInserted.length > 0) {
+        const jobRows = newlyInserted.map((track) => ({
           user_id: user.userId,
           track_id: track.id,
           job_type: "download",
@@ -190,8 +207,8 @@ export async function POST(request: NextRequest) {
       progress: 100,
       step: `Done — ${insertedIds.length} track${insertedIds.length !== 1 ? "s" : ""} identified (cached)`,
       result: JSON.stringify({
-        imported: insertedIds.length,
-        skipped_duplicates: trackRows.length - insertedIds.length,
+        imported: newlyInserted.length,
+        skipped_duplicates: trackRows.length - newlyInserted.length,
         jobs_created: jobsCreated,
         track_ids: insertedIds,
       }),
