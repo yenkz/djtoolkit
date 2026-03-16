@@ -1,15 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { Filter, Search } from "lucide-react";
+import { Filter } from "lucide-react";
 import {
   fetchTracks,
   fetchStats,
-  importCsv,
-  fetchSpotifyPlaylists,
-  importSpotifyPlaylist,
   type Track,
   type CatalogStats,
 } from "@/lib/api";
@@ -23,8 +19,6 @@ import DetailPanel from "@/components/ui/DetailPanel";
 import ViewToggle from "@/components/ui/ViewToggle";
 import CrateItem from "@/components/ui/CrateItem";
 import LCDDisplay from "@/components/ui/LCDDisplay";
-
-const API_URL = "/api";
 
 type ViewMode = "grid" | "list" | "compact";
 
@@ -61,11 +55,8 @@ export default function CatalogPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [showCsvModal, setShowCsvModal] = useState(false);
-  const [showSpotifyModal, setShowSpotifyModal] = useState(false);
-
   // New design state
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [activeCrate, setActiveCrate] = useState("All Tracks");
@@ -296,9 +287,9 @@ export default function CatalogPage() {
             </span>
             <div className="flex-1" />
 
-            {/* Import buttons */}
-            <button
-              onClick={() => setShowCsvModal(true)}
+            {/* Import button */}
+            <a
+              href="/import"
               className="font-mono text-xs font-bold tracking-wide"
               style={{
                 padding: "6px 14px",
@@ -307,45 +298,11 @@ export default function CatalogPage() {
                 color: "#fff",
                 border: "none",
                 cursor: "pointer",
+                textDecoration: "none",
               }}
             >
-              Import CSV
-            </button>
-            <button
-              onClick={async () => {
-                const supabase = createClient();
-                const {
-                  data: { session },
-                } = await supabase.auth.getSession();
-                const token = session?.access_token ?? "";
-                window.location.href = `${API_URL}/auth/spotify/connect?token=${encodeURIComponent(token)}&return_to=/catalog`;
-              }}
-              className="font-mono text-xs font-bold tracking-wide"
-              style={{
-                padding: "6px 14px",
-                borderRadius: 5,
-                background: "transparent",
-                color: "var(--led-green)",
-                border: "1px solid var(--led-green)",
-                cursor: "pointer",
-              }}
-            >
-              Connect Spotify
-            </button>
-            <button
-              onClick={() => setShowSpotifyModal(true)}
-              className="font-mono text-xs font-bold tracking-wide"
-              style={{
-                padding: "6px 14px",
-                borderRadius: 5,
-                background: "transparent",
-                color: "var(--hw-text-dim)",
-                border: "1px solid var(--hw-border)",
-                cursor: "pointer",
-              }}
-            >
-              Import Playlist
-            </button>
+              Import a Playlist
+            </a>
 
             {/* Search */}
             <div style={{ width: "clamp(160px, 22vw, 260px)" }}>
@@ -751,23 +708,6 @@ export default function CatalogPage() {
         />
       )}
 
-      {/* ── Modals (preserved business logic) ── */}
-      {showCsvModal && (
-        <CsvImportModal
-          onClose={() => {
-            setShowCsvModal(false);
-            load();
-          }}
-        />
-      )}
-      {showSpotifyModal && (
-        <SpotifyImportModal
-          onClose={() => {
-            setShowSpotifyModal(false);
-            load();
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -875,244 +815,3 @@ function ActiveTag({
   );
 }
 
-/* ── CSV Import Modal (preserved) ── */
-function CsvImportModal({ onClose }: { onClose: () => void }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  async function handleImport() {
-    if (!file) return;
-    setLoading(true);
-    try {
-      const result = await importCsv(file);
-      toast.success(
-        `Imported ${result.imported} tracks, ${result.jobs_created} jobs created`,
-      );
-      onClose();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Import failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div
-        className="w-full max-w-md rounded-xl p-6 shadow-2xl"
-        style={{
-          border: "1px solid var(--hw-border)",
-          background: "var(--hw-modal-bg)",
-        }}
-      >
-        <h2
-          className="font-sans mb-4"
-          style={{ fontSize: 18, fontWeight: 800, color: "var(--hw-text)" }}
-        >
-          Import Exportify CSV
-        </h2>
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const f = e.dataTransfer.files[0];
-            if (f) setFile(f);
-          }}
-          className="flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed text-sm transition-colors"
-          style={{
-            borderColor: dragging
-              ? "var(--led-blue)"
-              : "var(--hw-border)",
-            background: dragging
-              ? "color-mix(in srgb, var(--led-blue) 5%, transparent)"
-              : "transparent",
-            color: "var(--hw-text-dim)",
-          }}
-          onClick={() =>
-            document.getElementById("csv-input")?.click()
-          }
-        >
-          {file ? (
-            <p style={{ color: "var(--hw-text)" }}>{file.name}</p>
-          ) : (
-            <p>Drag & drop CSV or click to browse</p>
-          )}
-          <input
-            id="csv-input"
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-        </div>
-        <div className="mt-4 flex gap-2 justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="font-sans"
-            style={{
-              padding: "8px 16px",
-              fontSize: 13,
-              color: "var(--hw-text-dim)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleImport}
-            disabled={!file || loading}
-            className="font-mono disabled:opacity-50"
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 1,
-              padding: "8px 20px",
-              borderRadius: 5,
-              background: "var(--led-blue)",
-              color: "#fff",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "Importing..." : "Import"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ── Spotify Import Modal (preserved) ── */
-function SpotifyImportModal({ onClose }: { onClose: () => void }) {
-  const [playlists, setPlaylists] = useState<
-    { id: string; name: string; track_count?: number | null }[]
-  >([]);
-  const [selected, setSelected] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(true);
-
-  useEffect(() => {
-    fetchSpotifyPlaylists()
-      .then(setPlaylists)
-      .catch((err) => toast.error(err.message))
-      .finally(() => setFetching(false));
-  }, []);
-
-  async function handleImport() {
-    if (!selected) return;
-    setLoading(true);
-    try {
-      const result = await importSpotifyPlaylist(selected);
-      toast.success(
-        `Imported ${result.imported} tracks, ${result.jobs_created} jobs created`,
-      );
-      onClose();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Import failed");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div
-        className="w-full max-w-md rounded-xl p-6 shadow-2xl"
-        style={{
-          border: "1px solid var(--hw-border)",
-          background: "var(--hw-modal-bg)",
-        }}
-      >
-        <h2
-          className="font-sans mb-4"
-          style={{ fontSize: 18, fontWeight: 800, color: "var(--hw-text)" }}
-        >
-          Import Spotify Playlist
-        </h2>
-        {fetching ? (
-          <p
-            className="font-sans"
-            style={{ fontSize: 13, color: "var(--hw-text-dim)" }}
-          >
-            Loading playlists...
-          </p>
-        ) : playlists.length === 0 ? (
-          <p
-            className="font-sans"
-            style={{ fontSize: 13, color: "var(--hw-text-dim)" }}
-          >
-            No playlists found. Connect Spotify first.
-          </p>
-        ) : (
-          <select
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            className="w-full font-sans"
-            style={{
-              fontSize: 13,
-              padding: "8px 12px",
-              borderRadius: 6,
-              border: "1px solid var(--hw-border)",
-              background: "var(--hw-raised)",
-              color: "var(--hw-text)",
-              outline: "none",
-            }}
-          >
-            <option value="">Select a playlist...</option>
-            {playlists.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.track_count} tracks)
-              </option>
-            ))}
-          </select>
-        )}
-        <div className="mt-4 flex gap-2 justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="font-sans"
-            style={{
-              padding: "8px 16px",
-              fontSize: 13,
-              color: "var(--hw-text-dim)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleImport}
-            disabled={!selected || loading}
-            className="font-mono disabled:opacity-50"
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 1,
-              padding: "8px 20px",
-              borderRadius: 5,
-              background: "var(--led-green)",
-              color: "#fff",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "Importing..." : "Import"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
