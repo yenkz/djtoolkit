@@ -21,11 +21,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const TRACKID_BASE = "https://trackid.dev";
 const TRACKID_CONFIDENCE = 0.7;
-const POLL_INTERVAL_MS = 7000;
+/** TrackID.dev allows 10 requests per 15 minutes per IP.
+ *  Poll every 90s to stay well under that limit (~6-7 polls per window). */
+const POLL_INTERVAL_MS = 90_000;
 /** Max polling time per invocation before relaying to a new invocation.
- *  Keep well under the ~150s hard kill limit. waitUntil() extends this
- *  but the process can still be killed around 400s. Chain early. */
-const MAX_POLL_DURATION_MS = 50_000;
+ *  Supabase kills edge functions at ~150s (or ~400s with waitUntil).
+ *  With 90s poll interval, relay after 2 polls to stay safe. */
+const MAX_POLL_DURATION_MS = 140_000;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -132,8 +134,17 @@ async function processJob(
       });
 
       if (pollResp.status === 429) {
-        await new Promise((r) => setTimeout(r, 15_000));
-        continue;
+        // Rate limit is 10 req / 15 min — relay to a fresh invocation
+        // after a delay rather than burning time in this one.
+        await updateJob({ step: "Rate limited by TrackID.dev, relaying…" });
+        await new Promise((r) => setTimeout(r, 60_000));
+        const { error: relayErr } = await supabase.functions.invoke("trackid-poll", {
+          body: { job_id, url, user_id, queue_jobs, trackid_job_id: trackidJobId },
+        });
+        if (relayErr) {
+          await fail(`Relay after rate limit failed: ${relayErr.message ?? relayErr}`);
+        }
+        return;
       }
       if (!pollResp.ok) {
         await fail(`TrackID.dev poll error: ${pollResp.status}`);
