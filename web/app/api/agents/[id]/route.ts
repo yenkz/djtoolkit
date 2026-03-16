@@ -9,36 +9,49 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const rl = await rateLimit(request, limiters.write);
-  if (rl) return rl;
+  try {
+    const rl = await rateLimit(request, limiters.write);
+    if (rl) return rl;
 
-  const user = await getAuthUser(request);
-  if (isAuthError(user)) return user;
+    const user = await getAuthUser(request);
+    if (isAuthError(user)) return user;
 
-  const { id } = await params;
+    const { id } = await params;
 
-  const supabase = createServiceClient();
+    const supabase = createServiceClient();
 
-  const { data, error } = await supabase
-    .from("agents")
-    .delete()
-    .eq("id", id)
-    .eq("user_id", user.userId)
-    .select("id");
+    // Detach agent from pipeline jobs before deleting (belt-and-suspenders
+    // alongside the ON DELETE SET NULL FK constraint).
+    await supabase
+      .from("pipeline_jobs")
+      .update({ agent_id: null })
+      .eq("agent_id", id);
 
-  if (error) {
-    return jsonError("Failed to delete agent", 500);
+    const { data, error } = await supabase
+      .from("agents")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.userId)
+      .select("id");
+
+    if (error) {
+      console.error("agents DELETE supabase error:", error);
+      return jsonError("Failed to delete agent", 500);
+    }
+
+    if (!data || data.length === 0) {
+      return jsonError("Agent not found", 404);
+    }
+
+    await auditLog(user.userId, "agent.delete", {
+      resourceType: "agent",
+      resourceId: id,
+      ipAddress: getClientIp(request),
+    });
+
+    return new NextResponse(null, { status: 204 });
+  } catch (err) {
+    console.error("agents DELETE unhandled error:", err);
+    return jsonError("Internal server error", 500);
   }
-
-  if (!data || data.length === 0) {
-    return jsonError("Agent not found", 404);
-  }
-
-  await auditLog(user.userId, "agent.delete", {
-    resourceType: "agent",
-    resourceId: id,
-    ipAddress: getClientIp(request),
-  });
-
-  return new NextResponse(null, { status: 204 });
 }
