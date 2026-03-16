@@ -262,7 +262,7 @@ export async function importSpotifyPlaylistNoJobs(
       `/catalog/import/spotify?queue_jobs=false&offset=${offset}`,
       { method: "POST", body: JSON.stringify({ playlist_id: playlistId }) }
     );
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await extractError(res));
     const chunk: ImportResult = await res.json();
 
     combined.imported += chunk.imported;

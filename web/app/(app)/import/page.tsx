@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -112,6 +112,8 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [trackIdStatus, setTrackIdStatus] = useState<TrackIdJobStatus | null>(null);
+  const [showExportifyHint, setShowExportifyHint] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -215,7 +217,13 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
       const tracks = await fetchTracksByIds(allImportedIds);
       onComplete(tracks);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Import failed");
+      const msg = err instanceof Error ? err.message : "Import failed";
+      if (msg.includes("exportify.app") || msg.includes("403")) {
+        setShowExportifyHint(true);
+        dialogRef.current?.showModal();
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
       setTrackIdStatus(null);
@@ -323,6 +331,9 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
                     <div className="text-sm text-white truncate">{p.name}</div>
                     <div className="text-xs text-gray-500 truncate">
                       {p.owner ? `by ${p.owner}` : ""}
+                      {!isLiked && p.is_owner === false && (
+                        <span className="ml-1.5 text-yellow-500/80"> &middot; better via CSV export</span>
+                      )}
                     </div>
                   </div>
                   <span className="text-xs text-gray-500 flex-shrink-0">
@@ -446,6 +457,54 @@ function Step1Import({ searchParams, onComplete }: Step1Props) {
             : "Review tracks →"}
         </button>
       </div>
+
+      {/* Exportify hint dialog for non-owned playlists */}
+      <dialog
+        ref={dialogRef}
+        className="bg-gray-900 border border-gray-700 rounded-xl p-0 max-w-md w-full backdrop:bg-black/60"
+        onClose={() => setShowExportifyHint(false)}
+      >
+        {showExportifyHint && (
+          <div className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-2xl">⚠️</span>
+              <h2 className="text-lg font-bold text-white">Can&apos;t read this playlist</h2>
+            </div>
+            <p className="text-sm text-gray-300 mb-3">
+              Spotify doesn&apos;t allow reading tracks from playlists you don&apos;t own via the API.
+            </p>
+            <p className="text-sm text-gray-400 mb-5">
+              You can export it as a CSV from{" "}
+              <a
+                href="https://exportify.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-400 underline hover:text-indigo-300"
+              >
+                exportify.app
+              </a>{" "}
+              and then import it using the <strong className="text-gray-200">CSV upload</strong> option above.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  dialogRef.current?.close();
+                  setSelectedPlaylistId(null);
+                }}
+                className="text-sm text-gray-400 hover:text-white px-4 py-2 rounded-lg"
+              >
+                Deselect playlist
+              </button>
+              <button
+                onClick={() => dialogRef.current?.close()}
+                className="text-sm bg-indigo-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-indigo-500"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        )}
+      </dialog>
     </div>
   );
 }

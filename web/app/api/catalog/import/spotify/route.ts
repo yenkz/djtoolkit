@@ -134,6 +134,12 @@ export async function POST(request: NextRequest) {
     if (!resp.ok) {
       const errBody = await resp.text();
       console.error("Spotify tracks error:", resp.status, errBody);
+      if (resp.status === 403) {
+        return jsonError(
+          "This playlist can't be read directly from Spotify. Export it as CSV from exportify.app and import it using the CSV option instead.",
+          403
+        );
+      }
       return jsonError(
         `Spotify API error: ${resp.status} ${resp.statusText}`,
         502
