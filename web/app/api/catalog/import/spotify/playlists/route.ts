@@ -80,6 +80,10 @@ export async function GET(request: NextRequest) {
       next: string | null;
     };
 
+    if (seen.size === 0 && page.items.length > 0) {
+      console.log("First playlist raw:", JSON.stringify(page.items[0]));
+    }
+
     for (const pl of page.items) {
       if (!pl.id || seen.has(pl.id)) continue;
       seen.add(pl.id);
