@@ -1,89 +1,27 @@
 /**
- * Upstash Redis rate limiters mirroring the FastAPI slowapi configuration.
+ * Rate limiting stub.
  *
- * Usage:
- *
- *   import { limiters, rateLimit } from "@/lib/api-server/rate-limit";
- *
- *   const limited = await rateLimit(request, limiters.read);
- *   if (limited) return limited;
+ * Redis-based rate limiting (Upstash) has been removed — unnecessary for a
+ * single-user tool and caused repeated 429 errors during development.
+ * All calls are no-ops that always allow the request through.
  */
 
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
-import { jsonError } from "./errors";
-
-function initRedis(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  try {
-    return Redis.fromEnv();
-  } catch {
-    console.warn("Failed to initialise Upstash Redis – rate limiting disabled");
-    return null;
-  }
-}
-
-const redis = initRedis();
-
-function rl(max: number, prefix: string): Ratelimit | null {
-  if (!redis) return null;
-  return new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(max, "1 h"),
-    prefix,
-  });
-}
-
-/**
- * Pre-configured rate limiters keyed by endpoint category.
- * All windows are sliding 1-hour windows, matching the FastAPI slowapi config.
- * Values are null when Redis is not available — rateLimit() handles this gracefully.
- */
 export const limiters = {
-  read: rl(2000, "rl:read"),
-  agent: rl(500, "rl:agent"),
-  batch: rl(200, "rl:batch"),
-  write: rl(100, "rl:write"),
-  import: rl(200, "rl:import"),
-  register: rl(20, "rl:register"),
-  backfill: rl(20, "rl:backfill"),
+  read: null,
+  agent: null,
+  batch: null,
+  write: null,
+  import: null,
+  register: null,
+  backfill: null,
 } as const;
 
 export type LimiterKey = keyof typeof limiters;
 
-/**
- * Check the rate limit for a request.
- *
- * @param request  - The incoming Next.js/Fetch API Request.
- * @param limiter  - One of the pre-configured `limiters` instances.
- * @param identifier - Optional explicit identifier (e.g. userId). Falls back
- *                     to x-forwarded-for → x-real-ip → "anonymous".
- * @returns `null` if the request is allowed; a 429 Response if rate-limited.
- */
 export async function rateLimit(
-  request: Request,
-  limiter: Ratelimit | null,
-  identifier?: string
+  _request: Request,
+  _limiter: null,
+  _identifier?: string
 ): Promise<Response | null> {
-  if (!limiter) return null; // Skip when Redis is not available
-
-  const id =
-    identifier ??
-    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
-    request.headers.get("x-real-ip") ??
-    "anonymous";
-
-  const { success, remaining, reset } = await limiter.limit(id);
-
-  if (!success) {
-    const resetIn = Math.ceil((reset - Date.now()) / 1000);
-    return jsonError(
-      `Rate limit exceeded. Resets in ${resetIn}s. (key: ${id}, remaining: ${remaining})`,
-      429
-    );
-  }
-
   return null;
 }
