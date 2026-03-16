@@ -45,5 +45,9 @@ export async function GET(
     return jsonError("Job not found", 404);
   }
 
-  return NextResponse.json(job);
+  // `result` is stored as a JSON string — parse it so the client gets an object
+  const result =
+    typeof job.result === "string" ? JSON.parse(job.result) : job.result;
+
+  return NextResponse.json({ ...job, result });
 }
