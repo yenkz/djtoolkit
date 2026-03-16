@@ -338,9 +338,15 @@ export async function fetchCandidateTracks(): Promise<Track[]> {
 
 export async function fetchTracksByIds(ids: number[]): Promise<Track[]> {
   if (ids.length === 0) return [];
-  const params = ids.map((id) => `id=${id}`).join("&");
-  const res = await apiClient(`/catalog/tracks?${params}&per_page=1000`);
-  if (!res.ok) throw new Error(await res.text());
-  const data = await res.json();
-  return data.tracks as Track[];
+  // Batch in chunks of 100 to avoid URL length limits
+  const all: Track[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const batch = ids.slice(i, i + 100);
+    const params = batch.map((id) => `id=${id}`).join("&");
+    const res = await apiClient(`/catalog/tracks?${params}&per_page=1000`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    all.push(...(data.tracks as Track[]));
+  }
+  return all;
 }

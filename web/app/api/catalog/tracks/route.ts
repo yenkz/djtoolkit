@@ -111,20 +111,21 @@ export async function GET(request: NextRequest) {
   const total = count ?? 0;
 
   // Batch already_owned check: find any 'available' tracks with matching
-  // spotify_uris (different id) for this user.
+  // spotify_uris for this user. Batched in chunks of 100 for URL safety.
   const ownedUris = new Set<string>();
   if (rows.length > 0) {
     const uris = rows
       .map((t) => t.spotify_uri as string | null)
       .filter((u): u is string => typeof u === "string" && u.length > 0);
 
-    if (uris.length > 0) {
+    for (let i = 0; i < uris.length; i += 100) {
+      const batch = uris.slice(i, i + 100);
       const { data: owned } = await supabase
         .from("tracks")
         .select("spotify_uri")
         .eq("user_id", user.userId)
         .eq("acquisition_status", "available")
-        .in("spotify_uri", uris);
+        .in("spotify_uri", batch);
 
       for (const row of (owned ?? []) as Record<string, unknown>[]) {
         if (row.spotify_uri) ownedUris.add(row.spotify_uri as string);
