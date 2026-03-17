@@ -11,6 +11,7 @@ import crypto from "crypto";
 import { verifyJwt, isAuthError } from "@/lib/api-server/auth";
 import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getFrontendUrl, getSpotifyCallbackUrl } from "@/lib/api-server/url";
 
 const SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
 const SCOPES = "playlist-read-private playlist-read-collaborative user-library-read";
@@ -23,8 +24,7 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get("token");
   let returnTo = searchParams.get("return_to") || "/";
 
-  const frontendUrl =
-    process.env.PLATFORM_FRONTEND_URL || "http://localhost:3000";
+  const frontendUrl = getFrontendUrl(request);
 
   if (!token) {
     return NextResponse.redirect(
@@ -73,9 +73,7 @@ export async function GET(request: NextRequest) {
 
   // Build Spotify authorization URL
   const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const callbackUrl =
-    process.env.SPOTIFY_CALLBACK_URL ||
-    "http://localhost:3000/api/auth/spotify/callback";
+  const callbackUrl = getSpotifyCallbackUrl(request);
 
   if (!clientId) {
     return NextResponse.redirect(
