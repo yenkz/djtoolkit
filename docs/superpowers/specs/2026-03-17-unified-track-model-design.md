@@ -65,7 +65,7 @@ class Track:
     danceability: float = 0.0       # 0.0-1.0
 
     # Metadata
-    genre: str = ""
+    genres: str = ""                # maps to DB `genres` column (pipe-separated)
     label: str = ""
     year: int | None = None
     duration_ms: int = 0
@@ -94,12 +94,29 @@ class Track:
 
     # Serialization
     def to_db_row(self) -> dict:
-        """Serialize for Supabase upsert. JSONB fields serialized to dicts."""
+        """Serialize for Supabase upsert.
+        - Flat fields map 1:1 to column names (e.g. title → title)
+        - `artists` list → pipe-separated TEXT (matching existing DB convention)
+        - `cue_points` → JSONB list of dicts, CueType serialized as .value string
+        - `beatgrid` → JSONB list of dicts
+        - `color` tuple → dict {"r": int, "g": int, "b": int} or null
+        - None/default values included as null (Supabase handles defaults)
+        - `key` maps to DB column `key_normalized`
+        - `camelot` computed from `key` via key_to_camelot() if not already set
+        """
         ...
 
     @classmethod
     def from_db_row(cls, row: dict) -> "Track":
-        """Deserialize from Supabase query result."""
+        """Deserialize from Supabase query result.
+        - `key_normalized` DB column → Track.key
+        - Existing integer `key` column (Spotify pitch class) → converted to
+          normalized string via SPOTIFY_KEY_MAP if `key_normalized` is null
+        - `cue_points` JSONB → list[CuePoint], CueType.value string → enum
+        - `beatgrid` JSONB → list[BeatGridMarker]
+        - `artists` pipe-separated TEXT → list[str]
+        - Missing/null JSONB fields → empty lists
+        """
         ...
 
     # Accessors
@@ -162,11 +179,13 @@ New columns added to the existing `tracks` table via Supabase migration:
 | `sample_rate` | `INTEGER` | e.g. 44100 |
 | `bitrate` | `INTEGER` | e.g. 320000 |
 
-Existing columns that map directly: `title`, `artist`, `artists`, `album`, `year`, `duration_ms`, `genres`, `record_label`, `isrc`, `spotify_uri`, `local_path`, `source`, `energy`, `danceability`, `loudness`, `tempo`, `key`, and all Spotify audio features.
+Existing columns that map directly: `title`, `artist`, `artists`, `album`, `year`, `duration_ms`, `genres`, `record_label`, `isrc`, `spotify_uri`, `local_path`, `source`, `energy`, `danceability`, `loudness`, `tempo`, and all Spotify audio features.
+
+**`key` column handling:** The existing `key` column stores Spotify's integer pitch class (0-11). It is **preserved as-is** for backward compatibility. The new `key_normalized` TEXT column stores the canonical string form ("C minor", "Ab major"). `Track.from_db_row()` reads `key_normalized` first; if null, falls back to converting the integer `key` + `mode` columns via `SPOTIFY_KEY_MAP`. A one-time backfill migration populates `key_normalized` and `camelot` for all existing tracks that have integer `key` values.
 
 `source` values expand from `'exportify' | 'folder' | 'trackid'` to also include `'traktor' | 'rekordbox'`.
 
-Migration: `ALTER TABLE tracks ADD COLUMN ... DEFAULT NULL` for each new column. Non-breaking — all nullable.
+Migration: `ALTER TABLE tracks ADD COLUMN ... DEFAULT NULL` for each new column, plus a backfill query to populate `key_normalized` and `camelot` from existing integer `key` + `mode` values. Non-breaking — all new columns are nullable.
 
 ---
 
@@ -241,18 +260,50 @@ class ImportResult:
 
 ### 4.5 Supabase Adapter
 
+The `SupabaseAdapter` is the **sole data access layer** for Track objects. It wraps `supabase-py` and handles all serialization between `Track` dataclasses and the DB. The `db/supabase_client.py` module provides only the client factory (`get_client()`); all query logic lives in `SupabaseAdapter`.
+
 ```python
 # adapters/supabase.py
 
 class SupabaseAdapter:
     def __init__(self, client: supabase.Client): ...
 
+    # ── Used by import/export service ──
     def save_tracks(self, tracks: list[Track], user_id: str) -> dict:
         """Upsert tracks to Supabase. Deduplicates by source_id."""
 
     def load_tracks(self, user_id: str, filters: dict | None = None) -> list[Track]:
         """Query tracks, deserialize JSONB fields into nested dataclasses."""
+
+    # ── Used by migrated CLI/agent modules ──
+    def query_available_unfingerprinted(self, user_id: str) -> list[Track]:
+        """WHERE acquisition_status='available' AND fingerprinted=0"""
+
+    def query_available_unenriched_audio(self, user_id: str) -> list[Track]:
+        """WHERE acquisition_status='available' AND enriched_audio=0"""
+
+    def query_available_unenriched_spotify(self, user_id: str, force: bool = False) -> list[Track]:
+        """WHERE acquisition_status='available' AND (enriched_spotify=0 OR force)"""
+
+    def query_ready_for_library(self, user_id: str) -> list[Track]:
+        """WHERE acquisition_status='available' AND metadata_written=1 AND in_library=0"""
+
+    def query_missing_cover_art(self, user_id: str) -> list[Track]:
+        """WHERE acquisition_status='available' AND cover_art_written=0"""
+
+    def update_track(self, track_id: int, updates: dict) -> None:
+        """Update specific columns for a single track."""
+
+    def mark_fingerprinted(self, track_id: int, fingerprint_data: dict) -> None: ...
+    def mark_metadata_written(self, track_id: int, source: str) -> None: ...
+    def mark_cover_art_written(self, track_id: int) -> None: ...
+    def mark_enriched_spotify(self, track_id: int) -> None: ...
+    def mark_enriched_audio(self, track_id: int, audio_features: dict) -> None: ...
+    def mark_in_library(self, track_id: int, new_path: str) -> None: ...
+    def mark_duplicate(self, track_id: int) -> None: ...
 ```
+
+Each migrated module calls the appropriate named query method instead of building PostgREST queries directly. This keeps query patterns centralized and testable.
 
 Deduplication on import: tracks matched by `source_id` (Traktor file path or Rekordbox TrackID). Re-importing the same collection updates existing tracks.
 
@@ -354,7 +405,7 @@ services:
 
 ### 6.1 Workflow
 
-Triggered on push to `main` (or `deploy/api` tag):
+Triggered on push to `master` (or `deploy/api` tag):
 
 1. Build Docker image from `Dockerfile` in repo root (or `service/` subdirectory)
 2. Push to `ghcr.io/<user>/djtoolkit-api:latest`
@@ -445,30 +496,33 @@ Page layout:
 
 def get_client(cfg: Config) -> supabase.Client:
     """Singleton Supabase client factory. Auth via service role key or agent API key."""
-
-def query_tracks(client, filters: dict) -> list[dict]: ...
-def upsert_tracks(client, rows: list[dict]) -> None: ...
-def update_track(client, track_id: int, updates: dict) -> None: ...
 ```
+
+This module provides only the client factory. All query logic lives in `SupabaseAdapter` (Section 4.5).
 
 ### 8.3 Migration Strategy
 
-Each module's `sqlite3.connect()` + raw SQL is replaced with `supabase.table("tracks").select/upsert/update` calls. The query patterns change from raw SQL to PostgREST builder syntax.
+Each module's `sqlite3.connect()` + raw SQL is replaced with calls to `SupabaseAdapter` methods. For example:
+
+- `chromaprint.py`: `cursor.execute("SELECT ... WHERE acquisition_status='available' AND fingerprinted=0")` → `adapter.query_available_unfingerprinted(user_id)`
+- `writer.py`: `cursor.execute("UPDATE tracks SET metadata_written=1 ...")` → `adapter.mark_metadata_written(track_id, source)`
+
+Each module receives a `SupabaseAdapter` instance (injected via the CLI entry point or agent job runner) instead of creating its own DB connection.
 
 ### 8.4 Cleanup
 
 After all modules are migrated:
-- Delete `djtoolkit/db/database.py`
-- Delete `djtoolkit/db/schema.sql`
-- Delete `djtoolkit/importers/exportify.py` (replaced by TypeScript)
-- Delete `djtoolkit/importers/trackid.py` (replaced by TypeScript)
+
+- Delete `djtoolkit/db/database.py` and `djtoolkit/db/schema.sql`
+- Delete `djtoolkit/importers/exportify.py` — CSV import fully handled by `/api/catalog/import/csv` (TypeScript). CLI `djtoolkit import csv` command retired.
+- Delete `djtoolkit/importers/trackid.py` — TrackID import fully handled by `/api/catalog/import/trackid` (TypeScript). CLI `djtoolkit import trackid` command retired. Both CLI commands were already non-functional without the SQLite DB; the web UI is the sole interface for these flows.
 - Remove `make setup`, `make migrate-db`, `make wipe-db` from Makefile
 
 ---
 
 ## 9. Phasing
 
-### Phase 1 — Foundation (new code, Supabase from day one)
+### Phase 1a — Data Model & Adapters
 
 1. `models/track.py` — Track, CuePoint, BeatGridMarker dataclasses
 2. `models/camelot.py` — key mappings, normalization, compatibility engine
@@ -477,15 +531,21 @@ After all modules are migrated:
 5. `adapters/rekordbox.py` — RekordboxImporter, RekordboxExporter
 6. `adapters/supabase.py` — SupabaseAdapter
 7. `db/supabase_client.py` — Supabase client factory
-8. Supabase migration — new columns on `tracks`
-9. `service/` — FastAPI app, routes, auth, config
-10. Dockerfile + docker-compose.yml
-11. GitHub Actions workflow for CI/CD
-12. DNS: `api.djtoolkit.net` A record → Hetzner
-13. Caddy + systemd setup on Hetzner
-14. Web UI: Import page grouped sections + Traktor/Rekordbox upload
-15. Web UI: Export page (new nav item + full page)
-16. Unit tests: parsers, key normalization, round-trip import/export
+8. Supabase migration — new columns on `tracks` + backfill `key_normalized`/`camelot`
+9. Unit tests: parsers, key normalization, round-trip import/export
+
+### Phase 1b — Hetzner Service & Infrastructure
+
+1. `service/` — FastAPI app, routes, auth, config
+2. Dockerfile + docker-compose.yml
+3. GitHub Actions workflow for CI/CD
+4. DNS: `api.djtoolkit.net` A record → Hetzner
+5. Caddy + Docker setup on Hetzner
+
+### Phase 1c — Web UI
+
+1. Import page: grouped sections ("Discovery" + "DJ Software") + Traktor/Rekordbox upload
+2. Export page: new nav item + full page with format selection, genre filter, download
 
 ### Phase 2 — SQLite Migration
 
@@ -519,15 +579,54 @@ After all modules are migrated:
 
 ---
 
-## 11. Technical Reference
+## 11. Format Conversion Reference
 
-The technical reference document (`docs/technical-reference.md`) contains:
-- Complete Traktor NML and Rekordbox XML format specifications
-- Field-by-field conversion mapping table
-- Python library references (`traktor-nml-utils`, `pyrekordbox`)
-- Full Camelot wheel mapping (24 keys)
-- Complete `get_compatible_keys` algorithm
-- Energy curve planner algorithm
-- Key gotchas (ms vs seconds, single vs dynamic BPM, file path encoding)
+### 11.1 Key Conversion Mappings
 
-This document should be consulted during implementation for format details and edge cases.
+**Traktor MUSICAL_KEY integer → normalized key:**
+
+| Int | Key | Int | Key |
+|-----|-----|-----|-----|
+| 0 | C major | 12 | C minor |
+| 1 | Db major | 13 | Db minor |
+| 2 | D major | 14 | D minor |
+| 3 | Eb major | 15 | Eb minor |
+| 4 | E major | 16 | E minor |
+| 5 | F major | 17 | F minor |
+| 6 | F# major | 18 | F# minor |
+| 7 | G major | 19 | G minor |
+| 8 | Ab major | 20 | Ab minor |
+| 9 | A major | 21 | A minor |
+| 10 | Bb major | 22 | Bb minor |
+| 11 | B major | 23 | B minor |
+
+**Rekordbox Tonality → normalized key:** Strip trailing `m` for minor, append ` minor` or ` major`. Examples: `"Cm"` → `"C minor"`, `"Ab"` → `"Ab major"`, `"F#m"` → `"F# minor"`.
+
+**Spotify key + mode → normalized key:** `key` is 0-11 pitch class (same as Traktor major row), `mode` is 1=major, 0=minor. Combine: `PITCH_NAMES[key] + (" major" if mode==1 else " minor")`.
+
+### 11.2 Field Conversion Table
+
+| Data Point | Traktor NML | Rekordbox XML | Conversion |
+|---|---|---|---|
+| BPM | `<TEMPO BPM="128.00"/>` | `AverageBpm="128.00"` | Direct |
+| Key | `<MUSICAL_KEY VALUE="11"/>` | `Tonality="B"` | Integer → string (see 11.1) |
+| Cue position | `CUE_V2 START="1234.56"` (ms) | `POSITION_MARK Start="1.234"` (sec) | ÷1000 or ×1000 |
+| Hot cue index | `CUE_V2 HOTCUE="0"` | `POSITION_MARK Num="0"` | Direct (0-7) |
+| Memory cue | `CUE_V2 HOTCUE="-1"` | `POSITION_MARK Num="-1"` | Direct |
+| Loop | `TYPE="5"` + `LEN="8000"` (ms) | `Type="4"` + `End="..."` (sec) | LEN ms → End = Start + LEN/1000 |
+| Cue type | `TYPE` (0=cue, 4=grid, 5=loop) | `Type` (0=cue, 4=loop) | Map + filter grid cues |
+| File path | `DIR` + `FILE` with `/:` sep | `Location` with `file://` | Reconstruct / URL-decode |
+| Playlist ref | `PRIMARYKEY KEY="path"` | `TRACK Key="TrackID"` | Path-based → ID-based |
+
+### 11.3 Critical Gotchas
+
+1. **Traktor uses milliseconds, Rekordbox uses seconds** for cue positions — most common conversion bug
+2. **Traktor only supports a single global BPM**. Rekordbox supports dynamic beatgrids with multiple TEMPO entries. When exporting to Traktor, pick the dominant BPM.
+3. **Rekordbox memory cues vs hot cues:** Same `POSITION_MARK` element, differentiated only by `Num` attribute (-1 vs 0-7)
+4. **File path encoding:** Traktor uses `/:` as separator and stores volume + relative path. Rekordbox uses `file://localhost/` + URL-encoded absolute path.
+5. **Rekordbox XML import quirk:** RB doesn't merge — if a track exists, imported changes are ignored. Users must delete first, then re-import.
+6. **BeatGridMarker.beat_number** defaults to 1 for Rekordbox imports (Rekordbox `TEMPO` elements don't encode beat position within bar; Traktor does via grid cues)
+
+### 11.4 Spotify Audio Features
+
+The `Track` dataclass preserves Spotify audio features (`energy`, `danceability`, `loudness`, `speechiness`, etc.) as optional fields. These values come from Spotify's API and are stored as-is (REAL values). Tracks imported from Traktor/Rekordbox will have these fields as `None`. Existing tracks with `source='trackid'` retain their values as historical data even though the Python importer is retired — the web UI now handles TrackID imports.
