@@ -16,7 +16,7 @@ const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 
 export async function GET(request: NextRequest) {
   const frontendUrl = getProductionFrontendUrl(request);
-
+ 
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
