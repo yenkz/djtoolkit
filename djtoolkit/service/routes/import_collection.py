@@ -35,6 +35,10 @@ async def parse_collection(
 ):
     data = await file.read()
 
+    max_upload = 50 * 1024 * 1024  # 50 MB
+    if len(data) > max_upload:
+        raise HTTPException(status_code=413, detail="File too large (50 MB max)")
+
     fmt = _detect_format(data)
 
     if fmt == "traktor":

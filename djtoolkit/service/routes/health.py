@@ -17,11 +17,17 @@ def _check_db() -> str:
 
 
 @router.get("/health")
-async def health():
+def health():
     db_status = _check_db()
-    return {
-        "status": "ok" if db_status == "ok" else "degraded",
-        "service": "djtoolkit-api",
-        "version": "0.1.0",
-        "database": db_status,
-    }
+    status_code = 200 if db_status == "ok" else 503
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        content={
+            "status": "ok" if db_status == "ok" else "degraded",
+            "service": "djtoolkit-api",
+            "version": "0.1.0",
+            "database": db_status,
+        },
+        status_code=status_code,
+    )

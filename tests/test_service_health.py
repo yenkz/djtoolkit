@@ -24,7 +24,7 @@ def test_health_ok(client):
 def test_health_db_down(client):
     with patch("djtoolkit.service.routes.health._check_db", return_value="error"):
         resp = client.get("/health")
-        assert resp.status_code == 200
+        assert resp.status_code == 503
         body = resp.json()
         assert body["status"] == "degraded"
         assert body["database"] == "error"

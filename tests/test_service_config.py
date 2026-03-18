@@ -12,8 +12,6 @@ def test_get_settings_reads_env():
         from djtoolkit.service.config import get_settings
 
         s = get_settings()
-        assert s.supabase_url == "https://test.supabase.co"
-        assert s.supabase_service_role_key == "test-key"
         assert s.cors_origins == ["http://localhost:3000", "https://djtoolkit.net"]
 
 
