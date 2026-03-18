@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<NML VERSION="19">
+  <HEAD COMPANY="www.native-instruments.com" PROGRAM="Traktor Pro 3"/>
+  <MUSICFOLDERS/>
+  <COLLECTION ENTRIES="2">
+    <ENTRY MODIFIED_DATE="2024/1/15" MODIFIED_TIME="52000"
+           AUDIO_ID="abc123" TITLE="Track One" ARTIST="Artist A">
+      <LOCATION DIR="/:Users/:dj/:Music/:Tracks/:" FILE="track_one.mp3" VOLUME="Macintosh HD" VOLUMEID="vol1"/>
+      <ALBUM TITLE="Album A" TRACK="1"/>
+      <INFO BITRATE="320000" GENRE="Techno" LABEL="Label X"
+            COMMENT="Great track" RATING="3" KEY="Fm"
+            PLAYCOUNT="15" PLAYTIME="345" IMPORT_DATE="2024/1/1"/>
+      <TEMPO BPM="128.00" BPM_QUALITY="100.0"/>
+      <LOUDNESS PEAK_DB="-0.5" PERCEIVED_DB="0.0" ANALYZED_DB="-0.5"/>
+      <MUSICAL_KEY VALUE="17"/>
+      <CUE_V2 NAME="Intro" DISPL_ORDER="0" TYPE="0"
+              START="1234.56" LEN="0.0" REPEATS="-1" HOTCUE="0"/>
+      <CUE_V2 NAME="Drop" DISPL_ORDER="1" TYPE="0"
+              START="56789.01" LEN="0.0" REPEATS="-1" HOTCUE="1"/>
+      <CUE_V2 NAME="Loop A" DISPL_ORDER="2" TYPE="5"
+              START="23456.78" LEN="8000.0" REPEATS="-1" HOTCUE="2"/>
+      <CUE_V2 NAME="" DISPL_ORDER="3" TYPE="0"
+              START="100.0" LEN="0.0" REPEATS="-1" HOTCUE="-1"/>
+    </ENTRY>
+    <ENTRY MODIFIED_DATE="2024/2/20" MODIFIED_TIME="60000"
+           AUDIO_ID="def456" TITLE="Track Two" ARTIST="Artist B">
+      <LOCATION DIR="/:Users/:dj/:Music/:Tracks/:" FILE="track_two.flac" VOLUME="Macintosh HD" VOLUMEID="vol1"/>
+      <ALBUM TITLE="Album B" TRACK="5"/>
+      <INFO BITRATE="1411000" GENRE="House" LABEL="Label Y"
+            COMMENT="" RATING="5" KEY="Cm"
+            PLAYCOUNT="42" PLAYTIME="420" IMPORT_DATE="2024/2/1"/>
+      <TEMPO BPM="124.00" BPM_QUALITY="100.0"/>
+      <MUSICAL_KEY VALUE="12"/>
+    </ENTRY>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE TYPE="FOLDER" NAME="$ROOT">
+      <SUBNODES COUNT="1">
+        <NODE TYPE="PLAYLIST" NAME="Friday Night">
+          <PLAYLIST ENTRIES="2" TYPE="LIST" UUID="test-uuid-1234">
+            <ENTRY>
+              <PRIMARYKEY TYPE="TRACK" KEY="Macintosh HD/:Users/:dj/:Music/:Tracks/:track_one.mp3"/>
+            </ENTRY>
+            <ENTRY>
+              <PRIMARYKEY TYPE="TRACK" KEY="Macintosh HD/:Users/:dj/:Music/:Tracks/:track_two.flac"/>
+            </ENTRY>
+          </PLAYLIST>
+        </NODE>
+      </SUBNODES>
+    </NODE>
+  </PLAYLISTS>
+</NML>
