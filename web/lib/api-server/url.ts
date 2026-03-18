@@ -61,6 +61,54 @@ function getProductionOrigin(request: NextRequest): string {
   return "http://localhost:3000";
 }
 
+/**
+ * Return the origin the user is actually visiting, derived from the Host
+ * header. Returns `null` when the host cannot be determined.
+ *
+ * This is used by the Spotify connect route to remember which deployment the
+ * user started on (e.g. a Vercel preview URL) so the callback can redirect
+ * them back to the same origin instead of always landing on production.
+ */
+export function getRequestOrigin(request: NextRequest): string | null {
+  const host = request.headers.get("host");
+  if (!host) return null;
+  const proto = request.headers.get("x-forwarded-proto") || "https";
+  return `${proto}://${host}`;
+}
+
+/**
+ * Check whether a full URL points to a trusted origin.
+ * Allows the production domain, any Vercel preview/branch deployment for the
+ * project, and localhost for development.
+ */
+export function isTrustedOrigin(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+
+    // Production domain
+    if (hostname === "www.djtoolkit.net" || hostname === "djtoolkit.net") {
+      return true;
+    }
+
+    // Vercel preview / branch deployments (e.g. djtoolkit-xxx-yenkzs-projects.vercel.app)
+    if (
+      hostname.endsWith("-yenkzs-projects.vercel.app") ||
+      (hostname.endsWith(".vercel.app") && hostname.startsWith("djtoolkit"))
+    ) {
+      return true;
+    }
+
+    // Local development
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /** Frontend URL for redirecting users back to the UI. */
 export function getFrontendUrl(request: NextRequest): string {
   return getBaseOrigin(request);
