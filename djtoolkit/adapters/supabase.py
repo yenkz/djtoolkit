@@ -21,19 +21,21 @@ class SupabaseAdapter:
     # ── Import/Export service ──
 
     def save_tracks(self, tracks: list[Track], user_id: str) -> dict:
-        """Upsert tracks to Supabase. Returns stats dict."""
+        """Upsert tracks to Supabase. Returns stats dict with track IDs."""
         rows = []
         for track in tracks:
             row = track.to_db_row()
             row["user_id"] = user_id
             rows.append(row)
 
+        track_ids = []
         if rows:
-            self._client.table("tracks").upsert(
+            result = self._client.table("tracks").upsert(
                 rows, on_conflict="source_id,user_id"
             ).execute()
+            track_ids = [row["id"] for row in result.data]
 
-        return {"imported": len(rows)}
+        return {"imported": len(rows), "track_ids": track_ids}
 
     def load_tracks(self, user_id: str, filters: dict | None = None) -> list[Track]:
         """Query tracks for a user, optionally filtered."""

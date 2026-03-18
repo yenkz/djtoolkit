@@ -34,7 +34,7 @@ def _patch_auth():
 def test_parse_traktor_nml(client, auth_headers):
     auth_patch = _patch_auth()
     with patch("djtoolkit.service.routes.import_collection.SupabaseAdapter") as mock_adapter_cls:
-        mock_adapter_cls.return_value.save_tracks.return_value = {"imported": 2}
+        mock_adapter_cls.return_value.save_tracks.return_value = {"imported": 2, "track_ids": [101, 102]}
         with patch("djtoolkit.service.routes.import_collection.get_client"):
             nml_data = (FIXTURES / "traktor_sample.nml").read_bytes()
             resp = client.post(
@@ -47,6 +47,8 @@ def test_parse_traktor_nml(client, auth_headers):
             assert body["format"] == "traktor"
             assert body["tracks_parsed"] > 0
             assert "warnings" in body
+            assert "track_ids" in body
+            assert isinstance(body["track_ids"], list)
     auth_patch.stop()
 
 

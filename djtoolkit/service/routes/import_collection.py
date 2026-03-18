@@ -55,4 +55,5 @@ async def parse_collection(
         "tracks_parsed": len(result.tracks),
         "playlists_found": len(result.playlists),
         "warnings": result.warnings,
+        "track_ids": save_stats.get("track_ids", []),
     }
