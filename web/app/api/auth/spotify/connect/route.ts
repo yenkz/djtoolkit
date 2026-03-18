@@ -11,7 +11,7 @@ import crypto from "crypto";
 import { verifyJwt, isAuthError } from "@/lib/api-server/auth";
 import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { createServiceClient } from "@/lib/supabase/service";
-import { getFrontendUrl, getSpotifyCallbackUrl } from "@/lib/api-server/url";
+import { getFrontendUrl, getRequestOrigin, getSpotifyCallbackUrl } from "@/lib/api-server/url";
 
 const SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize";
 const SCOPES = "playlist-read-private playlist-read-collaborative user-library-read";
@@ -49,6 +49,12 @@ export async function GET(request: NextRequest) {
     returnTo = "/";
   }
 
+  // Capture the user's actual origin (e.g. a Vercel preview deployment) so
+  // the callback can redirect them back to where they started, rather than
+  // always landing on the production domain.
+  const callerOrigin = getRequestOrigin(request);
+  const fullReturnTo = callerOrigin ? `${callerOrigin}${returnTo}` : returnTo;
+
   // Generate state token
   const state =
     crypto.randomUUID() + crypto.randomBytes(16).toString("hex");
@@ -60,7 +66,7 @@ export async function GET(request: NextRequest) {
   const { error: insertError } = await supabase.from("oauth_states").insert({
     state,
     user_id: user.userId,
-    return_to: returnTo,
+    return_to: fullReturnTo,
     expires_at: expiresAt,
   });
 

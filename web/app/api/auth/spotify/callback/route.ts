@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { fernetEncrypt } from "@/lib/api-server/fernet";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
-import { getProductionFrontendUrl, getSpotifyCallbackUrl } from "@/lib/api-server/url";
+import { getProductionFrontendUrl, getSpotifyCallbackUrl, isTrustedOrigin } from "@/lib/api-server/url";
 
 const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 
@@ -55,8 +55,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const returnTo = oauthState.return_to || "/";
+  const rawReturnTo = oauthState.return_to || "/";
   const userId = oauthState.user_id;
+
+  // return_to may be a full URL (e.g. https://preview.vercel.app/import) when
+  // the user started the flow from a preview deployment, or just a path ("/import").
+  // If it's a full URL with a trusted origin, use it directly; otherwise prefix
+  // with the production frontend URL.
+  const isFullUrl = rawReturnTo.startsWith("https://");
+  const returnTo = isFullUrl && isTrustedOrigin(rawReturnTo)
+    ? rawReturnTo
+    : `${frontendUrl}${rawReturnTo}`;
 
   // Exchange authorization code for tokens
   const clientId = process.env.SPOTIFY_CLIENT_ID!;
@@ -80,7 +89,7 @@ export async function GET(request: NextRequest) {
     const body = await tokenResp.text();
     console.error("Spotify token exchange failed:", tokenResp.status, body);
     return NextResponse.redirect(
-      new URL(`${frontendUrl}${returnTo}?spotify=error&reason=token_exchange_failed`)
+      new URL(`${returnTo}?spotify=error&reason=token_exchange_failed`)
     );
   }
 
@@ -110,7 +119,7 @@ export async function GET(request: NextRequest) {
   if (updateError) {
     console.error("users update failed:", updateError.message, updateError.code);
     return NextResponse.redirect(
-      new URL(`${frontendUrl}${returnTo}?spotify=error&reason=save_failed`)
+      new URL(`${returnTo}?spotify=error&reason=save_failed`)
     );
   }
 
@@ -120,6 +129,6 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.redirect(
-    new URL(`${frontendUrl}${returnTo}?spotify=connected`)
+    new URL(`${returnTo}?spotify=connected`)
   );
 }
