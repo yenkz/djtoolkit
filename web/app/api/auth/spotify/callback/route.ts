@@ -10,12 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { fernetEncrypt } from "@/lib/api-server/fernet";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
+import { getFrontendUrl, getSpotifyCallbackUrl } from "@/lib/api-server/url";
 
 const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 
 export async function GET(request: NextRequest) {
-  const frontendUrl =
-    process.env.PLATFORM_FRONTEND_URL || "http://localhost:3000";
+  const frontendUrl = getFrontendUrl(request);
 
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
@@ -61,9 +61,7 @@ export async function GET(request: NextRequest) {
   // Exchange authorization code for tokens
   const clientId = process.env.SPOTIFY_CLIENT_ID!;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET!;
-  const callbackUrl =
-    process.env.SPOTIFY_CALLBACK_URL ||
-    "http://localhost:3000/api/auth/spotify/callback";
+  const callbackUrl = getSpotifyCallbackUrl(request);
 
   const tokenResp = await fetch(TOKEN_ENDPOINT, {
     method: "POST",
