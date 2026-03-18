@@ -1,0 +1,6 @@
+# Caddyfile — deploy to /etc/caddy/Caddyfile on Hetzner CX23
+# Caddy auto-provisions TLS via Let's Encrypt.
+
+api.djtoolkit.net {
+    reverse_proxy localhost:8000
+}
