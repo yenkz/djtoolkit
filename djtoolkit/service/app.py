@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from djtoolkit.service.config import get_settings
 from djtoolkit.service.routes.health import router as health_router
 from djtoolkit.service.routes.import_collection import router as import_router
+from djtoolkit.service.routes.export_collection import router as export_router
 
 
 def create_app() -> FastAPI:
@@ -27,5 +28,6 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(import_router)
+    app.include_router(export_router)
 
     return app
