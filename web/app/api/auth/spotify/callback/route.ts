@@ -10,12 +10,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { fernetEncrypt } from "@/lib/api-server/fernet";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
-import { getFrontendUrl, getSpotifyCallbackUrl } from "@/lib/api-server/url";
+import { getProductionFrontendUrl, getSpotifyCallbackUrl } from "@/lib/api-server/url";
 
 const TOKEN_ENDPOINT = "https://accounts.spotify.com/api/token";
 
 export async function GET(request: NextRequest) {
-  const frontendUrl = getFrontendUrl(request);
+  const frontendUrl = getProductionFrontendUrl(request);
 
   const { searchParams } = request.nextUrl;
   const code = searchParams.get("code");
