@@ -311,6 +311,61 @@ export async function importCsvNoJobs(file: File): Promise<ImportResult> {
   return res.json();
 }
 
+// ─── DJ Software Import/Export ────────────────────────────────────────────────
+
+export interface ParseResult {
+  format: string;
+  tracks_imported: number;
+  tracks_parsed: number;
+  playlists_found: number;
+  warnings: string[];
+  track_ids: number[];
+}
+
+export async function parseCollection(file: File): Promise<ParseResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiClientForm("/collection/parse", form);
+  if (!res.ok) {
+    const detail = await extractError(res);
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function exportCollection(
+  format: "traktor" | "rekordbox" | "csv",
+  genre?: string,
+): Promise<void> {
+  const qs = genre ? `?genre=${encodeURIComponent(genre)}` : "";
+  const res = await apiClient(`/collection/export/${format}${qs}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let detail: string;
+    try {
+      detail = JSON.parse(text).detail ?? text;
+    } catch {
+      detail = text;
+    }
+    throw new Error(detail);
+  }
+  // Trigger browser file download
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename=([^\s;]+)/);
+  const filename =
+    filenameMatch?.[1] ||
+    `export.${format === "traktor" ? "nml" : format === "rekordbox" ? "xml" : "csv"}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export async function bulkCreateJobs(trackIds: number[]): Promise<{ created: number }> {
   const res = await apiClient("/pipeline/jobs/bulk", {
     method: "POST",
