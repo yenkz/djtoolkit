@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/yenkz/djtoolkit-api:${IMAGE_TAG:-latest}
+    image: ghcr.io/yenkz/djtoolkit/djtoolkit-api:${IMAGE_TAG:-latest}
     ports:
       - "127.0.0.1:8000:8000"
     env_file: .env.service
