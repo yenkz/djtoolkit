@@ -4,13 +4,18 @@ All Track DB operations go through this class. Handles serialization
 between Track dataclasses and Supabase PostgREST format.
 """
 
-from supabase import Client
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from supabase import Client
 
 from djtoolkit.models.track import Track
 
 
 class SupabaseAdapter:
-    def __init__(self, client: Client):
+    def __init__(self, client: "Client"):
         self._client = client
 
     # ── Import/Export service ──
