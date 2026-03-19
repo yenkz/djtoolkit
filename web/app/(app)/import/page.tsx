@@ -16,8 +16,10 @@ import {
   fetchPipelineStatus,
   registerAgent,
   disconnectSpotify,
+  parseCollection,
   type Track,
   type TrackIdJobStatus,
+  type ParseResult,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import LCDDisplay from "@/components/ui/LCDDisplay";
@@ -69,6 +71,27 @@ const SRC_ICONS = {
       <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  ),
+  traktor: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="var(--hw-text-dim)" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="3" stroke="var(--hw-text-dim)" strokeWidth="1.5" />
+      <line x1="12" y1="3" x2="12" y2="9" stroke="var(--hw-text-dim)" strokeWidth="1.5" />
+      <line x1="12" y1="15" x2="12" y2="21" stroke="var(--hw-text-dim)" strokeWidth="1.5" />
+    </svg>
+  ),
+  rekordbox: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="3" width="18" height="18" rx="3" stroke="var(--hw-text-dim)" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="4" stroke="var(--hw-text-dim)" strokeWidth="1.5" />
+      <circle cx="12" cy="12" r="1" fill="var(--hw-text-dim)" />
+    </svg>
+  ),
+  serato: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <path d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8-3.6 8-8 8" stroke="var(--hw-text-muted)" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M8 12a4 4 0 108 0 4 4 0 00-8 0" stroke="var(--hw-text-muted)" strokeWidth="1.5" />
     </svg>
   ),
 };
@@ -192,6 +215,23 @@ function SourceCard({
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ─── SectionHeader ────────────────────────────────────────────────────────────
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <div
+      className="font-mono text-[10px] font-bold uppercase"
+      style={{
+        letterSpacing: 2,
+        color: "var(--hw-text-muted)",
+        padding: "20px 0 8px",
+      }}
+    >
+      {label}
     </div>
   );
 }
@@ -517,6 +557,9 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [dragging, setDragging] = useState(false);
   const [trackIdStatus, setTrackIdStatus] = useState<TrackIdJobStatus | null>(null);
   const [showExportifyHint, setShowExportifyHint] = useState(false);
+  const [djFile, setDjFile] = useState<File | null>(null);
+  const [djParseResult, setDjParseResult] = useState<ParseResult | null>(null);
+  const [djDraggingTarget, setDjDraggingTarget] = useState<"traktor" | "rekordbox" | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   const loadPlaylists = useCallback(async () => {
@@ -571,7 +614,8 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
     ? (selectedPlaylist!.track_count! + csvRowCount)
     : csvRowCount;
   const trackIdValid = /youtu\.?be/.test(trackIdUrl) || trackIdUrl.includes("youtube.com/watch");
-  const sourcesSelected = (selectedPlaylistId ? 1 : 0) + (csvFile ? 1 : 0) + (trackIdValid ? 1 : 0);
+  const djReady = djFile !== null;
+  const sourcesSelected = (selectedPlaylistId ? 1 : 0) + (csvFile ? 1 : 0) + (trackIdValid ? 1 : 0) + (djReady ? 1 : 0);
 
   // Notify parent of source state
   useEffect(() => {
@@ -592,6 +636,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
       const parallelCalls: Promise<{ track_ids: number[] }>[] = [];
       if (selectedPlaylistId) parallelCalls.push(importSpotifyPlaylistNoJobs(selectedPlaylistId));
       if (csvFile) parallelCalls.push(importCsvNoJobs(csvFile));
+      if (djFile) parallelCalls.push(parseCollection(djFile));
       const parallelResults = await Promise.all(parallelCalls);
 
       let trackIdIds: number[] = [];
@@ -682,6 +727,8 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
       <button id="step1-continue-btn" onClick={handleContinue} className="hidden" />
 
       <div className="flex flex-col gap-3.5">
+        <SectionHeader label="Discovery" />
+
         {/* ── Spotify ── */}
         <SourceCard
           icon={SRC_ICONS.spotify}
@@ -918,6 +965,125 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             </div>
           )}
         </SourceCard>
+
+        <SectionHeader label="DJ Software" />
+
+        {/* ── Traktor ── */}
+        <SourceCard
+          icon={SRC_ICONS.traktor}
+          title="Traktor"
+          desc="Import your Traktor NML collection"
+          active={!!djFile && djFile.name.endsWith(".nml")}
+        >
+          <div className="flex items-center gap-3">
+            <ActionButton
+              variant="outline"
+              onClick={() => document.getElementById("traktor-upload")?.click()}
+            >
+              {djFile?.name.endsWith(".nml") ? "Change" : "Upload .nml"}
+            </ActionButton>
+            <input
+              id="traktor-upload"
+              type="file"
+              accept=".nml"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) { setDjFile(f); setDjParseResult(null); }
+              }}
+            />
+          </div>
+          {djFile?.name.endsWith(".nml") && (
+            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
+              ✓ {djFile.name}
+            </div>
+          )}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDjDraggingTarget("traktor"); }}
+            onDragLeave={() => setDjDraggingTarget(null)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDjDraggingTarget(null);
+              const f = e.dataTransfer.files[0];
+              if (f && f.name.endsWith(".nml")) { setDjFile(f); setDjParseResult(null); }
+            }}
+            className="text-center mt-3"
+            style={{
+              border: `1.5px dashed ${djDraggingTarget === "traktor" ? "var(--led-blue)" : "var(--hw-border-light)"}`,
+              borderRadius: 6,
+              padding: 18,
+              background: djDraggingTarget === "traktor" ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
+              transition: "all 0.2s",
+            }}
+          >
+            <span className="font-sans text-[13px]" style={{ color: djDraggingTarget === "traktor" ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
+              Or drag &amp; drop .nml here
+            </span>
+          </div>
+        </SourceCard>
+
+        {/* ── Rekordbox ── */}
+        <SourceCard
+          icon={SRC_ICONS.rekordbox}
+          title="Rekordbox"
+          desc="Import your Rekordbox XML collection"
+          active={!!djFile && djFile.name.endsWith(".xml")}
+        >
+          <div className="flex items-center gap-3">
+            <ActionButton
+              variant="outline"
+              onClick={() => document.getElementById("rekordbox-upload")?.click()}
+            >
+              {djFile?.name.endsWith(".xml") ? "Change" : "Upload .xml"}
+            </ActionButton>
+            <input
+              id="rekordbox-upload"
+              type="file"
+              accept=".xml"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) { setDjFile(f); setDjParseResult(null); }
+              }}
+            />
+          </div>
+          {djFile?.name.endsWith(".xml") && (
+            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
+              ✓ {djFile.name}
+            </div>
+          )}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDjDraggingTarget("rekordbox"); }}
+            onDragLeave={() => setDjDraggingTarget(null)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDjDraggingTarget(null);
+              const f = e.dataTransfer.files[0];
+              if (f && f.name.endsWith(".xml")) { setDjFile(f); setDjParseResult(null); }
+            }}
+            className="text-center mt-3"
+            style={{
+              border: `1.5px dashed ${djDraggingTarget === "rekordbox" ? "var(--led-blue)" : "var(--hw-border-light)"}`,
+              borderRadius: 6,
+              padding: 18,
+              background: djDraggingTarget === "rekordbox" ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
+              transition: "all 0.2s",
+            }}
+          >
+            <span className="font-sans text-[13px]" style={{ color: djDraggingTarget === "rekordbox" ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
+              Or drag &amp; drop .xml here
+            </span>
+          </div>
+        </SourceCard>
+
+        {/* ── Serato (coming soon) ── */}
+        <SourceCard
+          icon={SRC_ICONS.serato}
+          title="Serato"
+          desc="Import your Serato library"
+          disabled
+          comingSoon
+        />
 
         {/* ── Agent Import (coming soon placeholder) ── */}
         <SourceCard
