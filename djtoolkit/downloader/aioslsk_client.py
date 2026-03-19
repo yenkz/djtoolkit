@@ -800,7 +800,6 @@ async def _run_async(cfg: Config, adapter: "SupabaseAdapter", user_id: str, prog
         found_tracks = [t for t in tracks if viable_counts.get(t["id"], 0) > 0]
         not_found_count = len(tracks) - len(found_tracks)
         stats["no_match"] += not_found_count
-        stats["failed"] += not_found_count
         ready = len(found_tracks)
         log.info("── Phase 2: downloading %d/%d tracks concurrently ──", ready, len(tracks))
 

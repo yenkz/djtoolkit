@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
   const page = Math.max(1, Number(sp.get("page")) || 1);
   const perPage = Math.min(100, Math.max(1, Number(sp.get("per_page")) || 25));
   const status = sp.get("status");
-  const sortBy = sp.get("sort_by") || "updated_at";
+  const ALLOWED_SORT = new Set(["updated_at", "title", "acquisition_status", "search_results_count"]);
+  const sortBy = ALLOWED_SORT.has(sp.get("sort_by") ?? "") ? sp.get("sort_by")! : "updated_at";
   const sortDir = sp.get("sort_dir") === "asc";
   const offset = (page - 1) * perPage;
 
