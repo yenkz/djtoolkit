@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "djtoolkit"
-version = "0.1.0"
+version = "0.1.10"
 description = "DJ music library toolkit — download, fingerprint, tag, and manage tracks"
 authors = []
 packages = [{ include = "djtoolkit" }]
