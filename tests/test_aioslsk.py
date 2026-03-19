@@ -13,7 +13,9 @@ from djtoolkit.downloader.aioslsk_client import (
     _pick_best,
     _pipeline_download,
     _quality_score,
+    _rank_candidates,
     _relevance,
+    _set_status,
 )
 
 
@@ -320,3 +322,112 @@ async def test_pipeline_download_independent_tracks(cfg):
     by_job = {r["job_id"]: r for r in reports}
     assert by_job["job-20"]["success"] is True
     assert by_job["job-21"]["success"] is False
+
+
+# ─── TestStatusTransitions ────────────────────────────────────────────────────
+
+class _MockAdapter:
+    """Fake SupabaseAdapter that records update_track calls."""
+
+    def __init__(self):
+        self.calls: list[tuple[int, dict]] = []
+
+    def update_track(self, track_id: int, updates: dict) -> None:
+        self.calls[len(self.calls):] = [(track_id, dict(updates))]
+
+
+class TestStatusTransitions:
+    """Tests for granular acquisition_status transitions."""
+
+    def test_set_status_basic(self):
+        adapter = _MockAdapter()
+        _set_status(adapter, 42, "searching")
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0] == (42, {"acquisition_status": "searching"})
+
+    def test_set_status_with_local_path(self):
+        adapter = _MockAdapter()
+        _set_status(adapter, 7, "available", local_path="/tmp/track.flac")
+        assert adapter.calls[0] == (
+            7, {"acquisition_status": "available", "local_path": "/tmp/track.flac"}
+        )
+
+    def test_set_status_with_search_results_count(self):
+        adapter = _MockAdapter()
+        _set_status(adapter, 10, "found", search_results_count=5)
+        assert adapter.calls[0] == (
+            10, {"acquisition_status": "found", "search_results_count": 5}
+        )
+
+    def test_set_status_search_results_count_zero(self):
+        adapter = _MockAdapter()
+        _set_status(adapter, 10, "not_found", search_results_count=0)
+        assert adapter.calls[0] == (
+            10, {"acquisition_status": "not_found", "search_results_count": 0}
+        )
+
+    def test_set_status_with_all_params(self):
+        adapter = _MockAdapter()
+        _set_status(adapter, 99, "available", local_path="/music/song.mp3", search_results_count=3)
+        assert adapter.calls[0] == (
+            99, {
+                "acquisition_status": "available",
+                "local_path": "/music/song.mp3",
+                "search_results_count": 3,
+            }
+        )
+
+    def test_set_status_omitted_optional_params_not_in_updates(self):
+        """When local_path and search_results_count are None, they must not appear in the dict."""
+        adapter = _MockAdapter()
+        _set_status(adapter, 1, "downloading")
+        updates = adapter.calls[0][1]
+        assert "local_path" not in updates
+        assert "search_results_count" not in updates
+
+    def test_searching_to_found_flow(self):
+        """Simulate the searching -> found transition sequence."""
+        adapter = _MockAdapter()
+        _set_status(adapter, 50, "searching")
+        _set_status(adapter, 50, "found", search_results_count=12)
+        assert len(adapter.calls) == 2
+        assert adapter.calls[0][1]["acquisition_status"] == "searching"
+        assert adapter.calls[1][1]["acquisition_status"] == "found"
+        assert adapter.calls[1][1]["search_results_count"] == 12
+
+    def test_searching_to_not_found_flow(self):
+        """Simulate the searching -> not_found transition sequence."""
+        adapter = _MockAdapter()
+        _set_status(adapter, 51, "searching")
+        _set_status(adapter, 51, "not_found", search_results_count=0)
+        assert len(adapter.calls) == 2
+        assert adapter.calls[0][1]["acquisition_status"] == "searching"
+        assert adapter.calls[1][1]["acquisition_status"] == "not_found"
+        assert adapter.calls[1][1]["search_results_count"] == 0
+
+    def test_full_happy_path_transitions(self):
+        """Simulate the full happy path: searching -> found -> queued -> downloading -> available."""
+        adapter = _MockAdapter()
+        tid = 100
+        _set_status(adapter, tid, "searching")
+        _set_status(adapter, tid, "found", search_results_count=8)
+        _set_status(adapter, tid, "queued")
+        _set_status(adapter, tid, "downloading")
+        _set_status(adapter, tid, "available", local_path="/tmp/song.flac")
+
+        statuses = [c[1]["acquisition_status"] for c in adapter.calls]
+        assert statuses == ["searching", "found", "queued", "downloading", "available"]
+
+    def test_rank_candidates_returns_viable_for_good_match(self, cfg):
+        """_rank_candidates returns non-empty list for a good match."""
+        track = {"id": 1, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+        results = [_make_result("user1", "Big Wild - City of Sound.flac", duration_sec=232)]
+        ranked = _rank_candidates(track, results, cfg, "big wild city of sound")
+        assert len(ranked) > 0
+
+    def test_rank_candidates_returns_empty_for_bad_match(self, cfg):
+        """_rank_candidates returns empty list for an irrelevant file."""
+        track = {"id": 2, "title": "City of Sound", "artist": "Big Wild", "duration_ms": 232_000}
+        results = [_make_result("user1", "totally_unrelated_garbage.mp3", duration_sec=232)]
+        ranked = _rank_candidates(track, results, cfg, "big wild city of sound")
+        assert len(ranked) == 0
