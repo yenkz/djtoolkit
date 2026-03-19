@@ -17,7 +17,7 @@ def _load_dotenv(env_path: str | Path = ".env") -> None:
                 key, _, val = line.partition("=")
                 key = key.strip()
                 val = val.strip().strip('"').strip("'")
-                if key and key not in os.environ:
+                if key and not os.environ.get(key):
                     os.environ[key] = val
     except FileNotFoundError:
         pass
