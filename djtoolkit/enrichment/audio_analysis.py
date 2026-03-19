@@ -69,6 +69,35 @@ def _danceability(y: np.ndarray, sr: int) -> float:
         return 0.5
 
 
+def _energy(y: np.ndarray, sr: int) -> float:
+    """Approximate energy as perceptual intensity (0–1).
+
+    Combines RMS loudness, spectral brightness (centroid), and onset density.
+    Mirrors Spotify's energy: "a perceptual measure of intensity and activity".
+    """
+    librosa = __import__("librosa")
+
+    # RMS energy → normalized to 0–1 (silence ~-60 dB, loud ~0 dB)
+    rms = librosa.feature.rms(y=y).mean()
+    rms_db = float(librosa.amplitude_to_db(np.array([rms]))[0])
+    rms_norm = float(np.clip((rms_db + 60.0) / 60.0, 0.0, 1.0))
+
+    # Spectral centroid → brightness, normalized against Nyquist
+    centroid = librosa.feature.spectral_centroid(y=y, sr=sr).mean()
+    nyquist = sr / 2.0
+    bright_norm = float(np.clip(centroid / nyquist, 0.0, 1.0))
+
+    # Onset rate → how many note attacks per second (high = energetic)
+    onsets = librosa.onset.onset_detect(y=y, sr=sr)
+    duration = len(y) / sr
+    onset_rate = len(onsets) / max(duration, 1.0)
+    # Typical range 0–8 onsets/sec; cap at 10 for normalization
+    onset_norm = float(np.clip(onset_rate / 10.0, 0.0, 1.0))
+
+    # Weighted combination: loudness dominates, brightness and onsets contribute
+    return float(np.clip(0.5 * rms_norm + 0.25 * bright_norm + 0.25 * onset_norm, 0.0, 1.0))
+
+
 def _resolve_model(cfg_path: str, models_dir: str, filename: str) -> str | None:
     if cfg_path:
         return cfg_path
@@ -96,6 +125,57 @@ def _top_genres(predictions: np.ndarray, labels: list[str], top_n: int, threshol
         if len(unique) >= top_n:
             break
     return ", ".join(unique)
+
+
+def analyze_single(path: Path) -> dict:
+    """Run fast audio features on a single file. Returns feature dict.
+
+    Handles its own imports (librosa, pyloudnorm) so it can be called
+    independently of run(). Raises FileNotFoundError if path doesn't exist.
+
+    Returns dict with keys: tempo, key, mode, danceability, energy, loudness.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    import librosa
+
+    try:
+        import pyloudnorm as pyln
+        _have_pyloudnorm = True
+    except ImportError:
+        _have_pyloudnorm = False
+
+    y, sr = librosa.load(str(path), sr=None, mono=True)
+
+    # BPM
+    tempo_arr, beats = librosa.beat.beat_track(y=y, sr=sr)
+    bpm = float(np.atleast_1d(tempo_arr)[0])
+
+    # Key + Mode (Krumhansl-Schmuckler)
+    chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+    key_int, mode = _detect_key(chroma.mean(axis=1))
+
+    # Loudness
+    if _have_pyloudnorm:
+        meter = pyln.Meter(sr)
+        loudness = float(meter.integrated_loudness(y.astype(np.float64)))
+    else:
+        rms = librosa.feature.rms(y=y).mean()
+        loudness = float(librosa.amplitude_to_db(np.array([rms]))[0])
+
+    # Danceability + Energy (these use __import__("librosa") internally — safe)
+    dance = _danceability(y, sr)
+    nrg = _energy(y, sr)
+
+    return {
+        "tempo": bpm,
+        "key": key_int,
+        "mode": mode,
+        "danceability": dance,
+        "energy": nrg,
+        "loudness": loudness,
+    }
 
 
 def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
@@ -219,41 +299,15 @@ def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
             continue
 
         try:
-            y, sr = librosa.load(str(path), sr=None, mono=True)
-
-            # BPM
-            tempo_arr, beats = librosa.beat.beat_track(y=y, sr=sr)
-            bpm = float(np.atleast_1d(tempo_arr)[0])
-
-            # Key + Mode (Krumhansl-Schmuckler)
-            chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
-            key_int, mode = _detect_key(chroma.mean(axis=1))
-
-            # Loudness — EBU R128 LUFS via pyloudnorm, RMS dB as fallback
-            if _have_pyloudnorm:
-                import pyloudnorm as pyln
-                meter = pyln.Meter(sr)
-                integrated_lufs = meter.integrated_loudness(y.astype(np.float64))
-                loudness = float(integrated_lufs)
-            else:
-                rms = librosa.feature.rms(y=y).mean()
-                loudness = float(librosa.amplitude_to_db(np.array([rms]))[0])
-
-            # Danceability
-            dance = _danceability(y, sr)
-
-            adapter.mark_enriched_audio(tid, {
-                "tempo": bpm,
-                "key": key_int,
-                "mode": mode,
-                "danceability": dance,
-                "loudness": loudness,
-            })
-
+            features = analyze_single(path)
+            adapter.mark_enriched_audio(tid, features)
             stats["analyzed"] += 1
-            log.debug("Track %d: bpm=%.1f key=%s/%s dance=%.2f loud=%.1f",
-                      tid, bpm, _KEY_NAMES[key_int], "major" if mode else "minor", dance, loudness)
-
+            log.debug("Track %d: bpm=%.1f key=%s/%s dance=%.2f energy=%.2f loud=%.1f",
+                      tid, features["tempo"],
+                      _KEY_NAMES[features["key"]],
+                      "major" if features["mode"] else "minor",
+                      features["danceability"], features["energy"],
+                      features["loudness"])
         except Exception as exc:
             log.warning("Analysis failed for track %d (%s): %s", tid, path.name, exc)
             stats["failed"] += 1
