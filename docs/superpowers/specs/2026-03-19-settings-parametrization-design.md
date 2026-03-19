@@ -31,7 +31,12 @@ The web UI settings page saves tuning parameters (matching thresholds, cover art
 
 **Note on `min_score`:** The download code in `aioslsk_client.py` filters candidates using `cfg.matching.min_score_title` (default `0.70`), not `cfg.matching.min_score`. The UI exposes a single "Minimum score" slider. On the agent side, the payload `min_score` value overrides both `cfg.matching.min_score` and `cfg.matching.min_score_title` so the user's setting actually affects download filtering.
 
-**Note on cover art source naming:** The CLI config uses short names (`coverart itunes deezer` space-separated), while the web UI uses full names (`["coverartarchive", "itunes", "deezer", "spotify", "lastfm"]`). The agent's `_fetch_art()` function accepts both naming conventions. The payload uses the web UI naming (array of full names). The executor maps `coverartarchive` → the name expected by `_fetch_art`, which already handles both forms.
+**Note on cover art source naming:** The CLI config uses short names (`coverart itunes deezer` space-separated), while the web UI uses full names (`["coverartarchive", "itunes", "deezer", "spotify", "lastfm"]`). The `_fetch_art()` function in `coverart/art.py` dispatches on exact matches: `"coverart"`, `"itunes"`, `"deezer"`, `"spotify"`, `"lastfm"` — it does NOT recognize `"coverartarchive"`. The executor must map web UI names to CLI names before passing to `_fetch_art`:
+
+```python
+SOURCE_NAME_MAP = {"coverartarchive": "coverart"}
+sources = [SOURCE_NAME_MAP.get(s, s) for s in settings["coverart_sources"]]
+```
 
 ### Enabled toggles (gate job creation in chaining)
 
@@ -65,7 +70,7 @@ export async function getJobSettings(
 Also exports:
 
 ```typescript
-export async function isStepEnabled(
+export function isStepEnabled(
   settings: Record<string, unknown>,
   step: "fingerprint" | "cover_art" | "audio_analysis" | "loudnorm"
 ): boolean
@@ -113,6 +118,8 @@ Non-exportify:
 
 If a step is disabled, the chain skips forward to the next enabled step. `spotify_lookup` has no toggle — it always runs for non-exportify tracks (it provides essential metadata). The chain always terminates at `metadata` (never skipped).
 
+**Note:** Skip logic applies at every chaining point, including the `download` case. Currently the `download` handler in `applyJobResult()` unconditionally queues `fingerprint`. With this change, if `fingerprint_enabled` is `false`, the `download` handler must skip ahead to `cover_art` (exportify) or `spotify_lookup` (non-exportify) directly. This is new branching behavior in the `download` case.
+
 ### Modified: Job creation entry points
 
 All endpoints that insert `pipeline_jobs` need settings injection:
@@ -121,7 +128,7 @@ All endpoints that insert `pipeline_jobs` need settings injection:
 |---|---|---|
 | `web/app/api/catalog/import/csv/route.ts` | `download` | Embed `payload.settings` |
 | `web/app/api/catalog/import/trackid/route.ts` | `download` | Embed `payload.settings` |
-| `web/app/api/catalog/import/spotify/route.ts` | `download` | Embed `payload.settings` |
+| `web/app/api/catalog/import/spotify/route.ts` | `download` | **Prerequisite fix:** uses `stage` instead of `job_type` and has no `payload` — fix both, then embed `payload.settings` |
 | `web/app/api/pipeline/jobs/bulk/route.ts` | `download` | Embed `payload.settings` |
 | `web/app/api/catalog/tracks/[id]/reset/route.ts` | `download` | Embed `payload.settings` |
 
@@ -151,9 +158,11 @@ Same pattern — read settings from the first job's payload. **Constraint:** bat
 
 **`execute_cover_art()`:**
 ```python
+SOURCE_NAME_MAP = {"coverartarchive": "coverart"}
+
 settings = payload.get("settings", {})
 if "coverart_sources" in settings:
-    sources = settings["coverart_sources"]  # list from web UI
+    sources = [SOURCE_NAME_MAP.get(s, s) for s in settings["coverart_sources"]]
 else:
     sources = [s.strip() for s in cfg.cover_art.sources.split() if s.strip()]
 ```
@@ -171,6 +180,7 @@ If `payload["settings"]` is missing (old jobs, CLI-created jobs), every executor
 - **Retroactive updates** — changing a setting doesn't affect already-queued jobs (retry preserves original settings)
 - **New DB tables or migrations** — `user_settings` JSONB already stores all these fields
 - **CLI config changes** — `djtoolkit.toml` and `config.py` are untouched
+- **`metadata_source` configurability** — computed from `enriched_spotify`/`enriched_audio` flags, not user-configurable
 
 ## Files Changed
 
