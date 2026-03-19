@@ -323,9 +323,20 @@ export interface ParseResult {
 }
 
 export async function parseCollection(file: File): Promise<ParseResult> {
+  // Upload directly to Hetzner API to bypass Vercel's 4.5MB body size limit
+  const hetznerUrl = process.env.NEXT_PUBLIC_DJTOOLKIT_API_URL;
+  if (!hetznerUrl) throw new Error("NEXT_PUBLIC_DJTOOLKIT_API_URL not configured");
+
+  const token = await getToken();
   const form = new FormData();
   form.append("file", file);
-  const res = await apiClientForm("/collection/parse", form);
+  const res = await fetch(`${hetznerUrl}/parse`, {
+    method: "POST",
+    body: form,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
   if (!res.ok) {
     const detail = await extractError(res);
     throw new Error(detail);
