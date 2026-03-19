@@ -6,6 +6,7 @@ import {
   fetchPipelineMonitorStatus,
   fetchPipelineTracks,
   retryPipelineTrack,
+  bulkPipelineAction,
   type PipelineMonitorStatus,
   type PipelineTrack,
   type PipelineTrackList,
@@ -58,6 +59,11 @@ const STATUS_LED: Record<
     bg: "color-mix(in srgb, var(--led-red) 7%, transparent)",
     border: "color-mix(in srgb, var(--led-red) 20%, transparent)",
   },
+  paused: {
+    color: "var(--hw-text-dim)",
+    bg: "color-mix(in srgb, var(--hw-text-dim) 7%, transparent)",
+    border: "color-mix(in srgb, var(--hw-text-dim) 20%, transparent)",
+  },
 };
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -88,6 +94,7 @@ const FILTER_OPTIONS: { value: AcquisitionStatus | ""; label: string }[] = [
   { value: "downloading", label: "Downloading" },
   { value: "not_found", label: "Not Found" },
   { value: "failed", label: "Failed" },
+  { value: "paused", label: "Paused" },
 ];
 
 /* ── Sub-components ──────────────────────────────────────────────────────── */
@@ -141,6 +148,15 @@ function SortArrow({
     </span>
   );
 }
+
+/* ── Bulk action types ───────────────────────────────────────────────────── */
+
+type BulkAction =
+  | "retry_failed"
+  | "delete_failed"
+  | "delete_candidates"
+  | "pause_candidates"
+  | "resume_paused";
 
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 
@@ -219,7 +235,7 @@ export default function PipelineMonitorPage() {
             const row = payload.new as Record<string, unknown>;
             if (
               ["available", "duplicate"].includes(
-                row.acquisition_status as string
+                row.acquisition_status as string,
               )
             )
               return;
@@ -228,7 +244,7 @@ export default function PipelineMonitorPage() {
               loadStatus();
               loadTracks();
             }, 1000);
-          }
+          },
         )
         .subscribe();
     }
@@ -256,6 +272,74 @@ export default function PipelineMonitorPage() {
         next.delete(trackId);
         return next;
       });
+    }
+  }
+
+  /* ── Bulk action state ───────────────────────────────────────── */
+
+  const [bulkActing, setBulkActing] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<BulkAction | null>(null);
+
+  const failedCount =
+    (status?.failed ?? 0) + (status?.not_found ?? 0);
+
+  const CONFIRM_LABELS: Record<
+    BulkAction,
+    { title: string; desc: string; btn: string; color: string }
+  > = {
+    retry_failed: {
+      title: "Retry All Failed",
+      desc: `Reset ${failedCount} failed/not-found tracks to candidate?`,
+      btn: "Retry All",
+      color: "var(--led-orange)",
+    },
+    delete_failed: {
+      title: "Delete All Failed",
+      desc: `Permanently delete ${failedCount} failed/not-found tracks?`,
+      btn: "Delete All",
+      color: "var(--led-red)",
+    },
+    delete_candidates: {
+      title: "Cancel All Candidates",
+      desc: `Permanently delete ${status?.candidate ?? 0} candidate tracks?`,
+      btn: "Delete All",
+      color: "var(--led-red)",
+    },
+    pause_candidates: {
+      title: "Pause All Candidates",
+      desc: `Pause ${status?.candidate ?? 0} candidate tracks? They won't be picked up by the agent until resumed.`,
+      btn: "Pause All",
+      color: "var(--led-orange)",
+    },
+    resume_paused: {
+      title: "Resume All Paused",
+      desc: `Resume ${status?.paused ?? 0} paused tracks? They'll be queued as candidates for the agent to pick up.`,
+      btn: "Resume All",
+      color: "var(--led-green)",
+    },
+  };
+
+  async function handleBulkAction(action: BulkAction) {
+    setBulkActing(true);
+    try {
+      const result = await bulkPipelineAction(action);
+      const count = result.updated ?? result.deleted ?? 0;
+      const verbs: Record<string, string> = {
+        retry_failed: "retried",
+        delete_failed: "deleted",
+        delete_candidates: "cancelled",
+        pause_candidates: "paused",
+        resume_paused: "resumed",
+      };
+      const verb = verbs[action] ?? "updated";
+      toast.success(`${count} track${count !== 1 ? "s" : ""} ${verb}`);
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Bulk action failed");
+    } finally {
+      setBulkActing(false);
+      setConfirmAction(null);
     }
   }
 
@@ -363,13 +447,14 @@ export default function PipelineMonitorPage() {
       </div>
 
       {/* ── LCD stat bar ────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
+      <div className="grid grid-cols-4 md:grid-cols-7 gap-3 mb-6">
         <LCDDisplay value={status?.candidate ?? 0} label="Candidates" />
         <LCDDisplay value={status?.searching ?? 0} label="Searching" />
         <LCDDisplay value={status?.found ?? 0} label="Found" />
         <LCDDisplay value={status?.downloading ?? 0} label="Downloading" />
         <LCDDisplay value={status?.not_found ?? 0} label="Not Found" />
         <LCDDisplay value={status?.failed ?? 0} label="Failed" />
+        <LCDDisplay value={status?.paused ?? 0} label="Paused" />
       </div>
 
       {/* ── Filter buttons ──────────────────────────────────────── */}
@@ -379,7 +464,7 @@ export default function PipelineMonitorPage() {
             ? (status?.[f.value] ?? 0)
             : Object.values(status ?? {}).reduce(
                 (a, v) => a + (typeof v === "number" ? v : 0),
-                0
+                0,
               );
           const isActive = statusFilter === f.value;
           return (
@@ -412,6 +497,156 @@ export default function PipelineMonitorPage() {
           );
         })}
       </div>
+
+      {/* ── Bulk action toolbar ─────────────────────────────────── */}
+      {(failedCount > 0 ||
+        (status?.candidate ?? 0) > 0 ||
+        (status?.paused ?? 0) > 0) && (
+        <div
+          className="flex flex-wrap items-center gap-2"
+          style={{
+            background: "var(--hw-surface)",
+            border: "1px solid var(--hw-border)",
+            borderRadius: 6,
+            padding: "8px 14px",
+          }}
+        >
+          <span
+            className="font-mono uppercase"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              marginRight: 8,
+            }}
+          >
+            Bulk Actions
+          </span>
+          {failedCount > 0 && (
+            <>
+              <BulkBtn
+                label={`Retry All Failed (${failedCount})`}
+                color="var(--led-orange)"
+                onClick={() => setConfirmAction("retry_failed")}
+              />
+              <BulkBtn
+                label={`Delete All Failed (${failedCount})`}
+                color="var(--led-red)"
+                onClick={() => setConfirmAction("delete_failed")}
+              />
+            </>
+          )}
+          {(status?.candidate ?? 0) > 0 && (
+            <>
+              <BulkBtn
+                label={`Pause Candidates (${status?.candidate ?? 0})`}
+                color="var(--led-orange)"
+                onClick={() => setConfirmAction("pause_candidates")}
+              />
+              <BulkBtn
+                label={`Cancel Candidates (${status?.candidate ?? 0})`}
+                color="var(--led-red)"
+                onClick={() => setConfirmAction("delete_candidates")}
+              />
+            </>
+          )}
+          {(status?.paused ?? 0) > 0 && (
+            <BulkBtn
+              label={`Resume Paused (${status?.paused ?? 0})`}
+              color="var(--led-green)"
+              onClick={() => setConfirmAction("resume_paused")}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Confirm dialog overlay ────────────────────────────── */}
+      {confirmAction && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.6)",
+          }}
+          onClick={() => !bulkActing && setConfirmAction(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--hw-surface)",
+              border: "1px solid var(--hw-border)",
+              borderRadius: 8,
+              padding: "24px 28px",
+              maxWidth: 400,
+              width: "90vw",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3
+              className="font-mono"
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: "var(--hw-text)",
+                marginBottom: 8,
+              }}
+            >
+              {CONFIRM_LABELS[confirmAction].title}
+            </h3>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--hw-text-dim)",
+                marginBottom: 20,
+                lineHeight: 1.5,
+              }}
+            >
+              {CONFIRM_LABELS[confirmAction].desc}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                disabled={bulkActing}
+                className="font-mono"
+                style={{
+                  fontSize: 12,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  border: "1px solid var(--hw-border)",
+                  background: "transparent",
+                  color: "var(--hw-text-dim)",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleBulkAction(confirmAction)}
+                disabled={bulkActing}
+                className="font-mono"
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  border: `1px solid ${CONFIRM_LABELS[confirmAction].color}`,
+                  background: `color-mix(in srgb, ${CONFIRM_LABELS[confirmAction].color} 15%, transparent)`,
+                  color: CONFIRM_LABELS[confirmAction].color,
+                  cursor: bulkActing ? "not-allowed" : "pointer",
+                  opacity: bulkActing ? 0.6 : 1,
+                }}
+              >
+                {bulkActing ? "..." : CONFIRM_LABELS[confirmAction].btn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Track table ─────────────────────────────────────────── */}
       <div
@@ -655,6 +890,38 @@ export default function PipelineMonitorPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ── BulkBtn ─────────────────────────────────────────────────────────────── */
+
+function BulkBtn({
+  label,
+  color,
+  onClick,
+}: {
+  label: string;
+  color: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="font-mono uppercase"
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        padding: "5px 12px",
+        borderRadius: 4,
+        border: `1px solid color-mix(in srgb, ${color} 40%, transparent)`,
+        background: `color-mix(in srgb, ${color} 8%, transparent)`,
+        color,
+        cursor: "pointer",
+        letterSpacing: 0.5,
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

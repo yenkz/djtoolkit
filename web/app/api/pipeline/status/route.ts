@@ -6,7 +6,7 @@ import { jsonError } from "@/lib/api-server/errors";
 
 const PIPELINE_STATUSES = [
   "candidate", "searching", "found", "not_found",
-  "queued", "downloading", "failed",
+  "queued", "downloading", "failed", "paused",
 ] as const;
 
 export async function GET(request: NextRequest) {

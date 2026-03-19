@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     CONSTRAINT tracks_acquisition_status_check CHECK (
         acquisition_status IN (
             'candidate', 'searching', 'found', 'not_found', 'queued',
-            'downloading', 'available', 'failed', 'duplicate'
+            'downloading', 'available', 'failed', 'duplicate', 'paused'
         )
     )
 );
