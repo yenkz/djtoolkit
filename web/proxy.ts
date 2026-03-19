@@ -33,7 +33,7 @@ export async function proxy(request: NextRequest) {
 
   // Redirect unauthenticated users to /login (except /login, /auth/*, and /api/*)
   // API routes handle their own auth via Bearer tokens — never redirect them.
-  if (!user && !pathname.startsWith("/login") && !pathname.startsWith("/auth") && !pathname.startsWith("/api/")) {
+  if (!user && pathname !== "/" && !pathname.startsWith("/login") && !pathname.startsWith("/auth") && !pathname.startsWith("/api/")) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
