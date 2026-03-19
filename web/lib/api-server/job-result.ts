@@ -15,6 +15,26 @@ const KEY_NAMES = [
  * Apply the result of a completed pipeline job: update track flags in the
  * database and auto-queue the next job in the pipeline chain.
  */
+/**
+ * Check if a pending/claimed/running job of the given type already exists
+ * for this track. Prevents duplicate chained jobs on retry.
+ */
+async function hasActiveJob(
+  supabase: SupabaseClient,
+  trackId: number,
+  jobType: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from("pipeline_jobs")
+    .select("id")
+    .eq("track_id", trackId)
+    .eq("job_type", jobType)
+    .in("status", ["pending", "claimed", "running"])
+    .limit(1)
+    .maybeSingle();
+  return !!data;
+}
+
 export async function applyJobResult(
   supabase: SupabaseClient,
   jobId: string,
@@ -48,13 +68,15 @@ export async function applyJobResult(
         .eq("id", trackId)
         .eq("user_id", userId);
 
-      // Auto-queue fingerprint job
-      await supabase.from("pipeline_jobs").insert({
-        user_id: userId,
-        track_id: trackId,
-        job_type: "fingerprint",
-        payload: { track_id: trackId, local_path: localPath },
-      });
+      // Auto-queue fingerprint job (skip if one already exists)
+      if (!(await hasActiveJob(supabase, trackId, "fingerprint"))) {
+        await supabase.from("pipeline_jobs").insert({
+          user_id: userId,
+          track_id: trackId,
+          job_type: "fingerprint",
+          payload: { track_id: trackId, local_path: localPath },
+        });
+      }
 
       break;
     }
@@ -128,7 +150,7 @@ export async function applyJobResult(
           .eq("id", trackId)
           .single();
 
-        if (track?.local_path) {
+        if (track?.local_path && !(await hasActiveJob(supabase, trackId, "cover_art"))) {
           await supabase.from("pipeline_jobs").insert({
             user_id: userId,
             track_id: trackId,
@@ -173,6 +195,7 @@ export async function applyJobResult(
 
       const track = trackRaw as Record<string, unknown> | null;
       if (!track?.local_path) break;
+      if (await hasActiveJob(supabase, trackId, "metadata")) break;
 
       // Reconstruct musical_key from key + mode columns
       let musicalKey = "";
