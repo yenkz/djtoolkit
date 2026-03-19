@@ -62,6 +62,8 @@ a = Analysis(
         # httpx
         "httpx",
         "httpcore",
+        # shellingham shell detection (Typer completion)
+        *collect_submodules("shellingham"),
         # mutagen codecs
         "mutagen.mp3",
         "mutagen.flac",
