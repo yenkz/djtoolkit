@@ -1,15 +1,20 @@
 """Flow 3 — identify tracks in a YouTube DJ mix via TrackID.dev API."""
 
+from __future__ import annotations
+
 import json
 import re
-import sqlite3
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import TYPE_CHECKING
+
 from djtoolkit.config import Config
-from djtoolkit.db.database import connect
 from djtoolkit.utils.search_string import build as build_search_string
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 
 # ─── Exceptions ───────────────────────────────────────────────────────────────
@@ -178,7 +183,12 @@ def poll_job(job_id: str, cfg: Config) -> dict:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
-def import_trackid(url: str, cfg: Config, force: bool = False) -> dict:
+def import_trackid(
+    url: str, cfg: Config,
+    adapter: "SupabaseAdapter | None" = None,
+    user_id: str | None = None,
+    force: bool = False,
+) -> dict:
     """Full Flow 3 orchestration.
 
     Validates URL, checks cache, submits to TrackID.dev, polls for results,
@@ -197,110 +207,107 @@ def import_trackid(url: str, cfg: Config, force: bool = False) -> dict:
         "skipped_cached": 0,
     }
 
+    if adapter is None or user_id is None:
+        raise RuntimeError("adapter and user_id are required")
+
+    client = adapter._client
+
     # 1. Validate + normalize URL
     normalized_url = validate_url(url)
 
-    # 2. Check cache + submit job (short-lived connection)
-    with connect(cfg.db_path) as conn:
-        cached = conn.execute(
-            "SELECT job_id, status FROM trackid_jobs WHERE youtube_url = ?",
-            (normalized_url,),
-        ).fetchone()
+    # 2. Check cache
+    cached = (
+        client.table("trackid_jobs")
+        .select("job_id, status")
+        .eq("user_id", user_id)
+        .eq("youtube_url", normalized_url)
+        .maybeSingle()
+        .execute()
+    ).data
 
-        if cached and not force:
-            stats["skipped_cached"] = 1
-            return stats
+    if cached and not force:
+        stats["skipped_cached"] = 1
+        return stats
 
-        try:
-            job_id = submit_job(normalized_url, cfg)
-        except RuntimeError:
-            stats["failed"] = 1
-            return stats
+    # 3. Submit job
+    try:
+        job_id = submit_job(normalized_url, cfg)
+    except RuntimeError:
+        stats["failed"] = 1
+        return stats
 
-        if cached:
-            conn.execute(
-                "UPDATE trackid_jobs SET job_id=?, status='queued', "
-                "tracks_found=NULL, tracks_imported=NULL WHERE youtube_url=?",
-                (job_id, normalized_url),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO trackid_jobs (youtube_url, job_id, status) VALUES (?, ?, 'queued')",
-                (normalized_url, job_id),
-            )
-        conn.commit()
+    # 4. Update or insert cache entry
+    if cached:
+        (client.table("trackid_jobs")
+         .update({"job_id": job_id, "status": "queued", "tracks_found": None, "tracks_imported": None})
+         .eq("user_id", user_id)
+         .eq("youtube_url", normalized_url)
+         .execute())
+    else:
+        (client.table("trackid_jobs")
+         .insert({"user_id": user_id, "youtube_url": normalized_url, "job_id": job_id, "status": "queued"})
+         .execute())
 
-    # 3. Poll for results (outside DB connection — can block for minutes)
+    # 5. Poll for results (can block for minutes)
     try:
         job = poll_job(job_id, cfg)
-    except PollTimeoutError:
-        with connect(cfg.db_path) as conn:
-            conn.execute(
-                "UPDATE trackid_jobs SET status='failed' WHERE youtube_url=?",
-                (normalized_url,),
-            )
-            conn.commit()
-        stats["failed"] = 1
-        return stats
-    except RuntimeError:
-        with connect(cfg.db_path) as conn:
-            conn.execute(
-                "UPDATE trackid_jobs SET status='failed' WHERE youtube_url=?",
-                (normalized_url,),
-            )
-            conn.commit()
+    except (PollTimeoutError, RuntimeError):
+        (client.table("trackid_jobs")
+         .update({"status": "failed"})
+         .eq("user_id", user_id)
+         .eq("youtube_url", normalized_url)
+         .execute())
         stats["failed"] = 1
         return stats
 
-    # 4. Filter and insert tracks (second short-lived connection)
-    with connect(cfg.db_path) as conn:
-        all_tracks = job.get("tracks", [])
-        threshold = cfg.trackid.confidence_threshold
+    # 6. Filter and insert tracks
+    all_tracks = job.get("tracks", [])
+    threshold = cfg.trackid.confidence_threshold
+    rows: list[dict] = []
 
-        for track in all_tracks:
-            if track.get("isUnknown"):
-                stats["skipped_unknown"] += 1
-                continue
-            if track.get("confidence", 0) < threshold:
-                stats["skipped_low_confidence"] += 1
-                continue
+    for track in all_tracks:
+        if track.get("isUnknown"):
+            stats["skipped_unknown"] += 1
+            continue
+        if track.get("confidence", 0) < threshold:
+            stats["skipped_low_confidence"] += 1
+            continue
 
-            stats["identified"] += 1
+        stats["identified"] += 1
 
-            artist = track.get("artist") or ""
-            title = track.get("title") or ""
-            duration_sec = track.get("duration")
-            duration_ms = int(duration_sec * 1000) if duration_sec is not None else None
+        artist = track.get("artist") or ""
+        title = track.get("title") or ""
+        duration_sec = track.get("duration")
+        duration_ms = int(duration_sec * 1000) if duration_sec is not None else None
 
-            record = {
-                "acquisition_status": "candidate",
-                "source": "trackid",
-                "artist": artist or None,
-                "artists": artist or None,
-                "title": title or None,
-                "duration_ms": duration_ms,
-                "search_string": build_search_string(artist, title) if (artist or title) else None,
-            }
+        rows.append({
+            "user_id": user_id,
+            "acquisition_status": "candidate",
+            "source": "trackid",
+            "artist": artist or None,
+            "artists": artist or None,
+            "title": title or None,
+            "duration_ms": duration_ms,
+            "search_string": build_search_string(artist, title) if (artist or title) else None,
+        })
 
-            columns = ", ".join(record.keys())
-            placeholders = ", ".join("?" for _ in record)
-            try:
-                conn.execute(
-                    f"INSERT INTO tracks ({columns}) VALUES ({placeholders})",
-                    list(record.values()),
-                )
-                stats["imported"] += 1
-            except sqlite3.IntegrityError:
-                pass
-
-        conn.commit()
-
-        # 5. Update cache
-        conn.execute(
-            "UPDATE trackid_jobs SET status='completed', tracks_found=?, tracks_imported=? "
-            "WHERE youtube_url=?",
-            (len(all_tracks), stats["imported"], normalized_url),
+    if rows:
+        result = (
+            client.table("tracks")
+            .insert(rows)
+            .execute()
         )
-        conn.commit()
+        stats["imported"] = len(result.data)
+
+    # 7. Update cache
+    (client.table("trackid_jobs")
+     .update({
+         "status": "completed",
+         "tracks_found": len(all_tracks),
+         "tracks_imported": stats["imported"],
+     })
+     .eq("user_id", user_id)
+     .eq("youtube_url", normalized_url)
+     .execute())
 
     return stats

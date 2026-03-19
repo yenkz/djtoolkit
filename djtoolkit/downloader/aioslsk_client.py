@@ -26,8 +26,12 @@ from pathlib import Path
 
 from thefuzz import fuzz
 
+from typing import TYPE_CHECKING
+
 from djtoolkit.config import Config
-from djtoolkit.db.database import connect
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 log = logging.getLogger(__name__)
 
@@ -573,24 +577,16 @@ async def _download_track(
 
 # ─── DB helper ────────────────────────────────────────────────────────────────
 
-def _set_status(db_path: Path, track_id: int, status: str, local_path: str | None = None) -> None:
-    with connect(db_path) as conn:
-        if local_path is not None:
-            conn.execute(
-                "UPDATE tracks SET acquisition_status = ?, local_path = ? WHERE id = ?",
-                (status, local_path, track_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE tracks SET acquisition_status = ? WHERE id = ?",
-                (status, track_id),
-            )
-        conn.commit()
+def _set_status(adapter: "SupabaseAdapter", track_id: int, status: str, local_path: str | None = None) -> None:
+    updates: dict = {"acquisition_status": status}
+    if local_path is not None:
+        updates["local_path"] = local_path
+    adapter.update_track(track_id, updates)
 
 
 # ─── Main pipeline step ───────────────────────────────────────────────────────
 
-async def _run_async(cfg: Config, progress=None) -> dict:
+async def _run_async(cfg: Config, adapter: "SupabaseAdapter", user_id: str, progress=None) -> dict:
     from aioslsk.client import SoulSeekClient
 
     if not cfg.soulseek.username or not cfg.soulseek.password:
@@ -601,16 +597,13 @@ async def _run_async(cfg: Config, progress=None) -> dict:
 
     stats = {"attempted": 0, "downloaded": 0, "failed": 0, "no_match": 0}
 
-    with connect(cfg.db_path) as conn:
-        candidates = conn.execute(
-            "SELECT * FROM tracks WHERE acquisition_status = 'candidate'"
-        ).fetchall()
+    candidate_tracks = adapter.query_by_acquisition_status(user_id, "candidate")
 
-    if not candidates:
+    if not candidate_tracks:
         log.info("No candidate tracks found")
         return stats
 
-    log.info("Downloading %d candidates via aioslsk (Soulseek)", len(candidates))
+    log.info("Downloading %d candidates via aioslsk (Soulseek)", len(candidate_tracks))
     settings = _make_settings(cfg)
 
     # Suppress noisy internal aioslsk logs (P2P connection chatter, distributed network)
@@ -660,14 +653,14 @@ async def _run_async(cfg: Config, progress=None) -> dict:
                 if progress and task_id is not None:
                     progress.update(task_id, description=f"[red]✗ no results[/red]  {label}",
                                     total=1, completed=1)
-                _set_status(cfg.db_path, track_id, "failed")
+                _set_status(adapter, track_id, "failed")
                 stats["no_match"] += 1
                 stats["failed"] += 1
                 return
             local_path = await _download_track(client, cfg, track, results, query,
                                                progress=progress, task_id=task_id)
             if local_path:
-                _set_status(cfg.db_path, track_id, "available", local_path)
+                _set_status(adapter, track_id, "available", local_path)
                 log.info("[%d] ✓ %s", track_id, label)
                 if progress and task_id is not None:
                     progress.update(task_id, description=f"[green]✓[/green]  {label}",
@@ -681,7 +674,7 @@ async def _run_async(cfg: Config, progress=None) -> dict:
                 if progress and task_id is not None:
                     progress.update(task_id, description=f"[red]✗ no match[/red]  {label}",
                                     total=1, completed=1)
-                _set_status(cfg.db_path, track_id, "failed")
+                _set_status(adapter, track_id, "failed")
                 stats["no_match"] += 1
                 stats["failed"] += 1
         except Exception:
@@ -689,13 +682,13 @@ async def _run_async(cfg: Config, progress=None) -> dict:
             if progress and task_id is not None:
                 progress.update(task_id, description=f"[red]✗ error[/red]  {label}",
                                 total=1, completed=1)
-            _set_status(cfg.db_path, track_id, "failed")
+            _set_status(adapter, track_id, "failed")
             stats["failed"] += 1
 
     async with SoulSeekClient(settings) as client:
         await client.login()
 
-        tracks = [dict(row) for row in candidates]
+        tracks = [{"id": t._id, **t.to_db_row()} for t in candidate_tracks]
         stats["attempted"] = len(tracks)
 
         # Build per-track query variants (original + simplified + artist-only fallbacks)
@@ -781,7 +774,7 @@ async def _run_async(cfg: Config, progress=None) -> dict:
         ready = sum(1 for t in tracks if results_by_track[t["id"]])
         log.info("── Phase 2: downloading %d/%d tracks concurrently ──", ready, len(tracks))
         for track in tracks:
-            _set_status(cfg.db_path, track["id"], "downloading")
+            _set_status(adapter, track["id"], "downloading")
 
         await asyncio.gather(*[
             _do_download(client, track, results_by_track[track["id"]], queries_by_track[track["id"]][0])
@@ -791,16 +784,16 @@ async def _run_async(cfg: Config, progress=None) -> dict:
     return stats
 
 
-def run(cfg: Config, progress=None) -> dict:
+def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str, progress=None) -> dict:
     """
     Search and download all candidate tracks via embedded aioslsk Soulseek client.
     Returns {attempted, downloaded, failed, no_match}.
     Pass a rich.progress.Progress instance for live progress bars.
     """
-    return asyncio.run(_run_async(cfg, progress=progress))
+    return asyncio.run(_run_async(cfg, adapter, user_id, progress=progress))
 
 
-def reconcile_disk(cfg: Config) -> dict:
+def reconcile_disk(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
     """
     Scan downloads_dir and library_dir and promote any 'candidate' or 'downloading'
     tracks whose files are already on disk to 'available'.
@@ -810,11 +803,10 @@ def reconcile_disk(cfg: Config) -> dict:
 
     stats = {"updated": 0, "skipped": 0}
 
-    with connect(cfg.db_path) as conn:
-        rows = conn.execute(
-            "SELECT id, download_job_id, artist, title FROM tracks"
-            " WHERE acquisition_status IN ('candidate', 'downloading')"
-        ).fetchall()
+    candidates = adapter.query_by_acquisition_status(user_id, "candidate")
+    downloading = adapter.query_by_acquisition_status(user_id, "downloading")
+    all_tracks = candidates + downloading
+    rows = [{"id": t._id, "download_job_id": None, "artist": t.artist, "title": t.title} for t in all_tracks]
 
     if not rows:
         log.info("reconcile_disk: no candidate/downloading tracks")
@@ -857,7 +849,7 @@ def reconcile_disk(cfg: Config) -> dict:
                 matched_path = str(best_path)
 
         if matched_path:
-            _set_status(cfg.db_path, track_id, "available", matched_path)
+            _set_status(adapter, track_id, "available", matched_path)
             log.info("[%d] Reconciled to available: %s", track_id, matched_path)
             stats["updated"] += 1
         else:

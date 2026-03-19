@@ -1,11 +1,15 @@
 """Import Exportify CSV into the tracks table."""
 
-import csv
-import sqlite3
-from pathlib import Path
+from __future__ import annotations
 
-from djtoolkit.db.database import connect
+import csv
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 from djtoolkit.utils.search_string import build as build_search_string
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 
 # Map CSV header → DB column (only non-trivial mappings listed)
@@ -51,24 +55,25 @@ def _primary_artist(artists_raw: str) -> str:
     return artists_raw.split(";")[0].strip()
 
 
-def import_csv(csv_path: str | Path, db_path: str | Path) -> dict:
+def import_csv(csv_path: str | Path, adapter: "SupabaseAdapter", user_id: str) -> dict:
     """
-    Parse an Exportify CSV and insert tracks into the DB.
+    Parse an Exportify CSV and insert tracks via SupabaseAdapter.
 
     Returns a summary dict: {inserted, skipped_duplicate, total}.
     Tracks already in DB (matched by spotify_uri) are skipped.
     """
     csv_path = Path(csv_path)
-    inserted = 0
-    skipped = 0
+    rows: list[dict] = []
 
-    with connect(db_path) as conn, open(csv_path, newline="", encoding="utf-8") as f:
+    with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             row = {k.strip(): v.strip() for k, v in row.items()}
-
-            # Build the DB row
-            record: dict = {"acquisition_status": "candidate", "source": "exportify"}
+            record: dict = {
+                "acquisition_status": "candidate",
+                "source": "exportify",
+                "user_id": user_id,
+            }
 
             for csv_col, db_col in _CSV_TO_DB.items():
                 record[db_col] = row.get(csv_col) or None
@@ -78,25 +83,46 @@ def import_csv(csv_path: str | Path, db_path: str | Path) -> dict:
             record["artist"] = _primary_artist(artists_raw) if artists_raw else None
             record["year"] = _parse_year(record.get("release_date") or "")
 
-            # Normalize explicit to int
+            # Normalize explicit to boolean
             explicit_raw = (record.get("explicit") or "").lower()
-            record["explicit"] = 1 if explicit_raw == "true" else 0
+            record["explicit"] = explicit_raw == "true"
+
+            # Cast numeric fields
+            for int_col in ("duration_ms", "popularity", "key", "mode", "time_signature"):
+                val = record.get(int_col)
+                try:
+                    record[int_col] = int(val) if val not in (None, "") else None
+                except (ValueError, TypeError):
+                    record[int_col] = None
+            for float_col in ("danceability", "energy", "loudness", "speechiness",
+                              "acousticness", "instrumentalness", "liveness", "valence", "tempo"):
+                val = record.get(float_col)
+                try:
+                    record[float_col] = float(val) if val not in (None, "") else None
+                except (ValueError, TypeError):
+                    record[float_col] = None
 
             # Build search_string
             artist = record.get("artist") or ""
             title = record.get("title") or ""
             record["search_string"] = build_search_string(artist, title) if (artist or title) else None
 
-            # Insert, skip on duplicate spotify_uri
-            try:
-                _insert(conn, record)
-                inserted += 1
-            except sqlite3.IntegrityError:
-                skipped += 1
+            if record.get("spotify_uri"):
+                rows.append(record)
 
-        conn.commit()
+    # Upsert with ignore_duplicates — skips rows where (user_id, spotify_uri) already exists
+    if rows:
+        result = (
+            adapter._client.table("tracks")
+            .upsert(rows, on_conflict="user_id,spotify_uri", ignore_duplicates=True)
+            .execute()
+        )
+        inserted = len(result.data)
+    else:
+        inserted = 0
 
-    return {"inserted": inserted, "skipped_duplicate": skipped, "total": inserted + skipped}
+    skipped = len(rows) - inserted
+    return {"inserted": inserted, "skipped_duplicate": skipped, "total": len(rows)}
 
 
 def parse_csv_rows(data: bytes) -> list[dict]:
@@ -139,10 +165,3 @@ def parse_csv_rows(data: bytes) -> list[dict]:
         if record.get("spotify_uri"):
             tracks.append(record)
     return tracks
-
-
-def _insert(conn: sqlite3.Connection, record: dict) -> None:
-    columns = ", ".join(record.keys())
-    placeholders = ", ".join("?" for _ in record)
-    sql = f"INSERT INTO tracks ({columns}) VALUES ({placeholders})"
-    conn.execute(sql, list(record.values()))

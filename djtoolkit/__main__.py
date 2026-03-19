@@ -119,7 +119,7 @@ def import_csv(
     if not csv_path.exists():
         console.print(f"[red]File not found:[/red] {csv_path}")
         raise typer.Exit(1)
-    result = _import(csv_path, cfg.db_path)
+    result = _import(csv_path, _adapter(), _user_id())
     console.print(
         f"[green]✓[/green] Inserted [bold]{result['inserted']}[/bold] tracks "
         f"([yellow]{result['skipped_duplicate']}[/yellow] duplicates skipped) "
@@ -168,7 +168,7 @@ def import_trackid_cmd(
     console.print(f"Submitting to TrackID.dev: [bold]{normalized}[/bold]")
 
     try:
-        stats = import_trackid(normalized, cfg, force=force)
+        stats = import_trackid(normalized, cfg, _adapter(), _user_id(), force=force)
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -226,7 +226,7 @@ def download(config: ConfigOpt = "djtoolkit.toml"):
         console=console,
         transient=False,
     ) as progress:
-        stats = run(cfg, progress=progress)
+        stats = run(cfg, _adapter(), _user_id(), progress=progress)
 
     console.print(
         f"[green]✓ downloaded {stats['downloaded']}[/green]  "
