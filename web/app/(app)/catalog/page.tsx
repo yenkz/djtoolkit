@@ -54,6 +54,8 @@ export default function CatalogPage() {
   const [perPage, setPerPage] = useState(50);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState("created_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [loading, setLoading] = useState(true);
   // New design state
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -76,8 +78,10 @@ export default function CatalogPage() {
         fetchTracks({
           page,
           per_page: perPage,
-          status: statusFilter || undefined,
+          status: statusFilter || "available",
           search: search || undefined,
+          sort_by: sortBy,
+          sort_dir: sortDir,
         }),
         fetchStats(),
       ]);
@@ -91,7 +95,7 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, statusFilter, search]);
+  }, [page, perPage, statusFilter, search, sortBy, sortDir]);
 
   useEffect(() => {
     load();
@@ -499,29 +503,62 @@ export default function CatalogPage() {
                   zIndex: 2,
                 }}
               >
-                {[
-                  "",
-                  "Track",
-                  "Artist",
-                  "Wave",
-                  "BPM / Key",
-                  "Energy",
-                  "Tags",
-                  "",
-                ].map((h, i) => (
-                  <span
-                    key={h || `col-${i}`}
-                    className="font-mono uppercase"
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: "var(--hw-text-dim)",
-                      letterSpacing: 1.5,
-                    }}
-                  >
-                    {h}
-                  </span>
-                ))}
+                {([
+                  { label: "", key: "" },
+                  { label: "Track", key: "title" },
+                  { label: "Artist", key: "artist" },
+                  { label: "Wave", key: "" },
+                  { label: "BPM / Key", key: "tempo" },
+                  { label: "Energy", key: "" },
+                  { label: "Tags", key: "genres" },
+                  { label: "", key: "" },
+                ] as const).map((col, i) =>
+                  col.key ? (
+                    <button
+                      key={col.key}
+                      onClick={() => {
+                        if (sortBy === col.key) {
+                          setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                        } else {
+                          setSortBy(col.key);
+                          setSortDir("desc");
+                        }
+                        setPage(1);
+                      }}
+                      className="font-mono uppercase text-left"
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: "var(--hw-text-dim)",
+                        letterSpacing: 1.5,
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      {col.label}
+                      {sortBy === col.key && (
+                        <span style={{ marginLeft: 4, fontSize: 10 }}>
+                          {sortDir === "asc" ? "\u25B2" : "\u25BC"}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <span
+                      key={col.label || `col-${i}`}
+                      className="font-mono uppercase"
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: "var(--hw-text-dim)",
+                        letterSpacing: 1.5,
+                      }}
+                    >
+                      {col.label}
+                    </span>
+                  )
+                )}
               </div>
               {filteredTracks.map((t, i) => (
                 <TrackListRow
@@ -558,28 +595,61 @@ export default function CatalogPage() {
                   zIndex: 2,
                 }}
               >
-                {[
-                  "",
-                  "Track",
-                  "Artist",
-                  "BPM",
-                  "Key",
-                  "Genre",
-                  "Energy",
-                ].map((h, i) => (
-                  <span
-                    key={h || `col-${i}`}
-                    className="font-mono uppercase"
-                    style={{
-                      fontSize: 8,
-                      fontWeight: 700,
-                      color: "var(--hw-text-dim)",
-                      letterSpacing: 1.5,
-                    }}
-                  >
-                    {h}
-                  </span>
-                ))}
+                {([
+                  { label: "", key: "" },
+                  { label: "Track", key: "title" },
+                  { label: "Artist", key: "artist" },
+                  { label: "BPM", key: "tempo" },
+                  { label: "Key", key: "" },
+                  { label: "Genre", key: "genres" },
+                  { label: "Energy", key: "" },
+                ] as const).map((col, i) =>
+                  col.key ? (
+                    <button
+                      key={col.key}
+                      onClick={() => {
+                        if (sortBy === col.key) {
+                          setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                        } else {
+                          setSortBy(col.key);
+                          setSortDir("desc");
+                        }
+                        setPage(1);
+                      }}
+                      className="font-mono uppercase text-left"
+                      style={{
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: "var(--hw-text-dim)",
+                        letterSpacing: 1.5,
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      {col.label}
+                      {sortBy === col.key && (
+                        <span style={{ marginLeft: 4, fontSize: 9 }}>
+                          {sortDir === "asc" ? "\u25B2" : "\u25BC"}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <span
+                      key={col.label || `col-${i}`}
+                      className="font-mono uppercase"
+                      style={{
+                        fontSize: 8,
+                        fontWeight: 700,
+                        color: "var(--hw-text-dim)",
+                        letterSpacing: 1.5,
+                      }}
+                    >
+                      {col.label}
+                    </span>
+                  )
+                )}
               </div>
               {filteredTracks.map((t, i) => (
                 <TrackCompactRow

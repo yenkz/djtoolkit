@@ -13,6 +13,11 @@ if TYPE_CHECKING:
 
 from djtoolkit.models.track import Track
 
+ALL_STATUSES = [
+    "candidate", "searching", "found", "not_found", "queued",
+    "downloading", "available", "failed", "duplicate",
+]
+
 
 class SupabaseAdapter:
     def __init__(self, client: "Client"):
@@ -145,10 +150,11 @@ class SupabaseAdapter:
             .eq("user_id", user_id)
             .execute()
         )
-        counts: dict[str, int] = {}
+        counts = {s: 0 for s in ALL_STATUSES}
         for row in result.data:
             s = row["acquisition_status"]
-            counts[s] = counts.get(s, 0) + 1
+            if s in counts:
+                counts[s] += 1
         return counts
 
     def count_processing_flags(self, user_id: str) -> dict[str, int]:

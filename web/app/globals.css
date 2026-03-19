@@ -224,3 +224,8 @@ input::placeholder {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--hw-border-light);
 }
+
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}

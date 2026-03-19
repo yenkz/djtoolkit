@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     id                 BIGSERIAL PRIMARY KEY,
     user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     acquisition_status TEXT NOT NULL DEFAULT 'candidate',
-                                         -- candidate | downloading | available | failed | duplicate
+                                         -- candidate | searching | found | not_found | queued | downloading | available | failed | duplicate
     source             TEXT NOT NULL,    -- 'exportify' | 'folder' | 'spotify'
 
     -- Core metadata
@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS tracks (
     artwork_url      TEXT,               -- album art thumbnail URL (from Spotify)
 
     -- Toolkit fields
-    search_string    TEXT,
+    search_string         TEXT,
+    search_results_count  INTEGER DEFAULT NULL,
     local_path       TEXT,               -- reported by agent; machine-local path
     download_job_id  TEXT,
     fingerprint_id   BIGINT REFERENCES fingerprints(id),
@@ -122,7 +123,10 @@ CREATE TABLE IF NOT EXISTS tracks (
     -- Per-user spotify_uri uniqueness (NULL values are excluded from unique constraints in PG)
     CONSTRAINT tracks_user_spotify_uri_key UNIQUE (user_id, spotify_uri),
     CONSTRAINT tracks_acquisition_status_check CHECK (
-        acquisition_status IN ('candidate','downloading','available','failed','duplicate')
+        acquisition_status IN (
+            'candidate', 'searching', 'found', 'not_found', 'queued',
+            'downloading', 'available', 'failed', 'duplicate'
+        )
     )
 );
 

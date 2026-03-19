@@ -70,6 +70,9 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status");
   const search = searchParams.get("search");
   const idParams = searchParams.getAll("id");
+  const ALLOWED_SORT = new Set(["created_at", "updated_at", "title", "artist", "album", "year", "tempo", "genres"]);
+  const sortBy = ALLOWED_SORT.has(searchParams.get("sort_by") ?? "") ? searchParams.get("sort_by")! : "created_at";
+  const sortDir = searchParams.get("sort_dir") === "asc";
 
   const supabase = createServiceClient();
 
@@ -98,7 +101,7 @@ export async function GET(request: NextRequest) {
   }
 
   query = query
-    .order("created_at", { ascending: false })
+    .order(sortBy, { ascending: sortDir })
     .range(from, to);
 
   const { data: tracks, count, error } = await query;

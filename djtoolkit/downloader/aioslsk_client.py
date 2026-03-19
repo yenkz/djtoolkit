@@ -577,10 +577,18 @@ async def _download_track(
 
 # ─── DB helper ────────────────────────────────────────────────────────────────
 
-def _set_status(adapter: "SupabaseAdapter", track_id: int, status: str, local_path: str | None = None) -> None:
+def _set_status(
+    adapter: "SupabaseAdapter",
+    track_id: int,
+    status: str,
+    local_path: str | None = None,
+    search_results_count: int | None = None,
+) -> None:
     updates: dict = {"acquisition_status": status}
     if local_path is not None:
         updates["local_path"] = local_path
+    if search_results_count is not None:
+        updates["search_results_count"] = search_results_count
     adapter.update_track(track_id, updates)
 
 
@@ -657,6 +665,8 @@ async def _run_async(cfg: Config, adapter: "SupabaseAdapter", user_id: str, prog
                 stats["no_match"] += 1
                 stats["failed"] += 1
                 return
+            _set_status(adapter, track_id, "queued")
+            _set_status(adapter, track_id, "downloading")
             local_path = await _download_track(client, cfg, track, results, query,
                                                progress=progress, task_id=task_id)
             if local_path:
@@ -693,6 +703,10 @@ async def _run_async(cfg: Config, adapter: "SupabaseAdapter", user_id: str, prog
 
         # Build per-track query variants (original + simplified + artist-only fallbacks)
         queries_by_track: dict[int, list[str]] = {t["id"]: _build_search_queries(t) for t in tracks}
+
+        # Set all tracks to 'searching' before broadcast
+        for track in tracks:
+            _set_status(adapter, track["id"], "searching")
 
         # ── Phase 1: search ────────────────────────────────────────────────────
         log.info("Searching %d tracks (%.0fs window)…", len(tracks), cfg.soulseek.search_timeout_sec)
@@ -770,15 +784,28 @@ async def _run_async(cfg: Config, adapter: "SupabaseAdapter", user_id: str, prog
                                             f"  [dim]{improved} tracks improved[/dim]",
                                 total=1, completed=1)
 
-        # ── Phase 2: download ──────────────────────────────────────────────────
-        ready = sum(1 for t in tracks if results_by_track[t["id"]])
-        log.info("── Phase 2: downloading %d/%d tracks concurrently ──", ready, len(tracks))
+        # ── Classify found / not_found ────────────────────────────────────────
+        viable_counts: dict[int, int] = {}
         for track in tracks:
-            _set_status(adapter, track["id"], "downloading")
+            tid = track["id"]
+            res = results_by_track[tid]
+            ranked = _rank_candidates(track, res, cfg, queries_by_track[tid][0]) if res else []
+            viable_counts[tid] = len(ranked)
+            if ranked:
+                _set_status(adapter, tid, "found", search_results_count=len(ranked))
+            else:
+                _set_status(adapter, tid, "not_found", search_results_count=0)
+
+        # ── Phase 2: download (only tracks that were found) ───────────────────
+        found_tracks = [t for t in tracks if viable_counts.get(t["id"], 0) > 0]
+        not_found_count = len(tracks) - len(found_tracks)
+        stats["no_match"] += not_found_count
+        ready = len(found_tracks)
+        log.info("── Phase 2: downloading %d/%d tracks concurrently ──", ready, len(tracks))
 
         await asyncio.gather(*[
             _do_download(client, track, results_by_track[track["id"]], queries_by_track[track["id"]][0])
-            for track in tracks
+            for track in found_tracks
         ])
 
     return stats
