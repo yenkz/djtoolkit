@@ -7,8 +7,8 @@ A full-stack tool for managing a DJ music library — download, tag, deduplicate
 djtoolkit uses [aioslsk](https://github.com/JurgenR/aioslsk) to download from Soulseek directly (embedded Python client, no external service), matches tracks from Spotify playlists, enriches metadata, fingerprints for deduplication, and moves finalized files into a clean library folder.
 
 The system has two modes:
-- **CLI** — local SQLite database, run pipeline steps directly via `make` commands
-- **Web** — Next.js frontend + FastAPI backend backed by Supabase (PostgreSQL), with a local agent daemon that processes jobs in the background
+- **CLI** — run pipeline steps directly via `make` commands, backed by Supabase (PostgreSQL)
+- **Web** — Next.js frontend deployed on Vercel with Supabase (PostgreSQL + Auth), plus a local agent daemon that processes jobs in the background
 
 ---
 
@@ -24,6 +24,7 @@ The system has two modes:
 | **[Poetry](https://python-poetry.org)** | `brew install poetry` |
 | **Soulseek account** | Free account at [slsknet.org](http://www.slsknet.org) — needed for downloading |
 | **Chromaprint** (`fpcalc`) | `brew install chromaprint` — needed for fingerprinting |
+| **Supabase project** | PostgreSQL + Auth — set `SUPABASE_PROJECT_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DJTOOLKIT_USER_ID` in `.env` |
 | **Soulseek credentials** | Username in `djtoolkit.toml [soulseek]`, password in `.env` as `SOULSEEK_PASSWORD` |
 
 ### Web frontend (optional)
@@ -63,10 +64,7 @@ make init          # copies djtoolkit.toml.example → djtoolkit.toml and .env.e
                    # edit djtoolkit.toml → set username under [soulseek]
                    # edit .env → set SOULSEEK_PASSWORD
 
-# 4. Initialize the database
-make setup
-
-# 5. Run the pipeline (Flow 1 — from Exportify CSV)
+# 4. Run the pipeline (Flow 1 — from Exportify CSV)
 make import-csv CSV=~/Downloads/my_playlist.csv
 make download
 make fingerprint
@@ -104,13 +102,9 @@ See [docs/flows.md](docs/flows.md#flow-2) for details.
 
 ## Web UI
 
-The web frontend is a Next.js app in `web/` with Supabase auth, backed by the FastAPI API.
+The web frontend is a Next.js app in `web/` with Supabase Auth, deployed to Vercel. API route handlers live in `web/app/api/`.
 
 ```bash
-# Start the API
-make api                   # FastAPI at http://localhost:8000
-
-# Start the web frontend (separate terminal)
 cd web && npm install && npm run dev   # Next.js at http://localhost:3000
 ```
 
@@ -149,8 +143,9 @@ djtoolkit metadata apply --source audio-analysis             # BPM / key / loudn
 make enrich ARGS='--spotify x.csv'   # enrich DB only (no file writes)
 make fetch-cover-art                 # fetch + embed cover art
 
-make check-db                        # integrity check
-make migrate-db                      # apply schema migrations to existing DB
+poetry run djtoolkit db status        # track counts + processing flags
+poetry run djtoolkit db reset-downloading  # reset stuck downloads → candidate
+poetry run djtoolkit db purge-failed       # delete all failed tracks
 ```
 
 See [docs/flows.md](docs/flows.md) for the full pipeline reference.
@@ -163,7 +158,15 @@ See [docs/flows.md](docs/flows.md) for the full pipeline reference.
 djtoolkit/
 ├── djtoolkit/
 │   ├── __main__.py             # Typer CLI entry point
-│   ├── config.py               # loads djtoolkit.toml via tomllib
+│   ├── config.py               # loads djtoolkit.toml via tomllib + dotenv loader
+│   ├── adapters/
+│   │   ├── base.py             # abstract adapter interface
+│   │   ├── supabase.py         # SupabaseAdapter — sole data access layer
+│   │   ├── traktor.py          # Traktor NML import/export
+│   │   └── rekordbox.py        # Rekordbox XML import/export
+│   ├── models/
+│   │   ├── track.py            # Track dataclass (to_db_row / from_db_row)
+│   │   └── camelot.py          # Camelot wheel key conversion
 │   ├── agent/                  # local agent daemon (job polling + execution)
 │   │   ├── daemon.py           # async event loop
 │   │   ├── runner.py           # job dispatcher
@@ -172,22 +175,14 @@ djtoolkit/
 │   │   ├── keychain.py         # credential storage
 │   │   ├── launchd.py          # macOS launchd integration
 │   │   └── jobs/               # download, fingerprint, metadata, cover_art
-│   ├── api/
-│   │   ├── app.py              # FastAPI app + lifespan
-│   │   ├── auth.py             # JWT/Bearer auth
-│   │   ├── auth_routes.py      # auth endpoints
-│   │   ├── catalog_routes.py   # library search + browse
-│   │   ├── pipeline_routes.py  # job management
-│   │   └── spotify_auth_routes.py  # Spotify OAuth
 │   ├── db/
-│   │   ├── database.py         # SQLite connection + helpers
-│   │   ├── schema.sql          # SQLite schema
-│   │   ├── postgres.py         # asyncpg pool (Supabase)
-│   │   └── pg_schema.sql       # PostgreSQL schema + RLS
+│   │   ├── supabase_client.py  # get_client() — reads env vars, returns supabase.Client
+│   │   ├── pg_schema.sql       # PostgreSQL schema reference
+│   │   └── rls.sql             # Row-Level Security policies
 │   ├── importers/
 │   │   ├── exportify.py        # Flow 1: Exportify CSV → candidate tracks
 │   │   ├── folder.py           # Flow 2: scan audio files → available tracks
-│   │   └── trackid.py          # YouTube track identification
+│   │   └── trackid.py          # Flow 3: YouTube mix → identified tracks
 │   ├── downloader/
 │   │   └── aioslsk_client.py   # embedded Soulseek client
 │   ├── fingerprint/
@@ -203,8 +198,9 @@ djtoolkit/
 │   │   └── mover.py            # move tagged files to library_dir
 │   └── utils/
 │       └── search_string.py    # Soulseek search query builder
-├── web/                        # Next.js 16 frontend
+├── web/                        # Next.js frontend (deployed to Vercel)
 │   ├── app/                    # App Router (TypeScript)
+│   │   ├── api/                # API route handlers
 │   │   ├── login/              # login page
 │   │   ├── auth/callback/      # OAuth callback
 │   │   └── (app)/              # authenticated pages
@@ -214,13 +210,10 @@ djtoolkit/
 │   │       ├── agents/         # agent management
 │   │       └── settings/       # settings
 │   ├── components/             # React components
-│   ├── lib/                    # API client + Supabase setup
-│   └── Dockerfile              # multi-stage build
+│   └── lib/                    # Supabase client + utilities
+├── supabase/                   # Supabase project config + migrations
 ├── tests/
-├── packaging/macos/            # PyInstaller config
-├── nginx/                      # reverse proxy config
-├── docker-compose.yml          # production deployment
-├── Dockerfile                  # API container
+├── packaging/                  # PyInstaller config (macOS + Windows)
 ├── Makefile
 └── pyproject.toml
 ```
@@ -237,11 +230,9 @@ See [docs/configuration.md](docs/configuration.md) for a full reference.
 
 ## Deployment
 
-Production runs via Docker Compose on Hetzner with nginx as a reverse proxy and Let's Encrypt for TLS. GitHub Actions builds images to GHCR on push to master.
-
-```bash
-docker compose up -d    # api (8000) + web (3000) + nginx (80/443)
-```
+- **Web**: Auto-deployed to Vercel on push to master
+- **Database**: Supabase (hosted PostgreSQL + Auth + Realtime)
+- **Agent**: Runs locally on your machine, polls Supabase for jobs
 
 ---
 
@@ -249,10 +240,8 @@ docker compose up -d    # api (8000) + web (3000) + nginx (80/443)
 
 | Doc | Contents |
 | --- | --- |
-| [docs/flows.md](docs/flows.md) | Pipeline walkthroughs (Flow 1 & 2) |
+| [docs/flows.md](docs/flows.md) | Pipeline walkthroughs (Flow 1, 2 & 3) |
 | [docs/configuration.md](docs/configuration.md) | Full `djtoolkit.toml` reference |
-| [docs/database.md](docs/database.md) | Schema, track lifecycle, processing flags |
-| [docs/api.md](docs/api.md) | REST API endpoints |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System design & component overview |
 
 ---
