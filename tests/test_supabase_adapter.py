@@ -96,13 +96,13 @@ class TestMarkMethods:
         table = mock_client.table.return_value
         table.update.assert_called_once()
         update_data = table.update.call_args[0][0]
-        assert update_data["fingerprinted"] == 1
+        assert update_data["fingerprinted"] is True
 
     def test_mark_metadata_written(self, adapter, mock_client):
         adapter.mark_metadata_written(42, "spotify")
         table = mock_client.table.return_value
         update_data = table.update.call_args[0][0]
-        assert update_data["metadata_written"] == 1
+        assert update_data["metadata_written"] is True
         assert update_data["metadata_source"] == "spotify"
 
     def test_mark_duplicate(self, adapter, mock_client):
@@ -115,26 +115,26 @@ class TestMarkMethods:
         adapter.mark_cover_art_written(42)
         table = mock_client.table.return_value
         update_data = table.update.call_args[0][0]
-        assert update_data["cover_art_written"] == 1
+        assert update_data["cover_art_written"] is True
 
     def test_mark_enriched_spotify(self, adapter, mock_client):
         adapter.mark_enriched_spotify(42)
         table = mock_client.table.return_value
         update_data = table.update.call_args[0][0]
-        assert update_data["enriched_spotify"] == 1
+        assert update_data["enriched_spotify"] is True
 
     def test_mark_enriched_audio(self, adapter, mock_client):
         adapter.mark_enriched_audio(42, {"bpm": 128.0, "key_normalized": "C minor"})
         table = mock_client.table.return_value
         update_data = table.update.call_args[0][0]
-        assert update_data["enriched_audio"] == 1
+        assert update_data["enriched_audio"] is True
         assert update_data["bpm"] == 128.0
 
     def test_mark_in_library(self, adapter, mock_client):
         adapter.mark_in_library(42, "/music/library/track.mp3")
         table = mock_client.table.return_value
         update_data = table.update.call_args[0][0]
-        assert update_data["in_library"] == 1
+        assert update_data["in_library"] is True
         assert update_data["local_path"] == "/music/library/track.mp3"
 
     def test_update_track_uses_eq_filter(self, adapter, mock_client):
@@ -194,3 +194,184 @@ class TestQueryMethods:
         self._setup_query_result(mock_client, [])
         result = adapter.query_missing_cover_art("user-1")
         assert result == []
+
+
+class TestFingerprintMethods:
+    """Tests for fingerprint CRUD methods on SupabaseAdapter."""
+
+    @pytest.fixture
+    def mock_client(self):
+        client = MagicMock()
+        return client
+
+    @pytest.fixture
+    def adapter(self, mock_client):
+        return SupabaseAdapter(mock_client)
+
+    def _make_chain(self, mock_client, table_name="fingerprints"):
+        """Return a chainable mock for table(name).select/insert/eq/neq/limit/execute."""
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.insert.return_value = chain
+        chain.eq.return_value = chain
+        chain.neq.return_value = chain
+        chain.limit.return_value = chain
+        mock_client.table.return_value = chain
+        return chain
+
+    def test_insert_fingerprint_returns_id(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"id": 7}]
+
+        result = adapter.insert_fingerprint(
+            user_id="user-1", track_id=42, fingerprint="AQAA...",
+            acoustid="abc-123", duration=210.5,
+        )
+
+        assert result == 7
+        mock_client.table.assert_called_with("fingerprints")
+        chain.insert.assert_called_once_with({
+            "user_id": "user-1",
+            "track_id": 42,
+            "fingerprint": "AQAA...",
+            "acoustid": "abc-123",
+            "duration": 210.5,
+        })
+
+    def test_insert_fingerprint_with_none_acoustid(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"id": 8}]
+
+        result = adapter.insert_fingerprint(
+            user_id="user-1", track_id=43, fingerprint="BQBB...",
+            acoustid=None, duration=180.0,
+        )
+
+        assert result == 8
+        insert_data = chain.insert.call_args[0][0]
+        assert insert_data["acoustid"] is None
+
+    def test_find_fingerprint_match_found(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"track_id": 42}]
+
+        result = adapter.find_fingerprint_match("AQAA...", "user-1")
+
+        assert result == 42
+        mock_client.table.assert_called_with("fingerprints")
+
+    def test_find_fingerprint_match_not_found(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = []
+
+        result = adapter.find_fingerprint_match("AQAA...", "user-1")
+
+        assert result is None
+
+    def test_get_fingerprint_for_track_found(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"fingerprint": "AQAA..."}]
+
+        result = adapter.get_fingerprint_for_track(42)
+
+        assert result == "AQAA..."
+        mock_client.table.assert_called_with("fingerprints")
+
+    def test_get_fingerprint_for_track_not_found(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = []
+
+        result = adapter.get_fingerprint_for_track(42)
+
+        assert result is None
+
+    def test_find_library_duplicate_no_fingerprint(self, adapter, mock_client):
+        """When the track has no fingerprint, should return None immediately."""
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = []  # get_fingerprint_for_track returns None
+
+        result = adapter.find_library_duplicate(42, "user-1")
+
+        assert result is None
+
+    def test_find_library_duplicate_no_matches(self, adapter, mock_client):
+        """Fingerprint exists but no other tracks share it."""
+        # We need to control two separate table() call chains:
+        # 1. get_fingerprint_for_track → fingerprints table → returns fp
+        # 2. find matches → fingerprints table → returns empty
+        call_count = {"n": 0}
+        fp_chain = MagicMock()
+        fp_chain.select.return_value = fp_chain
+        fp_chain.eq.return_value = fp_chain
+        fp_chain.neq.return_value = fp_chain
+        fp_chain.limit.return_value = fp_chain
+
+        def side_effect_execute():
+            call_count["n"] += 1
+            result = MagicMock()
+            if call_count["n"] == 1:
+                result.data = [{"fingerprint": "AQAA..."}]  # get_fingerprint_for_track
+            else:
+                result.data = []  # no matches in fingerprints
+            return result
+
+        fp_chain.execute.side_effect = side_effect_execute
+        mock_client.table.return_value = fp_chain
+
+        result = adapter.find_library_duplicate(42, "user-1")
+
+        assert result is None
+
+    def test_find_library_duplicate_found(self, adapter, mock_client):
+        """Fingerprint matches another track that is in_library=True."""
+        call_count = {"n": 0}
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.neq.return_value = chain
+        chain.limit.return_value = chain
+
+        def side_effect_execute():
+            call_count["n"] += 1
+            result = MagicMock()
+            if call_count["n"] == 1:
+                result.data = [{"fingerprint": "AQAA..."}]  # get_fingerprint_for_track
+            elif call_count["n"] == 2:
+                result.data = [{"track_id": 99}]  # matching fingerprint
+            else:
+                result.data = [{"id": 99, "in_library": True}]  # track is in library
+            return result
+
+        chain.execute.side_effect = side_effect_execute
+        mock_client.table.return_value = chain
+
+        result = adapter.find_library_duplicate(42, "user-1")
+
+        assert result == 99
+
+    def test_find_library_duplicate_match_not_in_library(self, adapter, mock_client):
+        """Fingerprint matches another track but it's not in the library."""
+        call_count = {"n": 0}
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.neq.return_value = chain
+        chain.limit.return_value = chain
+
+        def side_effect_execute():
+            call_count["n"] += 1
+            result = MagicMock()
+            if call_count["n"] == 1:
+                result.data = [{"fingerprint": "AQAA..."}]  # get_fingerprint_for_track
+            elif call_count["n"] == 2:
+                result.data = [{"track_id": 99}]  # matching fingerprint
+            else:
+                result.data = []  # track NOT in library
+            return result
+
+        chain.execute.side_effect = side_effect_execute
+        mock_client.table.return_value = chain
+
+        result = adapter.find_library_duplicate(42, "user-1")
+
+        assert result is None
