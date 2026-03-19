@@ -450,3 +450,143 @@ class TestEmbeddingMethods:
 
         assert result == expected
         mock_client.table.assert_called_with("track_embeddings")
+
+
+class TestAdditionalQueryMethods:
+    """Tests for query, count, and bulk update methods on SupabaseAdapter."""
+
+    @pytest.fixture
+    def mock_client(self):
+        client = MagicMock()
+        return client
+
+    @pytest.fixture
+    def adapter(self, mock_client):
+        return SupabaseAdapter(mock_client)
+
+    def _make_chain(self, mock_client):
+        """Return a chainable mock that supports select/eq/in_/update/delete/limit/execute."""
+        chain = MagicMock()
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.in_.return_value = chain
+        chain.update.return_value = chain
+        chain.delete.return_value = chain
+        chain.limit.return_value = chain
+        mock_client.table.return_value = chain
+        return chain
+
+    def test_query_tracks_by_ids_with_results(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [
+            {"title": "Track A", "artist": "DJ A", "bpm": 128.0,
+             "key_normalized": "A minor", "camelot": "8A",
+             "cue_points": [], "beatgrid": [], "artists": "DJ A"},
+        ]
+
+        result = adapter.query_tracks_by_ids([1, 2], user_id="user-1")
+
+        assert len(result) == 1
+        assert result[0].title == "Track A"
+        chain.in_.assert_called_once_with("id", [1, 2])
+
+    def test_query_tracks_by_ids_empty_list(self, adapter, mock_client):
+        result = adapter.query_tracks_by_ids([], user_id="user-1")
+
+        assert result == []
+        mock_client.table.assert_not_called()
+
+    def test_query_unwritten_metadata(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [
+            {"title": "Unwritten", "artist": "DJ", "bpm": 0.0,
+             "key_normalized": None, "camelot": None,
+             "cue_points": [], "beatgrid": [], "artists": "DJ"},
+        ]
+
+        result = adapter.query_unwritten_metadata(user_id="user-1")
+
+        assert len(result) == 1
+        assert result[0].title == "Unwritten"
+
+    def test_query_enriched_audio_tracks(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [
+            {"title": "Analyzed", "artist": "DJ", "bpm": 126.0,
+             "key_normalized": "D minor", "camelot": "7A",
+             "cue_points": [], "beatgrid": [], "artists": "DJ"},
+        ]
+
+        result = adapter.query_enriched_audio_tracks(user_id="user-1")
+
+        assert len(result) == 1
+        assert result[0].title == "Analyzed"
+
+    def test_query_by_acquisition_status(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [
+            {"title": "Failed", "artist": "DJ", "bpm": 0.0,
+             "key_normalized": None, "camelot": None,
+             "cue_points": [], "beatgrid": [], "artists": "DJ"},
+        ]
+
+        result = adapter.query_by_acquisition_status(user_id="user-1", status="failed")
+
+        assert len(result) == 1
+
+    def test_count_by_acquisition_status(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [
+            {"acquisition_status": "available"},
+            {"acquisition_status": "available"},
+            {"acquisition_status": "candidate"},
+            {"acquisition_status": "failed"},
+        ]
+
+        result = adapter.count_by_acquisition_status(user_id="user-1")
+
+        assert result == {"available": 2, "candidate": 1, "failed": 1}
+
+    def test_count_processing_flags(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [
+            {"fingerprinted": True, "enriched_spotify": True, "enriched_audio": False,
+             "metadata_written": True, "normalized": False, "cover_art_written": False,
+             "in_library": False},
+            {"fingerprinted": True, "enriched_spotify": False, "enriched_audio": True,
+             "metadata_written": False, "normalized": False, "cover_art_written": True,
+             "in_library": True},
+        ]
+
+        result = adapter.count_processing_flags(user_id="user-1")
+
+        assert result == {
+            "fingerprinted": 2,
+            "enriched_spotify": 1,
+            "enriched_audio": 1,
+            "metadata_written": 1,
+            "normalized": 0,
+            "cover_art_written": 1,
+            "in_library": 1,
+            "total": 2,
+        }
+
+    def test_bulk_update_status(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        count = adapter.bulk_update_status(
+            user_id="user-1", from_status="downloading", to_status="candidate",
+        )
+
+        assert count == 3
+        chain.update.assert_called_once_with({"acquisition_status": "candidate"})
+
+    def test_delete_by_status(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"id": 10}, {"id": 11}]
+
+        count = adapter.delete_by_status(user_id="user-1", status="failed")
+
+        assert count == 2
+        chain.delete.assert_called_once()

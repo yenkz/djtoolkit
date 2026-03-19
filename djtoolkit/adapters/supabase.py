@@ -92,6 +92,106 @@ class SupabaseAdapter:
                   .execute())
         return [Track.from_db_row(row) for row in result.data]
 
+    def query_tracks_by_ids(self, track_ids: list[int], user_id: str) -> list[Track]:
+        """Load tracks by ID list. Used by writer.py for spotify source."""
+        if not track_ids:
+            return []
+        result = (
+            self._client.table("tracks")
+            .select("*")
+            .eq("user_id", user_id)
+            .in_("id", track_ids)
+            .execute()
+        )
+        return [Track.from_db_row(row) for row in result.data]
+
+    def query_unwritten_metadata(self, user_id: str) -> list[Track]:
+        """Tracks available with metadata_written=False. Used by writer.py default mode."""
+        result = (
+            self._client.table("tracks").select("*")
+            .eq("user_id", user_id)
+            .eq("acquisition_status", "available")
+            .eq("metadata_written", False)
+            .execute()
+        )
+        return [Track.from_db_row(row) for row in result.data]
+
+    def query_enriched_audio_tracks(self, user_id: str) -> list[Track]:
+        """Tracks available with enriched_audio=True. Used by writer.py audio-analysis mode."""
+        result = (
+            self._client.table("tracks").select("*")
+            .eq("user_id", user_id)
+            .eq("acquisition_status", "available")
+            .eq("enriched_audio", True)
+            .execute()
+        )
+        return [Track.from_db_row(row) for row in result.data]
+
+    def query_by_acquisition_status(self, user_id: str, status: str) -> list[Track]:
+        """Query tracks filtered by a single acquisition_status value."""
+        result = (
+            self._client.table("tracks").select("*")
+            .eq("user_id", user_id)
+            .eq("acquisition_status", status)
+            .execute()
+        )
+        return [Track.from_db_row(row) for row in result.data]
+
+    def count_by_acquisition_status(self, user_id: str) -> dict[str, int]:
+        """Return {status: count} for all acquisition statuses."""
+        result = (
+            self._client.table("tracks")
+            .select("acquisition_status")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        counts: dict[str, int] = {}
+        for row in result.data:
+            s = row["acquisition_status"]
+            counts[s] = counts.get(s, 0) + 1
+        return counts
+
+    def count_processing_flags(self, user_id: str) -> dict[str, int]:
+        """Return counts for each processing flag."""
+        result = (
+            self._client.table("tracks")
+            .select("fingerprinted, enriched_spotify, enriched_audio, metadata_written, normalized, cover_art_written, in_library")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        flags = {
+            "fingerprinted": 0, "enriched_spotify": 0, "enriched_audio": 0,
+            "metadata_written": 0, "normalized": 0, "in_library": 0,
+            "cover_art_written": 0, "total": len(result.data),
+        }
+        for row in result.data:
+            for flag in flags:
+                if flag != "total" and row.get(flag):
+                    flags[flag] += 1
+        return flags
+
+    def bulk_update_status(self, user_id: str, from_status: str, to_status: str) -> int:
+        """Update acquisition_status for all tracks matching from_status. Returns count."""
+        result = (
+            self._client.table("tracks")
+            .update({"acquisition_status": to_status})
+            .eq("user_id", user_id)
+            .eq("acquisition_status", from_status)
+            .execute()
+        )
+        return len(result.data)
+
+    def delete_by_status(self, user_id: str, status: str) -> int:
+        """Delete all tracks with given status. Returns count."""
+        result = (
+            self._client.table("tracks")
+            .delete()
+            .eq("user_id", user_id)
+            .eq("acquisition_status", status)
+            .execute()
+        )
+        return len(result.data)
+
     # ── Update methods ──
 
     def update_track(self, track_id: int, updates: dict) -> None:
