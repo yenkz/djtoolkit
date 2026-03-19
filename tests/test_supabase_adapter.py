@@ -545,7 +545,11 @@ class TestAdditionalQueryMethods:
 
         result = adapter.count_by_acquisition_status(user_id="user-1")
 
-        assert result == {"available": 2, "candidate": 1, "failed": 1}
+        assert result == {
+            "candidate": 1, "searching": 0, "found": 0, "not_found": 0,
+            "queued": 0, "downloading": 0, "available": 2, "failed": 1,
+            "duplicate": 0,
+        }
 
     def test_count_processing_flags(self, adapter, mock_client):
         chain = self._make_chain(mock_client)
