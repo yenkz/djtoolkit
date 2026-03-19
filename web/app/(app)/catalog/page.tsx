@@ -76,7 +76,7 @@ export default function CatalogPage() {
         fetchTracks({
           page,
           per_page: perPage,
-          status: statusFilter || undefined,
+          status: statusFilter || "available",
           search: search || undefined,
         }),
         fetchStats(),
