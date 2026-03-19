@@ -20,7 +20,7 @@ const KEY_NAMES = [
  * Check if a pending/claimed/running job of the given type already exists
  * for this track. Prevents duplicate chained jobs on retry.
  */
-async function hasActiveJob(
+export async function hasActiveJob(
   supabase: SupabaseClient,
   trackId: number,
   jobType: string
