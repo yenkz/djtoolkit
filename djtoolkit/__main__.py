@@ -416,9 +416,11 @@ def metadata_apply(
 
     from djtoolkit.metadata.writer import run
     cfg = _cfg(config)
+    adapter = _adapter()
+    user_id = _user_id()
     label = f"[bold]{source}[/bold]" if source else "DB (unwritten tracks)"
     console.print(f"Applying metadata to files (source: {label})…")
-    stats = run(cfg, metadata_source=source, csv_path=csv)
+    stats = run(cfg, adapter, user_id, metadata_source=source, csv_path=csv)
     console.print(
         f"[green]✓ applied {stats['applied']}[/green]  "
         f"[red]failed {stats['failed']}[/red]  "

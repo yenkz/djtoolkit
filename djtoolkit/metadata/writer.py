@@ -1,7 +1,10 @@
 """Write DB metadata to audio files and normalize filenames."""
 
+from __future__ import annotations
+
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mutagen.easyid3 import EasyID3
 from mutagen.flac import FLAC
@@ -13,14 +16,14 @@ from rich.progress import (
 )
 
 from djtoolkit.config import Config
-from djtoolkit.db.database import connect
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 # Register TKEY (initial key) — not in EasyID3 defaults
 EasyID3.RegisterTextKey("initialkey", "TKEY")
 
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-
-_KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
 def _safe_name(name: str) -> str:
@@ -34,15 +37,51 @@ def _target_filename(artist: str, title: str, suffix: str) -> str:
     return f"{artist} - {title}{suffix}"
 
 
-def _key_str(key: int, mode: int) -> str:
-    """Return key in standard notation, e.g. 'Am', 'F#', 'C'."""
-    return _KEY_NAMES[key % 12] + ("" if mode else "m")
+_KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def _key_tag_str(key_normalized: str) -> str | None:
+    """Convert normalized key (e.g. 'C minor', 'F# major') to tag format ('Cm', 'F#').
+
+    Returns None if key is empty or unparseable.
+    """
+    if not key_normalized:
+        return None
+    parts = key_normalized.split()
+    if len(parts) != 2:
+        return None
+    note, scale = parts[0], parts[1].lower()
+    if scale == "minor":
+        return f"{note}m"
+    elif scale == "major":
+        return note
+    return None
+
+
+def _resolve_key_tag(track: dict) -> str | None:
+    """Resolve the key tag string from a track dict.
+
+    Handles two formats:
+      - New: key is a normalized string like 'C minor', 'F# major'
+      - Legacy: key is an integer (0-11) with a separate 'mode' integer (0/1)
+    """
+    raw_key = track.get("key")
+    if raw_key is None:
+        return None
+    if isinstance(raw_key, str):
+        return _key_tag_str(raw_key)
+    # Legacy integer format
+    if isinstance(raw_key, int) and track.get("mode") is not None:
+        return _KEY_NAMES[raw_key % 12] + ("" if track["mode"] else "m")
+    return None
 
 
 def _write_tags(path: Path, track: dict) -> bool:
     """Write metadata tags to a file using mutagen. Returns True on success."""
     ext = path.suffix.lower()
     try:
+        key_tag = _resolve_key_tag(track)
+
         if ext == ".mp3":
             audio = EasyID3(str(path))
             if track.get("title"):    audio["title"]      = [track["title"]]
@@ -51,8 +90,8 @@ def _write_tags(path: Path, track: dict) -> bool:
             if track.get("year"):     audio["date"]       = [str(track["year"])]
             if track.get("genres"):   audio["genre"]      = [track["genres"].split(",")[0].strip()]
             if track.get("tempo"):    audio["bpm"]        = [str(int(round(track["tempo"])))]
-            if track.get("key") is not None and track.get("mode") is not None:
-                audio["initialkey"] = [_key_str(track["key"], track["mode"])]
+            if key_tag:
+                audio["initialkey"] = [key_tag]
             audio.save()
 
         elif ext == ".flac":
@@ -63,8 +102,8 @@ def _write_tags(path: Path, track: dict) -> bool:
             if track.get("year"):     audio["DATE"]       = [str(track["year"])]
             if track.get("genres"):   audio["GENRE"]      = [track["genres"].split(",")[0].strip()]
             if track.get("tempo"):    audio["BPM"]        = [str(int(round(track["tempo"])))]
-            if track.get("key") is not None and track.get("mode") is not None:
-                audio["INITIALKEY"] = [_key_str(track["key"], track["mode"])]
+            if key_tag:
+                audio["INITIALKEY"] = [key_tag]
             audio.save()
 
         elif ext in (".m4a", ".aac"):
@@ -75,9 +114,9 @@ def _write_tags(path: Path, track: dict) -> bool:
             if track.get("album"):    audio["\xa9alb"]    = [track["album"]]
             if track.get("year"):     audio["\xa9day"]    = [str(track["year"])]
             if track.get("tempo"):    audio["tmpo"]       = [int(round(track["tempo"]))]
-            if track.get("key") is not None and track.get("mode") is not None:
+            if key_tag:
                 audio["----:com.apple.iTunes:initialkey"] = [
-                    MP4FreeForm(_key_str(track["key"], track["mode"]).encode(), AtomDataType.UTF8)
+                    MP4FreeForm(key_tag.encode(), AtomDataType.UTF8)
                 ]
             audio.save()
 
@@ -93,7 +132,8 @@ def _write_tags(path: Path, track: dict) -> bool:
         return False
 
 
-def run(cfg: Config, metadata_source: str | None = None, csv_path: Path | None = None) -> dict:
+def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str,
+        metadata_source: str | None = None, csv_path: Path | None = None) -> dict:
     """
     Apply DB metadata to tracks and normalize filenames.
 
@@ -122,7 +162,7 @@ def run(cfg: Config, metadata_source: str | None = None, csv_path: Path | None =
         if metadata_source == "spotify":
             enrich_task = progress.add_task("Enriching from Spotify CSV…", total=None)
             from djtoolkit.enrichment.spotify import run as spotify_run
-            enrich_stats = spotify_run(csv_path, cfg, force=True)
+            enrich_stats = spotify_run(csv_path, cfg, adapter, user_id, force=True)
             matched_ids = enrich_stats["matched_ids"]
             progress.update(
                 enrich_task,
@@ -133,63 +173,46 @@ def run(cfg: Config, metadata_source: str | None = None, csv_path: Path | None =
         elif metadata_source == "audio-analysis":
             enrich_task = progress.add_task("Running audio analysis…", total=None)
             from djtoolkit.enrichment.audio_analysis import run as audio_run
-            audio_run(cfg)
+            audio_run(cfg, adapter, user_id)
             progress.update(enrich_task, description="[green]Audio analysis done", total=1, completed=1)
 
         # Step 2 — Query tracks eligible for writing
-        with connect(cfg.db_path) as conn:
-            if metadata_source == "spotify":
-                if not matched_ids:
-                    tracks = []
-                else:
-                    placeholders = ",".join("?" * len(matched_ids))
-                    tracks = conn.execute(
-                        f"SELECT * FROM tracks WHERE id IN ({placeholders}) AND local_path IS NOT NULL",
-                        matched_ids,
-                    ).fetchall()
-            elif metadata_source == "audio-analysis":
-                tracks = conn.execute("""
-                    SELECT * FROM tracks
-                    WHERE acquisition_status = 'available'
-                      AND enriched_audio = 1
-                      AND local_path IS NOT NULL
-                """).fetchall()
-            else:
-                tracks = conn.execute("""
-                    SELECT * FROM tracks
-                    WHERE acquisition_status = 'available'
-                      AND metadata_written = 0
-                      AND local_path IS NOT NULL
-                """).fetchall()
+        if metadata_source == "spotify":
+            tracks = adapter.query_tracks_by_ids(matched_ids, user_id) if matched_ids else []
+        elif metadata_source == "audio-analysis":
+            tracks = adapter.query_enriched_audio_tracks(user_id)
+        else:
+            tracks = adapter.query_unwritten_metadata(user_id)
 
         # Step 3 — Write tags and normalize filenames
         total = len(tracks)
         write_task = progress.add_task(f"Writing tags… (0/{total})", total=total)
         for track in tracks:
-            track = dict(track)
-            local_path = Path(track["local_path"])
+            local_path = Path(track.file_path) if track.file_path else None
 
-            artist = track.get("artist") or ""
-            title = track.get("title") or ""
+            artist = track.artist or ""
+            title = track.title or ""
             n = stats["applied"] + stats["failed"] + stats["skipped"] + 1
             progress.update(write_task, description=f"[dim]({n}/{total}) {artist} — {title}"[:72])
 
-            # Already tagged with this source — skip (idempotent re-runs)
-            if (
-                metadata_source is not None
-                and track.get("metadata_written") == 1
-                and track.get("metadata_source") == metadata_source
-            ):
+            if not local_path or not local_path.exists():
                 stats["skipped"] += 1
                 progress.advance(write_task)
                 continue
 
-            if not local_path.exists():
-                stats["skipped"] += 1
-                progress.advance(write_task)
-                continue
+            # Build tag dict from Track object
+            tag_dict = {
+                "title": track.title,
+                "artist": track.artist,
+                "album": track.album,
+                "year": track.year,
+                "genres": track.genres,
+                "artists": "|".join(track.artists) if track.artists else track.artist,
+                "tempo": track.bpm or track.tempo,
+                "key": track.key,
+            }
 
-            if not _write_tags(local_path, track):
+            if not _write_tags(local_path, tag_dict):
                 stats["failed"] += 1
                 progress.advance(write_task)
                 continue
@@ -199,18 +222,17 @@ def run(cfg: Config, metadata_source: str | None = None, csv_path: Path | None =
             new_path = local_path.parent / new_name
             if new_path != local_path:
                 if new_path.exists():
-                    new_path = local_path.parent / (new_path.stem + f"_{track['id']}" + local_path.suffix)
+                    new_path = local_path.parent / (new_path.stem + f"_{track._id}" + local_path.suffix)
                 local_path.rename(new_path)
             else:
                 new_path = local_path
 
             # Step 4 — Update DB
-            with connect(cfg.db_path) as conn:
-                conn.execute(
-                    "UPDATE tracks SET metadata_written = 1, metadata_source = ?, local_path = ? WHERE id = ?",
-                    (metadata_source, str(new_path), track["id"]),
-                )
-                conn.commit()
+            adapter.update_track(track._id, {
+                "metadata_written": True,
+                "metadata_source": metadata_source,
+                "local_path": str(new_path),
+            })
             stats["applied"] += 1
             progress.advance(write_task)
 
