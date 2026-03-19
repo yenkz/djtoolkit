@@ -16,13 +16,18 @@ Optional: essentia-tensorflow (for genre + instrumental classification)
 Models:   https://essentia.upf.edu/models/
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import numpy as np
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from djtoolkit.config import Config, AudioAnalysisConfig
-from djtoolkit.db.database import connect
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 log = logging.getLogger("djtoolkit.enrichment.audio_analysis")
 
@@ -93,7 +98,7 @@ def _top_genres(predictions: np.ndarray, labels: list[str], top_n: int, threshol
     return ", ".join(unique)
 
 
-def run(cfg: Config) -> dict:
+def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
     """
     Run audio analysis on all imported tracks.
 
@@ -135,16 +140,9 @@ def run(cfg: Config) -> dict:
 
     stats = {"analyzed": 0, "failed": 0, "skipped": 0}
 
-    with connect(cfg.db_path) as conn:
-        tracks = conn.execute("""
-            SELECT id, local_path, genres, instrumentalness
-            FROM tracks
-            WHERE acquisition_status = 'available'
-              AND enriched_audio = 0
-              AND local_path IS NOT NULL
-        """).fetchall()
-
-    tracks = [dict(t) for t in tracks]
+    track_objs = adapter.query_available_unenriched_audio(user_id)
+    # Convert to dicts for backward compat with rest of function
+    tracks = [{"id": t._id, "local_path": t.file_path, "genres": t.genres, "instrumentalness": t.instrumentalness} for t in track_objs]
 
     # ── Phase 1+2: TF embeddings + classifiers (optional) ────────────────────
     if _have_tf_models and musicnn_path:
@@ -154,10 +152,7 @@ def run(cfg: Config) -> dict:
             path = Path(track["local_path"])
             if not path.exists():
                 continue
-            with connect(cfg.db_path) as conn:
-                exists = conn.execute(
-                    "SELECT 1 FROM track_embeddings WHERE track_id = ?", (tid,)
-                ).fetchone()
+            exists = adapter.get_embedding(tid)
             if exists:
                 continue
             try:
@@ -166,19 +161,11 @@ def run(cfg: Config) -> dict:
                     graphFilename=musicnn_path,
                     output="model/dense/BiasAdd",
                 )(audio_16k)
-                with connect(cfg.db_path) as conn:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO track_embeddings (track_id, model, embedding) VALUES (?,?,?)",
-                        (tid, "msd-musicnn-1", embeddings.astype(np.float32).tobytes()),
-                    )
-                    conn.commit()
+                adapter.upsert_embedding(tid, "msd-musicnn-1", embeddings.astype(np.float32).tobytes())
             except Exception as exc:
                 log.warning("Embedding failed for track %d: %s", tid, exc)
 
-        with connect(cfg.db_path) as conn:
-            embedded = conn.execute(
-                "SELECT track_id, embedding FROM track_embeddings"
-            ).fetchall()
+        embedded = adapter.get_all_embeddings()
 
         for row in embedded:
             tid = int(row["track_id"])
@@ -186,7 +173,14 @@ def run(cfg: Config) -> dict:
             if track is None:
                 continue
             try:
-                embeddings = np.frombuffer(row["embedding"], dtype=np.float32).reshape(1, -1)
+                raw = row["embedding"]
+                if isinstance(raw, str) and raw.startswith("\\x"):
+                    emb_bytes = bytes.fromhex(raw[2:])
+                elif isinstance(raw, bytes):
+                    emb_bytes = raw
+                else:
+                    continue
+                embeddings = np.frombuffer(emb_bytes, dtype=np.float32).reshape(1, -1)
             except Exception as exc:
                 log.warning("Failed to restore embedding for track %d: %s", tid, exc)
                 continue
@@ -214,13 +208,7 @@ def run(cfg: Config) -> dict:
                     log.warning("Instrumental classification failed for track %d: %s", tid, exc)
 
             if updates:
-                set_clause = ", ".join(f"{col} = ?" for col in updates)
-                with connect(cfg.db_path) as conn:
-                    conn.execute(
-                        f"UPDATE tracks SET {set_clause} WHERE id = ?",
-                        list(updates.values()) + [tid],
-                    )
-                    conn.commit()
+                adapter.update_track(tid, updates)
 
     # ── Phase 3: Fast features via librosa (cross-platform) ──────────────────
     for track in tracks:
@@ -254,22 +242,13 @@ def run(cfg: Config) -> dict:
             # Danceability
             dance = _danceability(y, sr)
 
-            updates: dict[str, object] = {
+            adapter.mark_enriched_audio(tid, {
                 "tempo": bpm,
                 "key": key_int,
                 "mode": mode,
                 "danceability": dance,
                 "loudness": loudness,
-                "enriched_audio": 1,
-            }
-
-            set_clause = ", ".join(f"{col} = ?" for col in updates)
-            with connect(cfg.db_path) as conn:
-                conn.execute(
-                    f"UPDATE tracks SET {set_clause} WHERE id = ?",
-                    list(updates.values()) + [tid],
-                )
-                conn.commit()
+            })
 
             stats["analyzed"] += 1
             log.debug("Track %d: bpm=%.1f key=%s/%s dance=%.2f loud=%.1f",
