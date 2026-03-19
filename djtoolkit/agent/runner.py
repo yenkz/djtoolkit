@@ -11,7 +11,7 @@ from pathlib import Path
 from djtoolkit.config import Config
 from djtoolkit.agent.client import AgentClient
 from djtoolkit.agent import local_db
-from djtoolkit.agent.jobs import download, fingerprint, metadata, cover_art
+from djtoolkit.agent.jobs import download, fingerprint, metadata, cover_art, spotify_lookup, audio_analysis
 
 log = logging.getLogger(__name__)
 
@@ -67,10 +67,14 @@ async def _run_job(
                     result = await download.run(cfg, payload)
                 case "fingerprint":
                     result = await fingerprint.run(cfg, payload)
-                case "metadata":
-                    result = await metadata.run(cfg, payload)
+                case "spotify_lookup":
+                    result = await spotify_lookup.run(cfg, payload)
                 case "cover_art":
                     result = await cover_art.run(cfg, payload)
+                case "audio_analysis":
+                    result = await audio_analysis.run(cfg, payload)
+                case "metadata":
+                    result = await metadata.run(cfg, payload)
                 case _:
                     raise ValueError(f"Unknown job_type: {job_type!r}")
 

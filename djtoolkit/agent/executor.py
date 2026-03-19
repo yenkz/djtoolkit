@@ -109,8 +109,12 @@ async def execute_job(
             return await execute_download(payload, cfg, credentials)
         case "fingerprint":
             return await execute_fingerprint(payload, cfg, credentials)
+        case "spotify_lookup":
+            return await execute_spotify_lookup(payload, cfg)
         case "cover_art":
             return await execute_cover_art(payload, cfg, credentials)
+        case "audio_analysis":
+            return await execute_audio_analysis(payload, cfg)
         case "metadata":
             return await execute_metadata(payload, cfg)
         case _:
@@ -273,6 +277,58 @@ async def execute_fingerprint(
     }
 
 
+# ─── Spotify Lookup ─────────────────────────────────────────────────────
+
+async def execute_spotify_lookup(
+    payload: dict, cfg: Config,
+) -> dict[str, Any]:
+    """Search Spotify for track metadata.
+
+    Returns metadata dict on match, or {"matched": False} on no match.
+    """
+    from djtoolkit.enrichment.spotify_lookup import lookup_track
+
+    artist = payload.get("artist", "")
+    title = payload.get("title", "")
+    duration_ms = payload.get("duration_ms")
+    spotify_uri = payload.get("spotify_uri")
+
+    ca = cfg.cover_art
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, lambda: lookup_track(
+            artist, title,
+            duration_ms=duration_ms,
+            client_id=ca.spotify_client_id,
+            client_secret=ca.spotify_client_secret,
+            spotify_uri=spotify_uri,
+        )
+    )
+
+    if result is None:
+        return {"matched": False}
+    return result
+
+
+# ─── Audio Analysis ─────────────────────────────────────────────────────
+
+async def execute_audio_analysis(
+    payload: dict, cfg: Config,
+) -> dict[str, Any]:
+    """Run BPM/key/energy/danceability/loudness analysis on a local file.
+
+    Returns feature dict.
+    """
+    from djtoolkit.enrichment.audio_analysis import analyze_single
+
+    local_path = Path(payload["local_path"])
+    if not local_path.is_file():
+        raise FileNotFoundError(f"File not found: {local_path}")
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, analyze_single, local_path)
+
+
 # ─── Cover Art ───────────────────────────────────────────────────────────────
 
 async def execute_cover_art(
@@ -282,6 +338,7 @@ async def execute_cover_art(
 
     Returns {"cover_art_written": bool}.
     """
+    from functools import partial
     from djtoolkit.coverart.art import _fetch_art, _embed
 
     local_path = Path(payload["local_path"])
@@ -291,15 +348,21 @@ async def execute_cover_art(
     artist = payload.get("artist", "")
     album = payload.get("album", "")
     title = payload.get("title", "")
+    spotify_uri = payload.get("spotify_uri")
 
     ca = cfg.cover_art
     sources = [s.strip() for s in ca.sources.split() if s.strip()]
 
-    loop = asyncio.get_running_loop()
-    art_bytes = await loop.run_in_executor(
-        None, _fetch_art,
-        artist, album, title, sources,
+    fetch_fn = partial(
+        _fetch_art, artist, album, title, sources,
+        spotify_uri=spotify_uri,
+        spotify_client_id=ca.spotify_client_id,
+        spotify_client_secret=ca.spotify_client_secret,
+        lastfm_api_key=ca.lastfm_api_key,
     )
+
+    loop = asyncio.get_running_loop()
+    art_bytes = await loop.run_in_executor(None, fetch_fn)
 
     if not art_bytes:
         return {"cover_art_written": False}
