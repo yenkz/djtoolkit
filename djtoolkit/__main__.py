@@ -868,7 +868,7 @@ sources = "coverart itunes deezer"
 
 @app.command("setup")
 def setup_wizard():
-    """Open the Setup Assistant GUI."""
+    """Launch the Setup Assistant (GUI if available, otherwise interactive terminal wizard)."""
     import subprocess
     import sys as _sys
 
@@ -887,9 +887,8 @@ def setup_wizard():
                 break
 
         if app_path is None:
-            console.print("[red]Setup Assistant not found.[/red]")
-            console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] for terminal setup.")
-            raise typer.Exit(1)
+            _setup_terminal_wizard()
+            return
 
         console.print("Opening Setup Assistant...")
         subprocess.run(["open", str(app_path)])
@@ -909,17 +908,14 @@ def setup_wizard():
                 break
 
         if exe_path is None:
-            console.print("[red]Setup Assistant not found.[/red]")
-            console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] for terminal setup.")
-            raise typer.Exit(1)
+            _setup_terminal_wizard()
+            return
 
         console.print("Opening Setup Assistant...")
         subprocess.run([str(exe_path)])
 
     else:
-        console.print("[red]The Setup Assistant is not available on this platform.[/red]")
-        console.print("Use [bold]djtoolkit agent configure --api-key djt_xxx[/bold] instead.")
-        raise typer.Exit(1)
+        _setup_terminal_wizard()
 
 
 if __name__ == "__main__":
