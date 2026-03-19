@@ -1,38 +1,18 @@
 """Move tagged tracks to the library directory."""
 
+from __future__ import annotations
+
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from djtoolkit.config import Config
-from djtoolkit.db.database import connect
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 
-def _library_duplicate(conn, track_id: int) -> int | None:
-    """
-    Return the track id of an in-library track with the same fingerprint, or None.
-    Returns None if the current track has no fingerprint (can't check).
-    """
-    row = conn.execute(
-        "SELECT fingerprint FROM fingerprints WHERE track_id = ?", (track_id,)
-    ).fetchone()
-    if not row or not row["fingerprint"]:
-        return None
-
-    match = conn.execute(
-        """
-        SELECT t.id FROM tracks t
-        JOIN fingerprints f ON f.track_id = t.id
-        WHERE t.in_library = 1
-          AND f.fingerprint = ?
-          AND t.id != ?
-        LIMIT 1
-        """,
-        (row["fingerprint"], track_id),
-    ).fetchone()
-    return match["id"] if match else None
-
-
-def run(cfg: Config, mode: str = "metadata_applied") -> dict:
+def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str, mode: str = "metadata_applied") -> dict:
     """
     Move tracks into library_dir.
 
@@ -48,47 +28,30 @@ def run(cfg: Config, mode: str = "metadata_applied") -> dict:
         raise ValueError(f"mode must be 'metadata_applied' or 'imported', got {mode!r}")
 
     stats = {"moved": 0, "failed": 0, "skipped": 0, "duplicates": 0}
-
     library_dir = Path(cfg.library_dir).expanduser().resolve()
     library_dir.mkdir(parents=True, exist_ok=True)
 
-    metadata_filter = "AND metadata_written = 1" if mode == "metadata_applied" else ""
-
-    with connect(cfg.db_path) as conn:
-        tracks = conn.execute(f"""
-            SELECT id, local_path
-            FROM tracks
-            WHERE acquisition_status = 'available'
-              {metadata_filter}
-              AND in_library = 0
-              AND local_path IS NOT NULL
-        """).fetchall()
+    if mode == "metadata_applied":
+        tracks = adapter.query_ready_for_library(user_id)
+    else:
+        tracks = adapter.load_tracks(user_id, {"acquisition_status": "available", "in_library": False})
 
     for track in tracks:
-        track = dict(track)
-        src = Path(track["local_path"])
-
-        if not src.exists():
+        src = Path(track.file_path) if track.file_path else None
+        if not src or not src.exists():
             stats["skipped"] += 1
             continue
 
         # Fingerprint dedup check against in-library tracks
-        with connect(cfg.db_path) as conn:
-            dupe_id = _library_duplicate(conn, track["id"])
+        dupe_id = adapter.find_library_duplicate(track._id, user_id)
         if dupe_id is not None:
-            with connect(cfg.db_path) as conn:
-                conn.execute(
-                    "UPDATE tracks SET acquisition_status = 'duplicate' WHERE id = ?",
-                    (track["id"],),
-                )
-                conn.commit()
+            adapter.mark_duplicate(track._id)
             stats["duplicates"] += 1
             continue
 
         dest = library_dir / src.name
         if dest.exists() and dest != src:
-            # Avoid collision by appending the track id
-            dest = library_dir / (src.stem + f"_{track['id']}" + src.suffix)
+            dest = library_dir / (src.stem + f"_{track._id}" + src.suffix)
 
         try:
             if src.resolve() != dest.resolve():
@@ -97,13 +60,7 @@ def run(cfg: Config, mode: str = "metadata_applied") -> dict:
             stats["failed"] += 1
             continue
 
-        with connect(cfg.db_path) as conn:
-            conn.execute(
-                "UPDATE tracks SET local_path = ?, in_library = 1 WHERE id = ?",
-                (str(dest), track["id"]),
-            )
-            conn.commit()
-
+        adapter.mark_in_library(track._id, str(dest))
         stats["moved"] += 1
 
     return stats
