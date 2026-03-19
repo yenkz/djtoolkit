@@ -30,9 +30,12 @@ class SupabaseAdapter:
 
         track_ids = []
         if rows:
-            result = self._client.table("tracks").upsert(
-                rows, on_conflict="source_id,user_id"
-            ).execute()
+            result = (
+                self._client.table("tracks")
+                .upsert(rows, on_conflict="source_id,user_id")
+                .select("id")
+                .execute()
+            )
             track_ids = [row["id"] for row in result.data]
 
         return {"imported": len(rows), "track_ids": track_ids}

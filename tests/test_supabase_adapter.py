@@ -42,9 +42,9 @@ class TestSaveTracks:
         assert rows[0]["camelot"] == "5A"
 
     def test_returns_stats(self, adapter, mock_client):
-        # Configure mock to return rows with IDs from upsert
+        # Configure mock to return rows with IDs from upsert().select().execute()
         table = mock_client.table.return_value
-        table.upsert.return_value.execute.return_value.data = [
+        table.upsert.return_value.select.return_value.execute.return_value.data = [
             {"id": 101}, {"id": 102},
         ]
         tracks = [
