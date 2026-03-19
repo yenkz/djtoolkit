@@ -30,6 +30,8 @@ Config (``[cover_art]`` in djtoolkit.toml)::
   lastfm_api_key = ""                    # or set LASTFM_API_KEY in .env
 """
 
+from __future__ import annotations
+
 import io
 import json
 import logging
@@ -38,8 +40,9 @@ import struct
 import time
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from rich.console import Console
 from rich.progress import (
@@ -52,7 +55,9 @@ from rich.progress import (
 )
 
 from djtoolkit.config import Config
-from djtoolkit.db.database import connect
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -464,13 +469,13 @@ def _embed(path: Path, data: bytes) -> None:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
-def run(cfg: Config) -> dict:
+def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
     """Fetch and embed cover art for available tracks that lack artwork.
 
     Behaviour:
-    - Skips tracks with ``cover_art_written = 1`` in the DB (already processed).
+    - Skips tracks with ``cover_art_written = True`` in the DB (already processed).
     - Skips files that already have embedded art, unless ``force = true``.
-    - Records ``cover_art_written = 1`` after a successful embed.
+    - Records ``cover_art_written = True`` after a successful embed.
     - ``skip_embed = true`` performs a dry-run (fetch only, no file writes).
 
     Returns stats: ``{embedded, failed, skipped, no_art_found}``.
@@ -493,20 +498,12 @@ def run(cfg: Config) -> dict:
         "no_art_found": 0,
     }
 
-    base_query = """
-        SELECT id, title, artist, album, local_path, spotify_uri
-        FROM tracks
-        WHERE acquisition_status = 'available'
-          AND local_path IS NOT NULL
-    """
     if not force:
-        base_query += " AND cover_art_written = 0"
-    base_query += " ORDER BY id"
+        tracks = adapter.query_missing_cover_art(user_id)
+    else:
+        tracks = adapter.load_tracks(user_id, {"acquisition_status": "available"})
 
-    with connect(cfg.db_path) as conn:
-        rows = conn.execute(base_query).fetchall()
-
-    if not rows:
+    if not tracks:
         console.print("[dim]No tracks need cover art.[/dim]")
         return stats
 
@@ -518,17 +515,17 @@ def run(cfg: Config) -> dict:
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("Embedding cover art", total=len(rows))
+        task = progress.add_task("Embedding cover art", total=len(tracks))
 
-        for row in rows:
-            track_id = row["id"]
-            path = Path(row["local_path"])
-            artist = row["artist"] or ""
-            album = row["album"] or ""
-            title = row["title"] or ""
+        for track in tracks:
+            track_id = track._id
+            path = Path(track.file_path) if track.file_path else None
+            artist = track.artist or ""
+            album = track.album or ""
+            title = track.title or ""
             progress.update(task, description=f"[dim]{artist} – {title}[/dim]")
 
-            if not path.exists():
+            if not path or not path.exists():
                 stats["skipped"] += 1
                 progress.advance(task)
                 continue
@@ -540,12 +537,7 @@ def run(cfg: Config) -> dict:
 
             # Already has embedded art?
             if not force and _has_cover_art(path):
-                with connect(cfg.db_path) as conn:
-                    conn.execute(
-                        "UPDATE tracks SET cover_art_written = 1 WHERE id = ?",
-                        (track_id,),
-                    )
-                    conn.commit()
+                adapter.mark_cover_art_written(track_id)
                 stats["skipped"] += 1
                 progress.advance(task)
                 continue
@@ -558,7 +550,7 @@ def run(cfg: Config) -> dict:
             # Fetch art from configured sources
             img_data = _fetch_art(
                 artist, album, title, sources,
-                spotify_uri=row["spotify_uri"],
+                spotify_uri=track.spotify_uri,
                 spotify_client_id=spotify_client_id,
                 spotify_client_secret=spotify_client_secret,
                 lastfm_api_key=lastfm_api_key,
@@ -588,13 +580,10 @@ def run(cfg: Config) -> dict:
             # Embed
             try:
                 _embed(path, img_data)
-                with connect(cfg.db_path) as conn:
-                    conn.execute(
-                        "UPDATE tracks SET cover_art_written = 1,"
-                        " cover_art_embedded_at = CURRENT_TIMESTAMP WHERE id = ?",
-                        (track_id,),
-                    )
-                    conn.commit()
+                adapter.update_track(track_id, {
+                    "cover_art_written": True,
+                    "cover_art_embedded_at": datetime.now(timezone.utc).isoformat(),
+                })
                 stats["embedded"] += 1
             except Exception as exc:
                 log.error("embed failed for %s: %s", path, exc)
