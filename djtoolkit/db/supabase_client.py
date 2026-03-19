@@ -19,7 +19,17 @@ def get_client():
     if _client is None:
         from supabase import create_client
 
-        url = os.environ.get("SUPABASE_PROJECT_URL") or os.environ["SUPABASE_URL"]
-        key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+        url = os.environ.get("SUPABASE_PROJECT_URL") or os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        missing = []
+        if not url:
+            missing.append("SUPABASE_PROJECT_URL")
+        if not key:
+            missing.append("SUPABASE_SERVICE_ROLE_KEY")
+        if missing:
+            raise SystemExit(
+                f"Missing required env var(s): {', '.join(missing)}\n"
+                "Set them in .env or environment. See .env.example for details."
+            )
         _client = create_client(url, key)
     return _client
