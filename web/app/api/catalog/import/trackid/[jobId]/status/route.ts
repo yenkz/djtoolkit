@@ -55,6 +55,7 @@ export async function GET(
     .from("trackid_import_jobs")
     .select("status, progress, step, error, result, trackid_job_id, youtube_url, user_id, updated_at")
     .eq("id", jobId)
+    .eq("user_id", user.userId)
     .maybeSingle();
 
   if (error) {
@@ -246,7 +247,7 @@ export async function GET(
     const { data: row, error: insertErr } = await supabase
       .from("tracks")
       .insert({
-        user_id: job.user_id,
+        user_id: user.userId,
         acquisition_status: "candidate",
         source: "trackid",
         title: t.title,
