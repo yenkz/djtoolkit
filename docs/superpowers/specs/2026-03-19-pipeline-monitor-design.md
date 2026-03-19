@@ -32,7 +32,7 @@ Expand `acquisition_status` vocabulary to reflect granular search/transfer state
 | `queued` | Transfer enqueued with peer, waiting in queue | Agent during transfer | `TransferState.State.QUEUED` / `INITIALIZING` |
 | `downloading` | Transfer actively in progress | Agent during transfer | `TransferState.State.DOWNLOADING` |
 | `available` | File on disk, download complete | Agent on transfer complete (unchanged) | `TransferState.State.COMPLETE` |
-| `failed` | Transfer failed after retries | Agent on terminal failure (unchanged) | `TransferState.State.FAILED` / `ABORTED` |
+| `failed` | Transfer failed after retries | Agent on terminal failure (unchanged) | `TransferState.State.FAILED` / `ABORTED` / `INCOMPLETE` |
 | `duplicate` | Fingerprint match detected | Chromaprint (unchanged) | n/a |
 
 ### New column
@@ -43,7 +43,9 @@ ALTER TABLE tracks ADD COLUMN search_results_count INTEGER DEFAULT NULL;
 
 - `NULL` = not searched yet
 - `0` = searched, nothing found
-- `> 0` = number of viable results returned
+- `> 0` = number of viable (post-filter, passing `_rank_candidates`) results
+
+**Definition of "viable":** A result is viable if it passes `_rank_candidates` — correct audio extension, within duration tolerance, relevance score above `min_score_title`. Raw search results that fail scoring are not counted. If raw results exist but none pass filtering, the track goes to `not_found` with `search_results_count = 0`.
 
 ### Catalog filter
 
@@ -54,6 +56,8 @@ WHERE acquisition_status = 'available'
 ```
 
 All other statuses are exclusively the pipeline monitor's domain.
+
+**Implementation:** The catalog page frontend passes `?status=available` as a default filter parameter. The API route (`/api/catalog/tracks`) is not changed — it already supports `?status=` filtering. This avoids breaking other API consumers.
 
 ## Pipeline Monitor UI
 
@@ -74,7 +78,7 @@ Replaces the current `/pipeline` page entirely.
 | Artwork | Album art thumbnail (40×40px), placeholder if none | No |
 | Track | Title (bold) + Artist (dim below) | Yes (by title) |
 | Status | LED-styled badge with colored dot. Pulsing animation for `searching` and `downloading` | Yes (by priority: downloading > queued > searching > found > candidate > not_found > failed) |
-| Search Query | Monospace, truncated with ellipsis. **Inline-editable** for `not_found` tracks (click to edit, enter to save) | No |
+| Search Query | Monospace, truncated with ellipsis. **Inline-editable** for `not_found` tracks (click to edit, enter to save via the retry endpoint with `{ "search_string": "..." }`) | No |
 | Results | Viable result count. Green if > 0, red if 0, dash if not searched | Yes |
 | Actions | Retry button for `not_found` and `failed` tracks | No |
 
@@ -88,13 +92,14 @@ Replaces the current `/pipeline` page entirely.
 ### Sorting
 
 - Clickable column headers with sort direction indicator
-- Default: status priority (active states first), then title A-Z within each group
-- Sort passed to Supabase `.order()` query
+- Default: sort by `updated_at DESC` (most recently active first) — this naturally surfaces downloading/searching tracks at the top
+- For explicit status sorting: use client-side sort within the current page (status priority map: downloading=1, queued=2, searching=3, found=4, candidate=5, not_found=6, failed=7). Server-side status priority sorting would require a computed column, which is not worth the complexity.
+- Other columns (title, results): sort via Supabase `.order()` query
 
 ### Realtime updates
 
-- Subscribe to Supabase Realtime on `tracks` table, filtered to `acquisition_status NOT IN ('available', 'duplicate')` + current user
-- On INSERT/UPDATE event: update the affected row in-place (no full page reload)
+- Subscribe to Supabase Realtime on `tracks` table, filtered by `user_id=eq.${userId}` only (Supabase Realtime does not support `NOT IN` filters). Filter out `available`/`duplicate` events client-side.
+- On INSERT/UPDATE event: update the affected row in-place (no full page reload). Ignore events where `acquisition_status` is `available` or `duplicate`.
 - Debounce toast notifications to avoid spam during batch operations
 - Fallback: poll every 10s if Realtime subscription stalls
 
@@ -104,7 +109,7 @@ Replaces the current `/pipeline` page entirely.
 
 Add `_set_status()` calls at each phase in `_run_async`:
 
-```
+```text
 Phase 1 (search):
   Before _search_all()         → set all batch tracks to 'searching'
   After search + scoring:
@@ -116,14 +121,16 @@ Phase 2 (download):
     Transfer enters QUEUED      → set to 'queued'
     Transfer enters DOWNLOADING → set to 'downloading'
     Transfer COMPLETE           → set to 'available' + local_path (unchanged)
-    Transfer FAILED/ABORTED     → set to 'failed' (unchanged)
+    Transfer FAILED/ABORTED/INCOMPLETE → set to 'failed' (unchanged)
 ```
+
+**Note on batch search granularity:** The current `_search_all()` broadcasts all searches in a single batch and waits one timeout window. This means all tracks transition to `searching` simultaneously and resolve together. The `searching` state is therefore a synchronized batch state, not truly per-track. This is acceptable for the UI — a batch of tracks pulsing as "searching" at the same time is expected behavior when the agent processes a batch.
 
 Remove the current bulk `_set_status(adapter, track["id"], "downloading")` loop — status transitions happen per-track as aioslsk reports them.
 
 ### Retry endpoint
 
-```
+```http
 PUT /api/pipeline/tracks/{id}/retry
 ```
 
@@ -137,7 +144,7 @@ PUT /api/pipeline/tracks/{id}/retry
 
 ### Pipeline status endpoint update
 
-```
+```http
 GET /api/pipeline/status
 ```
 
@@ -165,7 +172,8 @@ Supabase migration via `mcp__supabase__apply_migration` or manual SQL.
 | `/catalog` page | Filter to `WHERE acquisition_status = 'available'`; add artwork column |
 | `/api/pipeline/status` | Update counts to use new status values |
 | `/api/pipeline/tracks/{id}/retry` | **New endpoint** |
-| Supabase Realtime subscription | Update filter to track-level updates (already on `tracks` table) |
+| Supabase Realtime subscription | Subscribe to `tracks` table by `user_id`, filter `available`/`duplicate` client-side |
+| `pipeline_jobs` table + `/api/pipeline/jobs/*` routes | **Deprecate for downloads.** Download monitoring moves to track-level status. The `pipeline_jobs` table and job-based API routes remain for non-download job types (fingerprint, metadata, cover_art) until those are also migrated. No immediate deletion. |
 | Existing importers | Unchanged (still set `candidate` / `available`) |
 | Chromaprint / metadata / mover | Unchanged (operate on `available` tracks) |
 
