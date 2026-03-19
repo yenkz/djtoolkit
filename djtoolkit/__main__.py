@@ -750,6 +750,120 @@ def agent_service_entry():
     service_main()
 
 
+def _setup_terminal_wizard():
+    """Interactive terminal setup wizard — fallback when GUI app is not available."""
+    import click
+    from rich.panel import Panel
+    from djtoolkit.agent.keychain import store_agent_credentials
+    from djtoolkit.agent.paths import config_dir, default_downloads_dir, credential_store_name
+
+    # ── Step 1: Welcome ──
+    console.print()
+    console.print(Panel(
+        "[bold]djtoolkit[/bold] — DJ music library manager\n\n"
+        "This wizard will configure the local agent.\n"
+        "You'll need your API key, Soulseek credentials,\n"
+        "and optionally an AcoustID API key.",
+        title="[bold cyan]Welcome to djtoolkit Setup[/bold cyan]",
+        expand=False,
+    ))
+    console.print()
+
+    while True:
+        try:
+            # ── Step 2: API Key ──
+            console.print("[bold]Step 1/4:[/bold] API Key")
+            console.print("  Get your key from the djtoolkit web dashboard.")
+            console.print()
+            api_key = typer.prompt("  API key (djt_xxx)")
+            if not api_key.startswith("djt_"):
+                console.print("[red]  API key must start with 'djt_'. Try again.[/red]")
+                console.print()
+                continue
+            console.print()
+
+            # ── Step 3: Soulseek ──
+            console.print("[bold]Step 2/4:[/bold] Soulseek credentials")
+            console.print("  Used to search and download music from the Soulseek network.")
+            console.print()
+            slsk_user = typer.prompt("  Soulseek username")
+            slsk_pass = typer.prompt("  Soulseek password", hide_input=True)
+            console.print()
+
+            # ── Step 4: AcoustID ──
+            console.print("[bold]Step 3/4:[/bold] AcoustID API key [dim](optional)[/dim]")
+            console.print("  Used for audio fingerprint-based duplicate detection.")
+            console.print("  Get a free key at https://acoustid.org/new-application")
+            console.print()
+            acoustid = typer.prompt("  AcoustID API key (Enter to skip)", default="")
+            console.print()
+
+            # ── Step 5: Confirm ──
+            console.print("[bold]Step 4/4:[/bold] Confirm your settings")
+            console.print()
+            summary = Table(show_header=False, expand=False)
+            summary.add_column("Setting", style="bold")
+            summary.add_column("Value")
+            summary.add_row("API key", api_key[:8] + "..." if len(api_key) > 8 else api_key)
+            summary.add_row("Soulseek user", slsk_user)
+            summary.add_row("Soulseek pass", "*" * len(slsk_pass))
+            summary.add_row("AcoustID key", acoustid if acoustid else "[dim]skipped[/dim]")
+            console.print(summary)
+            console.print()
+
+            confirm = typer.confirm("  Look good?", default=True)
+            if not confirm:
+                console.print()
+                continue
+
+        except click.Abort:
+            console.print("\n[yellow]Setup cancelled. No changes were made.[/yellow]")
+            raise typer.Exit(1)
+
+        break
+
+    # ── Step 6: Save and done ──
+    store_agent_credentials(
+        api_key=api_key,
+        slsk_username=slsk_user,
+        slsk_password=slsk_pass,
+        acoustid_key=acoustid or None,
+    )
+
+    # Write agent config
+    downloads_dir = str(default_downloads_dir())
+    cfg_dir = config_dir()
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    config_path = cfg_dir / "config.toml"
+
+    config_content = f"""[agent]
+cloud_url = "https://api.djtoolkit.com"
+poll_interval_sec = 30
+max_concurrent_jobs = 2
+downloads_dir = "{downloads_dir}"
+
+[soulseek]
+search_timeout_sec = 15
+download_timeout_sec = 300
+
+[fingerprint]
+enabled = true
+
+[cover_art]
+sources = "coverart itunes deezer"
+"""
+    config_path.write_text(config_content)
+
+    console.print()
+    console.print(Panel(
+        f"[green]Credentials stored in {credential_store_name()}[/green]\n"
+        f"[green]Config written to {config_path}[/green]\n\n"
+        f"Next: run [bold]djtoolkit agent install[/bold] to start the background service.",
+        title="[bold green]Setup complete[/bold green]",
+        expand=False,
+    ))
+
+
 # ─── setup command ────────────────────────────────────────────────────────────
 
 @app.command("setup")
