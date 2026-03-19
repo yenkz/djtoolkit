@@ -2,7 +2,8 @@
  * Job chaining engine — when a pipeline job completes, update track flags
  * and auto-queue the next job in the pipeline.
  *
- * Chain: download -> fingerprint -> cover_art -> metadata
+ * Chain: download → fingerprint → [exportify: cover_art → metadata]
+ *                                 [other: spotify_lookup → cover_art → audio_analysis → metadata]
  */
 
 import { SupabaseClient } from "@supabase/supabase-js";
@@ -19,7 +20,7 @@ const KEY_NAMES = [
  * Check if a pending/claimed/running job of the given type already exists
  * for this track. Prevents duplicate chained jobs on retry.
  */
-async function hasActiveJob(
+export async function hasActiveJob(
   supabase: SupabaseClient,
   trackId: number,
   jobType: string
@@ -33,6 +34,62 @@ async function hasActiveJob(
     .limit(1)
     .maybeSingle();
   return !!data;
+}
+
+/**
+ * Fetch track state from DB and build the metadata job payload.
+ * Returns null if track has no local_path.
+ */
+export async function buildMetadataPayload(
+  supabase: SupabaseClient,
+  trackId: number,
+  userId: string
+): Promise<Record<string, unknown> | null> {
+  const { data: trackRaw } = await supabase
+    .from("tracks")
+    .select(
+      "local_path, title, artist, album, artists, year, release_date, " +
+        "genres, record_label, isrc, tempo, key, mode, " +
+        "duration_ms, enriched_spotify, enriched_audio"
+    )
+    .eq("id", trackId)
+    .single();
+
+  const track = trackRaw as Record<string, unknown> | null;
+  if (!track?.local_path) return null;
+
+  let musicalKey = "";
+  if (track.key !== null && track.mode !== null) {
+    const k = Number(track.key);
+    if (k >= 0 && k < 12) {
+      musicalKey = `${KEY_NAMES[k]}${Number(track.mode) === 0 ? "m" : ""}`;
+    }
+  }
+
+  let metadataSource: string | null = null;
+  if (track.enriched_spotify) {
+    metadataSource = "spotify";
+  } else if (track.enriched_audio) {
+    metadataSource = "audio-analysis";
+  }
+
+  return {
+    track_id: trackId,
+    local_path: track.local_path as string,
+    title: (track.title as string) ?? "",
+    artist: (track.artist as string) ?? "",
+    album: (track.album as string) ?? "",
+    artists: (track.artists as string) ?? "",
+    year: track.year,
+    release_date: (track.release_date as string) ?? "",
+    genres: (track.genres as string) ?? "",
+    record_label: (track.record_label as string) ?? "",
+    isrc: (track.isrc as string) ?? "",
+    bpm: track.tempo,
+    musical_key: musicalKey,
+    duration_ms: track.duration_ms,
+    metadata_source: metadataSource,
+  };
 }
 
 export async function applyJobResult(
@@ -143,27 +200,98 @@ export async function applyJobResult(
           })
           .eq("id", trackId);
 
-        // Auto-queue cover_art job
+        // Auto-queue next job based on track source
         const { data: track } = await supabase
           .from("tracks")
-          .select("local_path, artist, album, title")
+          .select("local_path, artist, album, title, source, spotify_uri, duration_ms")
           .eq("id", trackId)
           .single();
 
-        if (track?.local_path && !(await hasActiveJob(supabase, trackId, "cover_art"))) {
-          await supabase.from("pipeline_jobs").insert({
-            user_id: userId,
-            track_id: trackId,
-            job_type: "cover_art",
-            payload: {
+        if (!track?.local_path) break;
+
+        if (track.source === "exportify") {
+          // Exportify tracks → cover_art (metadata from CSV already in DB)
+          if (!(await hasActiveJob(supabase, trackId, "cover_art"))) {
+            await supabase.from("pipeline_jobs").insert({
+              user_id: userId,
               track_id: trackId,
-              local_path: track.local_path,
-              artist: track.artist ?? "",
-              album: track.album ?? "",
-              title: track.title ?? "",
-            },
-          });
+              job_type: "cover_art",
+              payload: {
+                track_id: trackId,
+                local_path: track.local_path,
+                artist: track.artist ?? "",
+                album: track.album ?? "",
+                title: track.title ?? "",
+                spotify_uri: track.spotify_uri ?? null,
+              },
+            });
+          }
+        } else {
+          // Non-exportify tracks → spotify_lookup first
+          if (!(await hasActiveJob(supabase, trackId, "spotify_lookup"))) {
+            await supabase.from("pipeline_jobs").insert({
+              user_id: userId,
+              track_id: trackId,
+              job_type: "spotify_lookup",
+              payload: {
+                track_id: trackId,
+                artist: track.artist ?? "",
+                title: track.title ?? "",
+                duration_ms: track.duration_ms ?? null,
+                spotify_uri: track.spotify_uri ?? null,
+              },
+            });
+          }
         }
+      }
+
+      break;
+    }
+
+    case "spotify_lookup": {
+      // Write metadata to tracks table (if match found)
+      if (result.matched !== false) {
+        const updates: Record<string, unknown> = {
+          enriched_spotify: true,
+          updated_at: new Date().toISOString(),
+        };
+        // Copy all non-null metadata fields
+        for (const col of [
+          "spotify_uri", "album", "release_date", "year", "genres",
+          "record_label", "popularity", "explicit", "isrc", "duration_ms",
+        ]) {
+          if (result[col] !== undefined && result[col] !== null) {
+            updates[col] = result[col];
+          }
+        }
+        await supabase
+          .from("tracks")
+          .update(updates)
+          .eq("id", trackId)
+          .eq("user_id", userId);
+      }
+
+      // Always queue cover_art (even on no-match — falls back to other sources)
+      const { data: track } = await supabase
+        .from("tracks")
+        .select("local_path, artist, album, title, spotify_uri")
+        .eq("id", trackId)
+        .single();
+
+      if (track?.local_path && !(await hasActiveJob(supabase, trackId, "cover_art"))) {
+        await supabase.from("pipeline_jobs").insert({
+          user_id: userId,
+          track_id: trackId,
+          job_type: "cover_art",
+          payload: {
+            track_id: trackId,
+            local_path: track.local_path,
+            artist: track.artist ?? "",
+            album: track.album ?? "",
+            title: track.title ?? "",
+            spotify_uri: track.spotify_uri ?? null,
+          },
+        });
       }
 
       break;
@@ -182,60 +310,78 @@ export async function applyJobResult(
           .eq("user_id", userId);
       }
 
-      // Auto-queue metadata job (regardless of cover_art success)
+      // Fetch track to determine source and build next job payload
       const { data: trackRaw } = await supabase
         .from("tracks")
         .select(
           "local_path, title, artist, album, artists, year, release_date, " +
             "genres, record_label, isrc, tempo, key, mode, " +
-            "duration_ms, enriched_spotify, enriched_audio"
+            "duration_ms, enriched_spotify, enriched_audio, source"
         )
         .eq("id", trackId)
         .single();
 
       const track = trackRaw as Record<string, unknown> | null;
       if (!track?.local_path) break;
-      if (await hasActiveJob(supabase, trackId, "metadata")) break;
 
-      // Reconstruct musical_key from key + mode columns
-      let musicalKey = "";
-      if (track.key !== null && track.mode !== null) {
-        const k = Number(track.key);
-        if (k >= 0 && k < 12) {
-          musicalKey = `${KEY_NAMES[k]}${Number(track.mode) === 0 ? "m" : ""}`;
+      if (track.source !== "exportify") {
+        // Non-exportify → queue audio_analysis
+        if (!(await hasActiveJob(supabase, trackId, "audio_analysis"))) {
+          await supabase.from("pipeline_jobs").insert({
+            user_id: userId,
+            track_id: trackId,
+            job_type: "audio_analysis",
+            payload: {
+              track_id: trackId,
+              local_path: track.local_path as string,
+            },
+          });
+        }
+      } else {
+        // Exportify → queue metadata directly (uses shared helper)
+        if (await hasActiveJob(supabase, trackId, "metadata")) break;
+        const metaPayload = await buildMetadataPayload(supabase, trackId, userId);
+        if (metaPayload) {
+          await supabase.from("pipeline_jobs").insert({
+            user_id: userId,
+            track_id: trackId,
+            job_type: "metadata",
+            payload: metaPayload,
+          });
         }
       }
 
-      // Determine metadata_source from enrichment flags
-      let metadataSource: string | null = null;
-      if (track.enriched_spotify) {
-        metadataSource = "spotify";
-      } else if (track.enriched_audio) {
-        metadataSource = "audio-analysis";
-      }
+      break;
+    }
 
-      await supabase.from("pipeline_jobs").insert({
-        user_id: userId,
-        track_id: trackId,
-        job_type: "metadata",
-        payload: {
+    case "audio_analysis": {
+      // Write audio features to tracks table
+      const featureUpdates: Record<string, unknown> = {
+        enriched_audio: true,
+        updated_at: new Date().toISOString(),
+      };
+      for (const col of ["tempo", "key", "mode", "danceability", "energy", "loudness"]) {
+        if (result[col] !== undefined && result[col] !== null) {
+          featureUpdates[col] = result[col];
+        }
+      }
+      await supabase
+        .from("tracks")
+        .update(featureUpdates)
+        .eq("id", trackId)
+        .eq("user_id", userId);
+
+      // Queue metadata job (uses shared helper)
+      if (await hasActiveJob(supabase, trackId, "metadata")) break;
+      const metaPayload = await buildMetadataPayload(supabase, trackId, userId);
+      if (metaPayload) {
+        await supabase.from("pipeline_jobs").insert({
+          user_id: userId,
           track_id: trackId,
-          local_path: track.local_path as string,
-          title: (track.title as string) ?? "",
-          artist: (track.artist as string) ?? "",
-          album: (track.album as string) ?? "",
-          artists: (track.artists as string) ?? "",
-          year: track.year,
-          release_date: (track.release_date as string) ?? "",
-          genres: (track.genres as string) ?? "",
-          record_label: (track.record_label as string) ?? "",
-          isrc: (track.isrc as string) ?? "",
-          bpm: track.tempo,
-          musical_key: musicalKey,
-          duration_ms: track.duration_ms,
-          metadata_source: metadataSource,
-        },
-      });
+          job_type: "metadata",
+          payload: metaPayload,
+        });
+      }
 
       break;
     }

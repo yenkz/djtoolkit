@@ -4,7 +4,7 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
-import { applyJobResult } from "@/lib/api-server/job-result";
+import { applyJobResult, buildMetadataPayload, hasActiveJob } from "@/lib/api-server/job-result";
 
 const MAX_DOWNLOAD_RETRIES = 3;
 
@@ -113,6 +113,19 @@ export async function PUT(
           })
           .eq("id", job.track_id)
           .eq("user_id", user.userId);
+      }
+    } else if (body.status === "failed" && job.job_type === "audio_analysis") {
+      // Audio analysis failed — still queue metadata so pipeline doesn't stall
+      if (!(await hasActiveJob(supabase, job.track_id, "metadata"))) {
+        const metaPayload = await buildMetadataPayload(supabase, job.track_id, user.userId);
+        if (metaPayload) {
+          await supabase.from("pipeline_jobs").insert({
+            user_id: user.userId,
+            track_id: job.track_id,
+            job_type: "metadata",
+            payload: metaPayload,
+          });
+        }
       }
     }
   } catch (err) {

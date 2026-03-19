@@ -31,9 +31,11 @@ export async function POST(request: NextRequest) {
   // Downstream job types that should be cancelled when retrying an earlier stage.
   // When a retried job completes again, job-result.ts will re-create them.
   const DOWNSTREAM: Record<string, string[]> = {
-    download: ["fingerprint", "cover_art", "metadata"],
-    fingerprint: ["cover_art", "metadata"],
-    cover_art: ["metadata"],
+    download:       ["fingerprint", "spotify_lookup", "cover_art", "audio_analysis", "metadata"],
+    fingerprint:    ["spotify_lookup", "cover_art", "audio_analysis", "metadata"],
+    spotify_lookup: ["cover_art", "audio_analysis", "metadata"],
+    cover_art:      ["audio_analysis", "metadata"],
+    audio_analysis: ["metadata"],
   };
 
   if (body.job_ids && body.job_ids.length > 0) {
