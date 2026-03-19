@@ -22,12 +22,16 @@ The web UI settings page saves tuning parameters (matching thresholds, cover art
 
 ### Tuning parameters (embedded in `payload.settings`)
 
-| Job type | Settings key | Type | Default | Source on agent |
+| Job type | Settings key | Type | Default | Agent config field overridden |
 |---|---|---|---|---|
-| `download` | `min_score` | `number` | `0.86` | `cfg.matching.min_score` |
+| `download` | `min_score` | `number` | `0.86` | `cfg.matching.min_score` AND `cfg.matching.min_score_title` (see note) |
 | `download` | `duration_tolerance_ms` | `number` | `2000` | `cfg.matching.duration_tolerance_ms` |
 | `download` | `search_timeout_sec` | `number` | `15.0` | `cfg.soulseek.search_timeout_sec` |
-| `cover_art` | `coverart_sources` | `string[]` | `["coverartarchive","itunes","deezer"]` | `cfg.cover_art.sources` (space-separated) |
+| `cover_art` | `coverart_sources` | `string[]` | `["coverartarchive","itunes","deezer"]` | `cfg.cover_art.sources` (see naming note) |
+
+**Note on `min_score`:** The download code in `aioslsk_client.py` filters candidates using `cfg.matching.min_score_title` (default `0.70`), not `cfg.matching.min_score`. The UI exposes a single "Minimum score" slider. On the agent side, the payload `min_score` value overrides both `cfg.matching.min_score` and `cfg.matching.min_score_title` so the user's setting actually affects download filtering.
+
+**Note on cover art source naming:** The CLI config uses short names (`coverart itunes deezer` space-separated), while the web UI uses full names (`["coverartarchive", "itunes", "deezer", "spotify", "lastfm"]`). The agent's `_fetch_art()` function accepts both naming conventions. The payload uses the web UI naming (array of full names). The executor maps `coverartarchive` → the name expected by `_fetch_art`, which already handles both forms.
 
 ### Enabled toggles (gate job creation in chaining)
 
@@ -35,8 +39,10 @@ The web UI settings page saves tuning parameters (matching thresholds, cover art
 |---|---|---|---|
 | Fingerprint | `fingerprint_enabled` | `fingerprint` | `true` |
 | Cover Art | `coverart_enabled` | `cover_art` | `true` |
-| Audio Analysis | `analysis_enabled` | `audio_analysis` | `true` |
+| Audio Analysis | `analysis_enabled` | `audio_analysis` | `false` |
 | Loudnorm | `loudnorm_enabled` | `loudnorm` (future) | `false` |
+
+Defaults match the settings page UI initial state (`analysis_enabled` = `false` because it is CPU-intensive and uses optional dependencies; `loudnorm_enabled` = `false` because not yet implemented).
 
 When a toggle is off, the chaining logic skips that step and proceeds to the next in the pipeline.
 
@@ -60,46 +66,70 @@ Also exports:
 
 ```typescript
 export async function isStepEnabled(
-  supabase: SupabaseClient,
-  userId: string,
+  settings: Record<string, unknown>,
   step: "fingerprint" | "cover_art" | "audio_analysis" | "loudnorm"
-): Promise<boolean>
+): boolean
 ```
 
-- Reads the relevant enabled toggle from `user_settings`
-- Returns `true` if not set (default behavior: all steps enabled)
+- Reads the relevant enabled toggle from the already-fetched settings object
+- Returns `true` for `fingerprint` and `cover_art` if not set (default enabled)
+- Returns `false` for `audio_analysis` and `loudnorm` if not set (default disabled)
+
+And a convenience function to fetch all settings once:
+
+```typescript
+export async function getUserSettings(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<Record<string, unknown>>
+```
 
 ### Modified: `web/lib/api-server/job-result.ts`
 
 `applyJobResult()` changes:
 
-1. Fetch user settings once at the top of the function
+1. Fetch user settings once at the top via `getUserSettings()`
 2. Before inserting each chained job, check `isStepEnabled()` for that step
 3. If step is disabled, skip to the next step in the chain
-4. Embed `settings: {...}` in the job payload for jobs that have tuning params
+4. Embed `settings: getJobSettings(...)` in the job payload for jobs that have tuning params
 
-**Skip logic:**
+**Skip logic (both pipeline variants):**
 
 ```
-download
-  → [fingerprint_enabled?] → fingerprint
-  → [coverart_enabled?]    → cover_art
-  → [analysis_enabled?]    → audio_analysis  (non-exportify only)
-  → metadata
+Exportify:
+  download
+    → [fingerprint_enabled?] → fingerprint
+    → [coverart_enabled?]    → cover_art
+    → metadata
 
-If a step is disabled, the chain skips forward to the next enabled step.
-The chain always terminates at metadata (never skipped).
+Non-exportify:
+  download
+    → [fingerprint_enabled?] → fingerprint
+    → spotify_lookup  (always runs, no toggle)
+    → [coverart_enabled?]    → cover_art
+    → [analysis_enabled?]    → audio_analysis
+    → metadata
 ```
+
+If a step is disabled, the chain skips forward to the next enabled step. `spotify_lookup` has no toggle — it always runs for non-exportify tracks (it provides essential metadata). The chain always terminates at `metadata` (never skipped).
 
 ### Modified: Job creation entry points
 
-Same settings injection pattern in:
+All endpoints that insert `pipeline_jobs` need settings injection:
 
-- `web/app/api/catalog/import/csv/route.ts` — creates initial `download` jobs
-- `web/app/api/catalog/tracks/[id]/reset/route.ts` — re-creates `download` jobs
-- `web/app/api/pipeline/jobs/retry/route.ts` — re-creates failed jobs
+| Endpoint | Creates job type | Change |
+|---|---|---|
+| `web/app/api/catalog/import/csv/route.ts` | `download` | Embed `payload.settings` |
+| `web/app/api/catalog/import/trackid/route.ts` | `download` | Embed `payload.settings` |
+| `web/app/api/catalog/import/spotify/route.ts` | `download` | Embed `payload.settings` |
+| `web/app/api/pipeline/jobs/bulk/route.ts` | `download` | Embed `payload.settings` |
+| `web/app/api/catalog/tracks/[id]/reset/route.ts` | `download` | Embed `payload.settings` |
 
-Each reads user settings and embeds `settings: {...}` in the job payload.
+### Retry endpoint: `web/app/api/pipeline/jobs/retry/route.ts`
+
+The retry endpoint resets existing failed/done jobs back to `pending` — it does not create new jobs. The original `payload` (including any `settings` snapshot) is preserved. **No changes needed** — the job re-executes with the settings it was originally created with. This is consistent with the "settings locked at creation time" principle.
+
+If a user wants updated settings to apply, they can delete the failed job and trigger a new one (which will snapshot current settings).
 
 ## Agent-side Changes (Python)
 
@@ -111,18 +141,19 @@ Each executor that has tuning params reads from `payload["settings"]` first, fal
 ```python
 settings = payload.get("settings", {})
 cfg.matching.min_score = settings.get("min_score", cfg.matching.min_score)
+cfg.matching.min_score_title = settings.get("min_score", cfg.matching.min_score_title)
 cfg.matching.duration_tolerance_ms = settings.get("duration_tolerance_ms", cfg.matching.duration_tolerance_ms)
 cfg.soulseek.search_timeout_sec = settings.get("search_timeout_sec", cfg.soulseek.search_timeout_sec)
 ```
 
 **`execute_download_batch()`:**
-Same pattern — read settings from the first job's payload (all jobs in a batch share the same user settings).
+Same pattern — read settings from the first job's payload. **Constraint:** batch downloads must only contain jobs from a single user (enforced by the agent's job claiming logic, which authenticates as one user).
 
 **`execute_cover_art()`:**
 ```python
 settings = payload.get("settings", {})
 if "coverart_sources" in settings:
-    sources = settings["coverart_sources"]  # already a list
+    sources = settings["coverart_sources"]  # list from web UI
 else:
     sources = [s.strip() for s in cfg.cover_art.sources.split() if s.strip()]
 ```
@@ -137,7 +168,7 @@ If `payload["settings"]` is missing (old jobs, CLI-created jobs), every executor
 
 - **Subscription section** — stays as "Coming soon"
 - **Paths and credentials** — `downloads_dir`, `library_dir`, Soulseek password, API keys remain local to agent config/keychain
-- **Retroactive updates** — changing a setting doesn't affect already-queued jobs
+- **Retroactive updates** — changing a setting doesn't affect already-queued jobs (retry preserves original settings)
 - **New DB tables or migrations** — `user_settings` JSONB already stores all these fields
 - **CLI config changes** — `djtoolkit.toml` and `config.py` are untouched
 
@@ -145,9 +176,11 @@ If `payload["settings"]` is missing (old jobs, CLI-created jobs), every executor
 
 | File | Change |
 |---|---|
-| `web/lib/api-server/job-settings.ts` | **New** — `getJobSettings()`, `isStepEnabled()` |
+| `web/lib/api-server/job-settings.ts` | **New** — `getUserSettings()`, `getJobSettings()`, `isStepEnabled()` |
 | `web/lib/api-server/job-result.ts` | Fetch settings, gate chaining on toggles, embed settings in payload |
 | `web/app/api/catalog/import/csv/route.ts` | Embed settings in download job payload |
+| `web/app/api/catalog/import/trackid/route.ts` | Embed settings in download job payload |
+| `web/app/api/catalog/import/spotify/route.ts` | Embed settings in download job payload |
+| `web/app/api/pipeline/jobs/bulk/route.ts` | Embed settings in download job payload |
 | `web/app/api/catalog/tracks/[id]/reset/route.ts` | Embed settings in download job payload |
-| `web/app/api/pipeline/jobs/retry/route.ts` | Embed settings in recreated job payload |
 | `djtoolkit/agent/executor.py` | Read tuning params from `payload.settings`, fall back to config |
