@@ -213,6 +213,84 @@ export async function retryPipelineJobs(params: {
   return res.json();
 }
 
+/* ── Pipeline Monitor types ───────────────────────────────────── */
+
+export type AcquisitionStatus =
+  | "candidate"
+  | "searching"
+  | "found"
+  | "not_found"
+  | "queued"
+  | "downloading"
+  | "failed";
+
+export interface PipelineTrack {
+  id: number;
+  title: string;
+  artist: string;
+  album: string | null;
+  artwork_url: string | null;
+  acquisition_status: AcquisitionStatus;
+  search_string: string | null;
+  search_results_count: number | null;
+  updated_at: string;
+}
+
+export interface PipelineMonitorStatus {
+  candidate: number;
+  searching: number;
+  found: number;
+  not_found: number;
+  queued: number;
+  downloading: number;
+  failed: number;
+  agents: { id: string; machine_name: string; last_seen_at: string; capabilities: string[] }[];
+}
+
+export interface PipelineTrackList {
+  tracks: PipelineTrack[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export async function fetchPipelineMonitorStatus(): Promise<PipelineMonitorStatus> {
+  const res = await apiClient("/pipeline/status");
+  if (!res.ok) throw new Error("Failed to fetch pipeline status");
+  return res.json();
+}
+
+export async function fetchPipelineTracks(params: {
+  page?: number;
+  per_page?: number;
+  status?: AcquisitionStatus;
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
+}): Promise<PipelineTrackList> {
+  const sp = new URLSearchParams();
+  if (params.page) sp.set("page", String(params.page));
+  if (params.per_page) sp.set("per_page", String(params.per_page));
+  if (params.status) sp.set("status", params.status);
+  if (params.sort_by) sp.set("sort_by", params.sort_by);
+  if (params.sort_dir) sp.set("sort_dir", params.sort_dir);
+  const res = await apiClient(`/pipeline/tracks?${sp}`);
+  if (!res.ok) throw new Error("Failed to fetch pipeline tracks");
+  return res.json();
+}
+
+export async function retryPipelineTrack(
+  trackId: number,
+  searchString?: string
+): Promise<PipelineTrack> {
+  const body = searchString ? { search_string: searchString } : {};
+  const res = await apiClient(`/pipeline/tracks/${trackId}/retry`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Failed to retry track");
+  return res.json();
+}
+
 // ─── Agents ───────────────────────────────────────────────────────────────────
 
 export interface Agent {
