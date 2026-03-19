@@ -61,7 +61,8 @@ class TestTrackToDbRow:
         row = t.to_db_row()
         assert row["title"] == "Test"
         assert row["artist"] == "Artist"
-        assert row["bpm"] == 128.0
+        assert row["tempo"] == 128.0  # Track.bpm maps to DB tempo column
+        assert "bpm" not in row
         assert row["year"] == 2024
 
     def test_artists_pipe_separated(self):
