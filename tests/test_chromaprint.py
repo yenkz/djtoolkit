@@ -8,7 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from djtoolkit.config import Config
-from djtoolkit.fingerprint.chromaprint import calc, is_available, is_duplicate, lookup_acoustid
+from djtoolkit.fingerprint.chromaprint import calc, is_available, is_duplicate, lookup_acoustid, run
+from djtoolkit.models.track import Track
 
 
 @pytest.fixture
@@ -18,6 +19,19 @@ def cfg():
     c.fingerprint.acoustid_api_key = ""
     c.fingerprint.enabled = True
     return c
+
+
+def _make_track(tmp_path, *, _id=1, title="Test", artist="DJ", file_exists=True):
+    """Helper to create a Track with _id set, optionally with a real file on disk."""
+    if file_exists:
+        fp = tmp_path / f"track_{_id}.mp3"
+        fp.write_bytes(b"\x00")
+        file_path = str(fp)
+    else:
+        file_path = str(tmp_path / f"missing_{_id}.mp3")
+    track = Track(title=title, artist=artist, file_path=file_path)
+    track._id = _id
+    return track
 
 
 # ─── is_available ─────────────────────────────────────────────────────────────
@@ -134,3 +148,91 @@ def test_is_duplicate_different_fingerprints():
 
 def test_is_duplicate_empty_strings():
     assert is_duplicate("", "") is True
+
+
+# ─── run() with SupabaseAdapter ──────────────────────────────────────────────
+
+
+class TestRun:
+    """Tests for run() using mocked SupabaseAdapter."""
+
+    @pytest.fixture
+    def adapter(self):
+        return MagicMock()
+
+    def test_disabled_returns_zeros(self, cfg, adapter):
+        cfg.fingerprint.enabled = False
+        result = run(cfg, adapter, "user-1")
+        assert result == {"fingerprinted": 0, "duplicates": 0, "skipped": 0}
+        adapter.query_available_unfingerprinted.assert_not_called()
+
+    def test_fingerprints_new_track(self, cfg, adapter, tmp_path):
+        track = _make_track(tmp_path, _id=42)
+        adapter.query_available_unfingerprinted.return_value = [track]
+        adapter.find_fingerprint_match.return_value = None
+        adapter.insert_fingerprint.return_value = 7
+
+        with patch("djtoolkit.fingerprint.chromaprint.calc", return_value={"fingerprint": "FP123", "duration": 240.0}):
+            with patch("djtoolkit.fingerprint.chromaprint.lookup_acoustid", return_value="acoust-abc"):
+                result = run(cfg, adapter, "user-1")
+
+        assert result == {"fingerprinted": 1, "duplicates": 0, "skipped": 0}
+        adapter.insert_fingerprint.assert_called_once_with(
+            user_id="user-1",
+            track_id=42,
+            fingerprint="FP123",
+            acoustid="acoust-abc",
+            duration=240.0,
+        )
+        adapter.mark_fingerprinted.assert_called_once_with(42, {"fingerprint_id": 7})
+
+    def test_detects_duplicate(self, cfg, adapter, tmp_path):
+        track = _make_track(tmp_path, _id=55)
+        adapter.query_available_unfingerprinted.return_value = [track]
+        adapter.find_fingerprint_match.return_value = 10  # existing track_id
+
+        with patch("djtoolkit.fingerprint.chromaprint.calc", return_value={"fingerprint": "FP_DUP", "duration": 200.0}):
+            with patch("djtoolkit.fingerprint.chromaprint.lookup_acoustid", return_value=None):
+                result = run(cfg, adapter, "user-1")
+
+        assert result == {"fingerprinted": 0, "duplicates": 1, "skipped": 0}
+        adapter.update_track.assert_called_once_with(55, {
+            "acquisition_status": "duplicate",
+            "fingerprinted": True,
+        })
+        adapter.insert_fingerprint.assert_not_called()
+
+    def test_skips_missing_file(self, cfg, adapter, tmp_path):
+        track = _make_track(tmp_path, _id=99, file_exists=False)
+        adapter.query_available_unfingerprinted.return_value = [track]
+
+        result = run(cfg, adapter, "user-1")
+
+        assert result == {"fingerprinted": 0, "duplicates": 0, "skipped": 1}
+        adapter.insert_fingerprint.assert_not_called()
+        adapter.update_track.assert_not_called()
+
+    def test_skips_track_with_no_file_path(self, cfg, adapter):
+        track = Track(title="No File")
+        track._id = 100
+        adapter.query_available_unfingerprinted.return_value = [track]
+
+        result = run(cfg, adapter, "user-1")
+
+        assert result == {"fingerprinted": 0, "duplicates": 0, "skipped": 1}
+
+    def test_skips_when_calc_fails(self, cfg, adapter, tmp_path):
+        track = _make_track(tmp_path, _id=77)
+        adapter.query_available_unfingerprinted.return_value = [track]
+
+        with patch("djtoolkit.fingerprint.chromaprint.calc", return_value=None):
+            result = run(cfg, adapter, "user-1")
+
+        assert result == {"fingerprinted": 0, "duplicates": 0, "skipped": 1}
+
+    def test_empty_track_list(self, cfg, adapter):
+        adapter.query_available_unfingerprinted.return_value = []
+
+        result = run(cfg, adapter, "user-1")
+
+        assert result == {"fingerprinted": 0, "duplicates": 0, "skipped": 0}

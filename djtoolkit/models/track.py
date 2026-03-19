@@ -87,6 +87,9 @@ class Track:
     valence: float | None = None
     tempo: float | None = None
 
+    # Internal DB primary key (not serialized)
+    _id: int | None = field(default=None, repr=False)
+
     def hot_cues(self) -> list[CuePoint]:
         return [c for c in self.cue_points if c.hotcue_index >= 0 and c.type == CueType.CUE]
 
@@ -154,7 +157,7 @@ class Track:
         bg_dicts = row.get("beatgrid") or []
         beatgrid = [cls._bg_from_dict(d) for d in bg_dicts]
 
-        return cls(
+        track = cls(
             title=row.get("title") or "",
             artist=row.get("artist") or "",
             artists=artists,
@@ -189,6 +192,8 @@ class Track:
             sample_rate=row.get("sample_rate"),
             bitrate=row.get("bitrate"),
         )
+        track._id = row.get("id")
+        return track
 
     @staticmethod
     def _cue_to_dict(c: CuePoint) -> dict:

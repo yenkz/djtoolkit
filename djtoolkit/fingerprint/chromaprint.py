@@ -1,12 +1,16 @@
 """Chromaprint fingerprinting via fpcalc + optional AcoustID lookup."""
 
+from __future__ import annotations
+
 import json
 import subprocess
-import sqlite3
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from djtoolkit.config import Config
-from djtoolkit.db.database import connect
+
+if TYPE_CHECKING:
+    from djtoolkit.adapters.supabase import SupabaseAdapter
 
 
 def _fpcalc_path(cfg: Config) -> str:
@@ -60,10 +64,10 @@ def is_duplicate(fp1: str, fp2: str) -> bool:
     return fp1 == fp2
 
 
-def run(cfg: Config) -> dict:
+def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
     """
-    Run fingerprinting on all downloaded tracks without a fingerprint yet.
-    Marks duplicates in the DB.
+    Run fingerprinting on all available tracks without a fingerprint yet.
+    Marks duplicates via the adapter.
 
     Returns {fingerprinted, duplicates, skipped}.
     """
@@ -71,20 +75,11 @@ def run(cfg: Config) -> dict:
         return {"fingerprinted": 0, "duplicates": 0, "skipped": 0}
 
     stats = {"fingerprinted": 0, "duplicates": 0, "skipped": 0}
-
-    with connect(cfg.db_path) as conn:
-        tracks = conn.execute("""
-            SELECT id, local_path, title, artist
-            FROM tracks
-            WHERE acquisition_status = 'available'
-              AND fingerprinted = 0
-              AND local_path IS NOT NULL
-        """).fetchall()
+    tracks = adapter.query_available_unfingerprinted(user_id)
 
     for track in tracks:
-        track = dict(track)
-        local_path = Path(track["local_path"])
-        if not local_path.exists():
+        local_path = Path(track.file_path) if track.file_path else None
+        if not local_path or not local_path.exists():
             stats["skipped"] += 1
             continue
 
@@ -95,36 +90,27 @@ def run(cfg: Config) -> dict:
 
         fingerprint = fp_data["fingerprint"]
         duration = fp_data["duration"]
-        acoustid = lookup_acoustid(fingerprint, duration, cfg.fingerprint.acoustid_api_key)
+        acoustid_id = lookup_acoustid(
+            fingerprint, duration, cfg.fingerprint.acoustid_api_key
+        )
 
-        with connect(cfg.db_path) as conn:
-            # Check for existing identical fingerprint
-            existing = conn.execute(
-                "SELECT track_id FROM fingerprints WHERE fingerprint = ?",
-                (fingerprint,),
-            ).fetchone()
+        existing_track_id = adapter.find_fingerprint_match(fingerprint, user_id)
+        if existing_track_id is not None:
+            adapter.update_track(track._id, {
+                "acquisition_status": "duplicate",
+                "fingerprinted": True,
+            })
+            stats["duplicates"] += 1
+            continue
 
-            if existing:
-                # Mark as duplicate — keep original, flag new one
-                conn.execute(
-                    "UPDATE tracks SET acquisition_status = 'duplicate', fingerprinted = 1 WHERE id = ?",
-                    (track["id"],),
-                )
-                conn.commit()
-                stats["duplicates"] += 1
-                continue
-
-            # Insert fingerprint record
-            cursor = conn.execute(
-                "INSERT INTO fingerprints (track_id, fingerprint, acoustid, duration) VALUES (?, ?, ?, ?)",
-                (track["id"], fingerprint, acoustid, duration),
-            )
-            fp_id = cursor.lastrowid
-            conn.execute(
-                "UPDATE tracks SET fingerprint_id = ?, fingerprinted = 1 WHERE id = ?",
-                (fp_id, track["id"]),
-            )
-            conn.commit()
-            stats["fingerprinted"] += 1
+        fp_id = adapter.insert_fingerprint(
+            user_id=user_id,
+            track_id=track._id,
+            fingerprint=fingerprint,
+            acoustid=acoustid_id,
+            duration=duration,
+        )
+        adapter.mark_fingerprinted(track._id, {"fingerprint_id": fp_id})
+        stats["fingerprinted"] += 1
 
     return stats
