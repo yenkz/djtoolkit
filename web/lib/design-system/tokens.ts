@@ -145,6 +145,10 @@ export const JOB_STATUS_LED = {
 export const JOB_TYPE_LED = {
   download: "blue",
   fingerprint: "green",
+  spotify_lookup: "green",
+  audio_analysis: "orange",
+  cover_art: "blue",
+  metadata: "orange",
   tag: "orange",
 } as const;
 
