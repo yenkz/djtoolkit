@@ -92,12 +92,16 @@ export async function fetchTracks(params: {
   per_page?: number;
   status?: string;
   search?: string;
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }): Promise<{ tracks: Track[]; total: number; page: number }> {
   const qs = new URLSearchParams();
   if (params.page) qs.set("page", String(params.page));
   if (params.per_page) qs.set("per_page", String(params.per_page));
   if (params.status) qs.set("status", params.status);
   if (params.search) qs.set("search", params.search);
+  if (params.sort_by) qs.set("sort_by", params.sort_by);
+  if (params.sort_dir) qs.set("sort_dir", params.sort_dir);
   const res = await apiClient(`/catalog/tracks?${qs}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
@@ -266,6 +270,7 @@ export async function fetchPipelineTracks(params: {
   status?: AcquisitionStatus;
   sort_by?: string;
   sort_dir?: "asc" | "desc";
+  search?: string;
 }): Promise<PipelineTrackList> {
   const sp = new URLSearchParams();
   if (params.page) sp.set("page", String(params.page));
@@ -273,6 +278,7 @@ export async function fetchPipelineTracks(params: {
   if (params.status) sp.set("status", params.status);
   if (params.sort_by) sp.set("sort_by", params.sort_by);
   if (params.sort_dir) sp.set("sort_dir", params.sort_dir);
+  if (params.search) sp.set("search", params.search);
   const res = await apiClient(`/pipeline/tracks?${sp}`);
   if (!res.ok) throw new Error("Failed to fetch pipeline tracks");
   return res.json();

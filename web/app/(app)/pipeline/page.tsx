@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import LCDDisplay from "@/components/ui/LCDDisplay";
+import MiniSearch from "@/components/ui/MiniSearch";
 
 /* ── LED color map ──────────────────────────────────────────────────────── */
 
@@ -154,6 +155,7 @@ export default function PipelineMonitorPage() {
   const [editingQuery, setEditingQuery] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -177,6 +179,7 @@ export default function PipelineMonitorPage() {
         status: statusFilter || undefined,
         sort_by: sortBy,
         sort_dir: sortDir,
+        search: search || undefined,
       });
       setTrackData(data);
     } catch {
@@ -184,7 +187,7 @@ export default function PipelineMonitorPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, statusFilter, sortBy, sortDir]);
+  }, [page, perPage, statusFilter, sortBy, sortDir, search]);
 
   useEffect(() => {
     loadStatus();
@@ -280,18 +283,31 @@ export default function PipelineMonitorPage() {
 
   return (
     <div className="space-y-6">
-      {/* Title */}
-      <h1
-        className="font-bold"
-        style={{
-          fontSize: 28,
-          fontWeight: 900,
-          letterSpacing: -1,
-          color: "var(--hw-text)",
-        }}
-      >
-        Pipeline Monitor
-      </h1>
+      {/* Title + Search */}
+      <div className="flex items-center gap-4">
+        <h1
+          className="font-bold shrink-0"
+          style={{
+            fontSize: 28,
+            fontWeight: 900,
+            letterSpacing: -1,
+            color: "var(--hw-text)",
+          }}
+        >
+          Pipeline Monitor
+        </h1>
+        <div className="flex-1" />
+        <div style={{ width: "clamp(180px, 24vw, 300px)" }}>
+          <MiniSearch
+            value={search}
+            onChange={(v) => {
+              setSearch(v);
+              setPage(1);
+            }}
+            placeholder="Search tracks..."
+          />
+        </div>
+      </div>
 
       {/* ── Realtime indicator bar ──────────────────────────────── */}
       <div
