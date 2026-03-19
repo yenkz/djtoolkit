@@ -153,11 +153,20 @@ Update to return counts grouped by the new `acquisition_status` values instead o
 ## Migration
 
 ```sql
+-- Expand CHECK constraint to allow new acquisition_status values
+ALTER TABLE tracks DROP CONSTRAINT IF EXISTS tracks_acquisition_status_check;
+ALTER TABLE tracks ADD CONSTRAINT tracks_acquisition_status_check CHECK (
+    acquisition_status IN (
+        'candidate', 'searching', 'found', 'not_found', 'queued',
+        'downloading', 'available', 'failed', 'duplicate'
+    )
+);
+
 -- New column for search result count
 ALTER TABLE tracks ADD COLUMN IF NOT EXISTS search_results_count INTEGER DEFAULT NULL;
-
--- No migration needed for acquisition_status — it's a TEXT column, new values work immediately
 ```
+
+Also update the allowed values comment in `pg_schema.sql` to include the new statuses.
 
 Supabase migration via `mcp__supabase__apply_migration` or manual SQL.
 
