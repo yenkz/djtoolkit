@@ -32,6 +32,8 @@ def _cfg(config: str):
 
 def _adapter():
     """Create a SupabaseAdapter from environment credentials."""
+    from djtoolkit.config import _load_dotenv
+    _load_dotenv()
     from djtoolkit.db.supabase_client import get_client
     from djtoolkit.adapters.supabase import SupabaseAdapter
     return SupabaseAdapter(get_client())
