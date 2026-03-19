@@ -55,34 +55,20 @@ def _user_id() -> str:
 
 @db_app.command("setup")
 def db_setup(config: ConfigOpt = "djtoolkit.toml"):
-    """Initialize the database schema."""
-    from djtoolkit.db.database import setup
-    cfg = _cfg(config)
-    setup(cfg.db_path)
-    console.print(f"[green]✓[/green] Database ready at [bold]{cfg.db_path}[/bold]")
+    """Initialize the database schema (deprecated — data is in Supabase)."""
+    console.print("[yellow]db setup: SQLite setup no longer needed — data is in Supabase.[/yellow]")
 
 
 @db_app.command("check")
 def db_check(config: ConfigOpt = "djtoolkit.toml"):
-    """Run integrity check on the database."""
-    from djtoolkit.db.database import check
-    cfg = _cfg(config)
-    issues = check(cfg.db_path)
-    if not issues:
-        console.print("[green]✓[/green] Database integrity OK")
-    else:
-        for issue in issues:
-            console.print(f"[red]✗[/red] {issue}")
-        raise typer.Exit(1)
+    """Run integrity check on the database (deprecated — data is in Supabase)."""
+    console.print("[yellow]db check: SQLite check no longer needed — data is in Supabase.[/yellow]")
 
 
 @db_app.command("migrate")
 def db_migrate(config: ConfigOpt = "djtoolkit.toml"):
-    """Migrate existing DB to current schema (adds acquisition_status + processing flags)."""
-    from djtoolkit.db.database import migrate
-    cfg = _cfg(config)
-    migrate(cfg.db_path)
-    console.print("[green]✓[/green] Migration complete")
+    """Migrate existing DB to current schema (deprecated — data is in Supabase)."""
+    console.print("[yellow]db migrate: SQLite migration no longer needed — data is in Supabase.[/yellow]")
 
 
 @db_app.command("reconcile")
@@ -99,26 +85,16 @@ def db_wipe(
     config: ConfigOpt = "djtoolkit.toml",
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
 ):
-    """Wipe all data and recreate the schema."""
-    from djtoolkit.db.database import wipe
-    cfg = _cfg(config)
-    if not yes:
-        typer.confirm(f"⚠️  Wipe all data in {cfg.db_path}?", abort=True)
-    wipe(cfg.db_path)
-    console.print("[yellow]Database wiped and schema recreated.[/yellow]")
+    """Wipe all data and recreate the schema (deprecated — data is in Supabase)."""
+    console.print("[yellow]db wipe: SQLite wipe no longer needed — data is in Supabase.[/yellow]")
 
 
 @db_app.command("reset-downloading")
 def db_reset_downloading(config: ConfigOpt = "djtoolkit.toml"):
     """Reset stuck 'downloading' tracks back to candidate so they can be retried."""
-    from djtoolkit.db.database import connect
-    cfg = _cfg(config)
-    with connect(cfg.db_path) as conn:
-        result = conn.execute(
-            "UPDATE tracks SET acquisition_status = 'candidate' WHERE acquisition_status = 'downloading'"
-        )
-        count = result.rowcount
-        conn.commit()
+    adapter = _adapter()
+    uid = _user_id()
+    count = adapter.bulk_update_status(uid, "downloading", "candidate")
     console.print(f"[green]✓[/green] Reset [bold]{count}[/bold] stuck download(s) to candidate")
 
 
@@ -128,54 +104,37 @@ def db_purge_failed(
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
 ):
     """Permanently delete all 'failed' tracks from the database."""
-    from djtoolkit.db.database import connect
-    cfg = _cfg(config)
-    with connect(cfg.db_path) as conn:
-        count = conn.execute(
-            "SELECT COUNT(*) FROM tracks WHERE acquisition_status = 'failed'"
-        ).fetchone()[0]
+    adapter = _adapter()
+    uid = _user_id()
+    acq_counts = adapter.count_by_acquisition_status(uid)
+    count = acq_counts.get("failed", 0)
     if count == 0:
         console.print("[dim]No failed tracks to delete.[/dim]")
         return
     if not yes:
         typer.confirm(f"Delete {count} failed track(s) from the database?", abort=True)
-    with connect(cfg.db_path) as conn:
-        conn.execute("DELETE FROM tracks WHERE acquisition_status = 'failed'")
-        conn.commit()
-    console.print(f"[red]✗[/red] Deleted [bold]{count}[/bold] failed track(s)")
+    deleted = adapter.delete_by_status(uid, "failed")
+    console.print(f"[red]✗[/red] Deleted [bold]{deleted}[/bold] failed track(s)")
 
 
 @db_app.command("status")
 def db_status(config: ConfigOpt = "djtoolkit.toml"):
     """Show track counts by acquisition status and processing flags."""
-    from djtoolkit.db.database import connect
-    cfg = _cfg(config)
-    with connect(cfg.db_path) as conn:
-        acq_rows = conn.execute(
-            "SELECT acquisition_status, COUNT(*) as n FROM tracks GROUP BY acquisition_status ORDER BY n DESC"
-        ).fetchall()
-        flag_rows = conn.execute("""
-            SELECT
-                SUM(fingerprinted)    AS fingerprinted,
-                SUM(enriched_spotify) AS enriched_spotify,
-                SUM(enriched_audio)   AS enriched_audio,
-                SUM(metadata_written) AS metadata_written,
-                SUM(normalized)       AS normalized,
-                SUM(in_library)       AS in_library,
-                COUNT(*)              AS total
-            FROM tracks
-        """).fetchone()
+    adapter = _adapter()
+    uid = _user_id()
+    acq_counts = adapter.count_by_acquisition_status(uid)
+    flag_counts = adapter.count_processing_flags(uid)
 
     acq_table = Table("Acquisition Status", "Count", title="Tracks by Acquisition Status")
-    for row in acq_rows:
-        acq_table.add_row(row["acquisition_status"] or "—", str(row["n"]))
+    for status, count in sorted(acq_counts.items(), key=lambda x: -x[1]):
+        acq_table.add_row(status or "—", str(count))
     console.print(acq_table)
 
-    if flag_rows:
-        total = flag_rows["total"] or 0
+    total = flag_counts.get("total", 0)
+    if total:
         flag_table = Table("Processing Flag", "Done", title="Processing Flags")
         for flag in ("fingerprinted", "enriched_spotify", "enriched_audio", "metadata_written", "normalized", "in_library"):
-            n = flag_rows[flag] or 0
+            n = flag_counts.get(flag, 0)
             flag_table.add_row(flag, f"{n} / {total}")
         console.print(flag_table)
 
@@ -213,7 +172,7 @@ def import_folder(
         console.print(f"[red]Folder not found:[/red] {folder}")
         raise typer.Exit(1)
     try:
-        result = _import(folder, cfg)
+        result = _import(folder, cfg, _adapter(), _user_id())
     except RuntimeError as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -315,7 +274,7 @@ def fingerprint(config: ConfigOpt = "djtoolkit.toml"):
     from djtoolkit.fingerprint.chromaprint import run
     cfg = _cfg(config)
     console.print("Fingerprinting tracks…")
-    stats = run(cfg)
+    stats = run(cfg, _adapter(), _user_id())
     console.print(
         f"[green]✓ fingerprinted {stats['fingerprinted']}[/green]  "
         f"[yellow]duplicates {stats['duplicates']}[/yellow]  "
@@ -334,10 +293,12 @@ def enrich(
         console.print("[yellow]Specify --spotify <csv> and/or --audio-analysis[/yellow]")
         raise typer.Exit(1)
     cfg = _cfg(config)
+    adapter = _adapter()
+    uid = _user_id()
     if spotify:
         from djtoolkit.enrichment.spotify import run as spotify_run
         console.print(f"Enriching from Spotify CSV: {spotify}…")
-        stats = spotify_run(spotify, cfg)
+        stats = spotify_run(spotify, cfg, adapter, uid)
         console.print(
             f"[green]✓ matched {stats['matched']}[/green]  "
             f"unmatched {stats['unmatched']}"
@@ -345,7 +306,7 @@ def enrich(
     if audio_analysis:
         from djtoolkit.enrichment.audio_analysis import run as audio_run
         console.print("Running audio analysis…")
-        stats = audio_run(cfg)
+        stats = audio_run(cfg, adapter, uid)
         console.print(
             f"[green]✓ analyzed {stats['analyzed']}[/green]  "
             f"[red]failed {stats['failed']}[/red]  "
@@ -365,7 +326,7 @@ def move_to_library(
     from djtoolkit.library.mover import run
     cfg = _cfg(config)
     console.print(f"Moving tracks to library (mode: {mode})…")
-    stats = run(cfg, mode=mode)
+    stats = run(cfg, _adapter(), _user_id(), mode=mode)
     console.print(
         f"[green]✓ moved {stats['moved']}[/green]  "
         f"[red]failed {stats['failed']}[/red]  "
@@ -435,7 +396,7 @@ def coverart_fetch(config: ConfigOpt = "djtoolkit.toml"):
     """Fetch and embed cover art for tracks that are missing artwork."""
     from djtoolkit.coverart.art import run
     cfg = _cfg(config)
-    stats = run(cfg)
+    stats = run(cfg, _adapter(), _user_id())
     console.print(
         f"[green]✓ embedded {stats['embedded']}[/green]  "
         f"[red]failed {stats['failed']}[/red]  "
@@ -452,21 +413,20 @@ def coverart_list(
     )] = None,
 ):
     """List tracks that had cover art embedded by djtoolkit."""
-    from djtoolkit.db.database import connect
-    cfg = _cfg(config)
-    query = """
-        SELECT artist, title, album, cover_art_embedded_at
-        FROM tracks
-        WHERE cover_art_embedded_at IS NOT NULL
-    """
-    params: list = []
+    adapter = _adapter()
+    uid = _user_id()
+    query = (
+        adapter._client.table("tracks")
+        .select("artist, title, album, cover_art_embedded_at")
+        .eq("user_id", uid)
+        .not_.is_("cover_art_embedded_at", "null")
+    )
     if since is not None:
-        query += " AND cover_art_embedded_at > datetime('now', ?)"
-        params.append(f"-{since} minutes")
-    query += " ORDER BY cover_art_embedded_at DESC"
-
-    with connect(cfg.db_path) as conn:
-        rows = conn.execute(query, params).fetchall()
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=since)).isoformat()
+        query = query.gte("cover_art_embedded_at", cutoff)
+    query = query.order("cover_art_embedded_at", desc=True)
+    rows = query.execute().data
 
     if not rows:
         console.print("[dim]No tracks with embedded cover art found.[/dim]")
@@ -475,10 +435,10 @@ def coverart_list(
     t = Table("Artist", "Title", "Album", "Embedded at", title=f"Cover art embedded ({len(rows)} tracks)")
     for row in rows:
         t.add_row(
-            row["artist"] or "—",
-            row["title"] or "—",
-            row["album"] or "—",
-            row["cover_art_embedded_at"] or "—",
+            row.get("artist") or "—",
+            row.get("title") or "—",
+            row.get("album") or "—",
+            row.get("cover_art_embedded_at") or "—",
         )
     console.print(t)
 
