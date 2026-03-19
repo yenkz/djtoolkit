@@ -1,5 +1,5 @@
-.PHONY: init install setup import-csv download fingerprint apply-metadata move-to-library \
-        import-folder enrich fetch-cover-art migrate-db check-db wipe-db reconcile normalize playlist api dev \
+.PHONY: init install import-csv download fingerprint apply-metadata move-to-library \
+        import-folder enrich fetch-cover-art normalize playlist dev \
         test lint import-trackid
 
 .DEFAULT_GOAL := help
@@ -7,10 +7,8 @@
 help:
 	@echo "Usage: make <target>"
 	@echo ""
-	@echo "  init            copy example config files"
+	@echo "  init            copy example config files (.env, djtoolkit.toml)"
 	@echo "  install         poetry install"
-	@echo "  setup           initialize DB from schema"
-	@echo "  migrate-db      apply schema migrations to existing DB"
 	@echo ""
 	@echo "  import-csv      CSV=path  import Exportify CSV"
 	@echo "  download        download candidate tracks via Soulseek"
@@ -23,9 +21,7 @@ help:
 	@echo "  enrich          ARGS='...' enrich DB only"
 	@echo "  fetch-cover-art embed cover art"
 	@echo ""
-	@echo "  api             start FastAPI API server at http://localhost:8000"
-	@echo "  check-db        DB integrity check"
-	@echo "  wipe-db         drop and recreate DB (destructive)"
+	@echo "  dev             start Next.js dev server"
 	@echo "  test            run pytest"
 
 PYTHON  := poetry run python
@@ -53,9 +49,6 @@ init:
 
 install:
 	poetry install --lock --no-interaction
-
-setup:
-	$(DJ) db setup --config $(CONFIG)
 
 # ── Flow 1: Exportify CSV → Downloaded + Tagged ───────────────────────────────
 
@@ -97,22 +90,6 @@ import-trackid:
 	$(DJ) import trackid --url "$(URL)" --config $(CONFIG)
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
-
-migrate-db:
-	$(DJ) db migrate --config $(CONFIG)
-
-check-db:
-	$(DJ) db check --config $(CONFIG)
-
-wipe-db:
-	@echo "⚠️  This will delete all data in the database. Press Ctrl-C to cancel."
-	@read -p "Type 'wipe' to confirm: " confirm && [ "$$confirm" = "wipe" ]
-	$(DJ) db wipe --config $(CONFIG)
-
-reconcile:
-	$(DJ) db reconcile --config $(CONFIG)
-
-## not implemented yet, but will run various normalization steps on the database (e.g. genre/style cleanup, filename cleanup, etc.)
 
 normalize:
 	$(DJ) normalize --config $(CONFIG)

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-**djtoolkit** is a Python CLI tool for managing a DJ music library. It downloads music from Soulseek via [aioslsk](https://github.com/JurgenR/aioslsk) (embedded Python client, no external service required), enriches tracks with metadata, deduplicates using audio fingerprinting (Chromaprint/AcoustID), and writes clean metadata to files. The **SQLite database is the single source of truth** for all track state.
+**djtoolkit** is a Python CLI tool for managing a DJ music library. It downloads music from Soulseek via [aioslsk](https://github.com/JurgenR/aioslsk) (embedded Python client, no external service required), enriches tracks with metadata, deduplicates using audio fingerprinting (Chromaprint/AcoustID), and writes clean metadata to files. **Supabase (PostgreSQL) is the single source of truth** for all track state — SQLite has been fully removed.
 
 ---
 
@@ -13,8 +13,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Setup
 make install                      # poetry install
-make setup                        # initialize DB from schema
-make migrate-db                   # migrate existing DB to current schema; drops legacy `status` column (idempotent)
+make init                         # copy example config files (djtoolkit.toml, .env)
+
+# Required env vars in .env:
+#   SUPABASE_PROJECT_URL, SUPABASE_SERVICE_ROLE_KEY, DJTOOLKIT_USER_ID (Supabase Auth UUID)
 
 # Flow 1 — Exportify CSV → Downloaded + Tagged
 make import-csv CSV=path/to.csv   # import Exportify CSV → DB (acquisition_status: candidate)
@@ -34,10 +36,12 @@ make enrich ARGS='--audio-analysis'        # run BPM/key/loudness analysis (DB o
 # Cover art
 make fetch-cover-art              # fetch + embed cover art for tracks missing artwork
 
-# Utilities
-make check-db                     # DB integrity check
-make wipe-db                      # drop and recreate DB (destructive, asks confirmation)
-make reconcile                    # scan downloads_dir, mark on-disk files as available
+# DB utilities (Supabase-backed)
+poetry run djtoolkit db status          # track counts by acquisition_status + processing flags
+poetry run djtoolkit db reset-downloading  # reset stuck 'downloading' tracks → candidate
+poetry run djtoolkit db purge-failed       # delete all 'failed' tracks
+
+# Other utilities
 make normalize                    # ReplayGain/EBU R128 loudness normalization
 make playlist                     # generate M3U playlists grouped by genre/style
 
@@ -58,8 +62,17 @@ djtoolkit/
 │   ├── __main__.py             # Typer CLI entry point
 │   ├── config.py               # loads djtoolkit.toml via tomllib
 │   ├── db/
-│   │   ├── database.py         # sqlite3 connection, setup, migrate, wipe helpers
-│   │   └── schema.sql          # CREATE TABLE statements
+│   │   ├── supabase_client.py  # get_client() — reads env vars, returns supabase.Client
+│   │   ├── pg_schema.sql       # PostgreSQL schema reference (applied via Supabase migrations)
+│   │   └── rls.sql             # Row-Level Security policies
+│   ├── adapters/
+│   │   ├── base.py             # abstract adapter interface
+│   │   ├── supabase.py         # SupabaseAdapter — sole data access layer for CLI
+│   │   ├── traktor.py          # Traktor NML adapter
+│   │   └── rekordbox.py        # Rekordbox XML adapter
+│   ├── models/
+│   │   ├── track.py            # Track dataclass (to_db_row / from_db_row)
+│   │   └── camelot.py          # Camelot wheel key conversion
 │   ├── importers/
 │   │   ├── exportify.py        # Flow 1: parse Exportify CSV → tracks (candidate)
 │   │   └── folder.py           # Flow 2: scan audio files in a directory (available)
@@ -117,7 +130,7 @@ Key columns:
 | cover_art_written | INTEGER 0/1 | set by `coverart/art.py` — art embedded into file |
 | in_library | INTEGER 0/1 | set by `library/mover.py` — file moved to `library_dir` |
 
-> See `djtoolkit/db/schema.sql` for full column list including audio features, `fingerprints`, and `track_embeddings` tables.
+> Schema lives in `supabase/migrations/`. See `djtoolkit/db/pg_schema.sql` for reference. All tracks are scoped by `user_id` (UUID FK → auth.users) with Row-Level Security. Boolean flags are native `BOOLEAN`, not integer 0/1.
 
 ---
 
@@ -172,4 +185,8 @@ Each module queries only its relevant `acquisition_status` + flag combination �
 
 **Cross-platform**: use `pathlib.Path` everywhere. Never hardcode path separators.
 
-**DB migration**: `database.py` exposes `migrate(db_path)` which uses `ALTER TABLE ADD COLUMN` (idempotent). Run `make migrate-db` when pulling schema changes. Fresh installs use `make setup` and get the current schema directly.
+**Data access pattern**: All CLI modules access Supabase through `SupabaseAdapter` (in `djtoolkit/adapters/supabase.py`). The `_adapter()` helper in `__main__.py` loads `.env`, creates the client, and returns the adapter. Every command also needs `_user_id()` which reads `DJTOOLKIT_USER_ID` from env. Never import `supabase_client` directly in modules — always pass the adapter.
+
+**Schema migrations**: Use `supabase/migrations/` with `supabase db push` or the Supabase MCP `apply_migration` tool. Never modify the schema via raw SQL on production.
+
+**Environment**: CLI requires three env vars: `SUPABASE_PROJECT_URL` (with fallback to `SUPABASE_URL`), `SUPABASE_SERVICE_ROLE_KEY`, `DJTOOLKIT_USER_ID`. The dotenv loader in `config.py` overwrites empty env vars with `.env` values.
