@@ -55,41 +55,6 @@ def _user_id() -> str:
 
 # ─── db commands ──────────────────────────────────────────────────────────────
 
-@db_app.command("setup")
-def db_setup(config: ConfigOpt = "djtoolkit.toml"):
-    """Initialize the database schema (deprecated — data is in Supabase)."""
-    console.print("[yellow]db setup: SQLite setup no longer needed — data is in Supabase.[/yellow]")
-
-
-@db_app.command("check")
-def db_check(config: ConfigOpt = "djtoolkit.toml"):
-    """Run integrity check on the database (deprecated — data is in Supabase)."""
-    console.print("[yellow]db check: SQLite check no longer needed — data is in Supabase.[/yellow]")
-
-
-@db_app.command("migrate")
-def db_migrate(config: ConfigOpt = "djtoolkit.toml"):
-    """Migrate existing DB to current schema (deprecated — data is in Supabase)."""
-    console.print("[yellow]db migrate: SQLite migration no longer needed — data is in Supabase.[/yellow]")
-
-
-@db_app.command("reconcile")
-def db_reconcile(config: ConfigOpt = "djtoolkit.toml"):
-    """Scan downloads_dir and library_dir and mark any already-downloaded tracks as available."""
-    from djtoolkit.downloader.aioslsk_client import reconcile_disk
-    cfg = _cfg(config)
-    stats = reconcile_disk(cfg)
-    console.print(f"[green]✓ updated {stats['updated']}[/green]  skipped {stats['skipped']}")
-
-
-@db_app.command("wipe")
-def db_wipe(
-    config: ConfigOpt = "djtoolkit.toml",
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation")] = False,
-):
-    """Wipe all data and recreate the schema (deprecated — data is in Supabase)."""
-    console.print("[yellow]db wipe: SQLite wipe no longer needed — data is in Supabase.[/yellow]")
-
 
 @db_app.command("reset-downloading")
 def db_reset_downloading(config: ConfigOpt = "djtoolkit.toml"):
