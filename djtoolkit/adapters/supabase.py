@@ -159,6 +159,41 @@ class SupabaseAdapter:
         )
         return result.data[0]["fingerprint"] if result.data else None
 
+    # ── Embedding methods (for audio_analysis TF classifiers) ──
+
+    def upsert_embedding(self, track_id: int, model: str, embedding: bytes) -> None:
+        """Insert or update a track embedding (bytea).
+        PostgREST expects bytea as hex-encoded string prefixed with \\x.
+        """
+        self._client.table("track_embeddings").upsert({
+            "track_id": track_id,
+            "model": model,
+            "embedding": "\\x" + embedding.hex(),
+        }).execute()
+
+    def get_embedding(self, track_id: int) -> bytes | None:
+        """Get embedding bytes for a track. Returns None if not found."""
+        result = (
+            self._client.table("track_embeddings")
+            .select("embedding")
+            .eq("track_id", track_id)
+            .limit(1)
+            .execute()
+        )
+        if not result.data:
+            return None
+        raw = result.data[0]["embedding"]
+        if isinstance(raw, bytes):
+            return raw
+        if isinstance(raw, str) and raw.startswith("\\x"):
+            return bytes.fromhex(raw[2:])
+        return raw.encode() if isinstance(raw, str) else raw
+
+    def get_all_embeddings(self) -> list[dict]:
+        """Get all embeddings. Returns list of {track_id, embedding} dicts."""
+        result = self._client.table("track_embeddings").select("track_id, embedding").execute()
+        return result.data
+
     def find_library_duplicate(self, track_id: int, user_id: str) -> int | None:
         """Check if an in-library track has the same fingerprint. Returns matching track_id or None."""
         fp = self.get_fingerprint_for_track(track_id)

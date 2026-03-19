@@ -375,3 +375,78 @@ class TestFingerprintMethods:
         result = adapter.find_library_duplicate(42, "user-1")
 
         assert result is None
+
+
+class TestEmbeddingMethods:
+    """Tests for embedding CRUD methods on SupabaseAdapter."""
+
+    @pytest.fixture
+    def mock_client(self):
+        client = MagicMock()
+        return client
+
+    @pytest.fixture
+    def adapter(self, mock_client):
+        return SupabaseAdapter(mock_client)
+
+    def _make_chain(self, mock_client):
+        """Return a chainable mock for table().upsert/select/eq/limit/execute."""
+        chain = MagicMock()
+        chain.upsert.return_value = chain
+        chain.select.return_value = chain
+        chain.eq.return_value = chain
+        chain.limit.return_value = chain
+        mock_client.table.return_value = chain
+        return chain
+
+    def test_upsert_embedding_hex_encodes(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        raw_bytes = b"\xde\xad\xbe\xef"
+
+        adapter.upsert_embedding(track_id=42, model="musicnn", embedding=raw_bytes)
+
+        mock_client.table.assert_called_with("track_embeddings")
+        chain.upsert.assert_called_once_with({
+            "track_id": 42,
+            "model": "musicnn",
+            "embedding": "\\xdeadbeef",
+        })
+        chain.execute.assert_called_once()
+
+    def test_get_embedding_found_hex_string(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"embedding": "\\xdeadbeef"}]
+
+        result = adapter.get_embedding(42)
+
+        assert result == b"\xde\xad\xbe\xef"
+        mock_client.table.assert_called_with("track_embeddings")
+
+    def test_get_embedding_found_bytes(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = [{"embedding": b"\xde\xad\xbe\xef"}]
+
+        result = adapter.get_embedding(42)
+
+        assert result == b"\xde\xad\xbe\xef"
+
+    def test_get_embedding_not_found(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        chain.execute.return_value.data = []
+
+        result = adapter.get_embedding(42)
+
+        assert result is None
+
+    def test_get_all_embeddings(self, adapter, mock_client):
+        chain = self._make_chain(mock_client)
+        expected = [
+            {"track_id": 1, "embedding": "\\xaa"},
+            {"track_id": 2, "embedding": "\\xbb"},
+        ]
+        chain.execute.return_value.data = expected
+
+        result = adapter.get_all_embeddings()
+
+        assert result == expected
+        mock_client.table.assert_called_with("track_embeddings")
