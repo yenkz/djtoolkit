@@ -29,12 +29,38 @@ export async function POST(req: NextRequest) {
   const upstream = new FormData();
   upstream.append("file", file);
 
-  const resp = await fetch(`${apiUrl}/parse`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: upstream,
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${apiUrl}/parse`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: upstream,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { detail: `Upstream unreachable: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 502 },
+    );
+  }
 
-  const body = await resp.json();
-  return NextResponse.json(body, { status: resp.status });
+  const text = await resp.text();
+  if (!resp.ok) {
+    let detail: string;
+    try {
+      detail = JSON.parse(text).detail ?? text;
+    } catch {
+      detail = text;
+    }
+    return NextResponse.json({ detail }, { status: resp.status });
+  }
+
+  try {
+    const body = JSON.parse(text);
+    return NextResponse.json(body, { status: 200 });
+  } catch {
+    return NextResponse.json(
+      { detail: `Invalid JSON from upstream: ${text.slice(0, 200)}` },
+      { status: 502 },
+    );
+  }
 }

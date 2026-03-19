@@ -32,13 +32,27 @@ export async function GET(
   const genre = req.nextUrl.searchParams.get("genre");
   const qs = genre ? `?genre=${encodeURIComponent(genre)}` : "";
 
-  const resp = await fetch(`${apiUrl}/export/${format}${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  let resp: Response;
+  try {
+    resp = await fetch(`${apiUrl}/export/${format}${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { detail: `Upstream unreachable: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 502 },
+    );
+  }
 
   if (!resp.ok) {
     const text = await resp.text();
-    return NextResponse.json({ detail: text }, { status: resp.status });
+    let detail: string;
+    try {
+      detail = JSON.parse(text).detail ?? text;
+    } catch {
+      detail = text;
+    }
+    return NextResponse.json({ detail }, { status: resp.status });
   }
 
   const data = await resp.arrayBuffer();
