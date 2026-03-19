@@ -37,17 +37,28 @@ function applyTheme(theme: Theme) {
   return resolved;
 }
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark");
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
+function getInitialTheme(): Theme {
+  if (typeof window === "undefined") return "dark";
+  const stored = localStorage.getItem("djtoolkit-theme") as Theme | null;
+  return stored && ["system", "light", "dark"].includes(stored) ? stored : "dark";
+}
 
-  // Initialize from localStorage
+function getInitialResolved(): "light" | "dark" {
+  if (typeof window === "undefined") return "dark";
+  const theme = getInitialTheme();
+  return theme === "system" ? getSystemTheme() : theme;
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<Theme>(getInitialTheme);
+  const [resolved, setResolved] = useState<"light" | "dark">(getInitialResolved);
+
+  /* Apply DOM class on mount — reads from localStorage (external system)
+     and syncs the document class. */
   useEffect(() => {
-    const stored = localStorage.getItem("djtoolkit-theme") as Theme | null;
-    const t = stored && ["system", "light", "dark"].includes(stored) ? stored : "dark";
-    setThemeState(t);
-    setResolved(applyTheme(t));
-  }, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing with localStorage on mount
+    setResolved(applyTheme(theme));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- intentional mount-only
 
   // Listen for system preference changes when in system mode
   useEffect(() => {

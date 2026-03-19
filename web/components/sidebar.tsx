@@ -83,6 +83,7 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
   const { theme, setTheme } = useTheme();
 
   // Close on route change
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing mobile drawer with route changes
   useEffect(() => { setOpen(false); }, [pathname]);
 
   // Close on escape

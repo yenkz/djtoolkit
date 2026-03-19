@@ -19,9 +19,12 @@ export default function SaveBtn({
   const [showSaved, setShowSaved] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* Show "SAVED" with checkmark for 2s after saved prop becomes true */
+  /* Show "SAVED" with checkmark for 2s after saved prop becomes true.
+     setState is intentional here — we're synchronizing a transient UI
+     indicator with an external signal (the `saved` prop). */
   useEffect(() => {
     if (saved) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing UI indicator with prop
       setShowSaved(true);
       timerRef.current = setTimeout(() => setShowSaved(false), 2000);
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -296,22 +296,23 @@ function AnimatedVUStrip() {
 }
 
 /* ═══ WAVEFORM FOOTER DECORATION ═══ */
+function generateBars() {
+  return Array.from({ length: 60 }, (_, i) => ({
+    h: Math.max(
+      2,
+      Math.sin((i / 60) * Math.PI) *
+        (0.15 + Math.random() * 0.85) *
+        24,
+    ),
+    d: i * 15,
+  }));
+}
+
 function WaveformDecor() {
   const [inView, setInView] = useState(false);
-  useEffect(() => {
-    setInView(true);
-  }, []);
-  const bars = useRef(
-    Array.from({ length: 60 }, (_, i) => ({
-      h: Math.max(
-        2,
-        Math.sin((i / 60) * Math.PI) *
-          (0.15 + Math.random() * 0.85) *
-          24,
-      ),
-      d: i * 15,
-    })),
-  ).current;
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- mount animation trigger
+  useEffect(() => { setInView(true); }, []);
+  const [bars] = useState(generateBars);
 
   return (
     <div
