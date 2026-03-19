@@ -30,6 +30,27 @@ def _cfg(config: str):
     return load(config)
 
 
+def _adapter():
+    """Create a SupabaseAdapter from environment credentials."""
+    from djtoolkit.db.supabase_client import get_client
+    from djtoolkit.adapters.supabase import SupabaseAdapter
+    return SupabaseAdapter(get_client())
+
+
+def _user_id() -> str:
+    """Read DJTOOLKIT_USER_ID from environment."""
+    import os
+    uid = os.environ.get("DJTOOLKIT_USER_ID")
+    if not uid:
+        console.print(
+            "[red]DJTOOLKIT_USER_ID not set.[/red] "
+            "Set it in .env or environment. "
+            "Find your user ID at [bold]djtoolkit.net/settings[/bold]."
+        )
+        raise typer.Exit(1)
+    return uid
+
+
 # ─── db commands ──────────────────────────────────────────────────────────────
 
 @db_app.command("setup")
