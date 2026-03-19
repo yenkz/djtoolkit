@@ -1,6 +1,26 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
+import { createServiceClient } from "@/lib/supabase/service";
+
+/**
+ * Ensure a row exists in public.users for the authenticated user.
+ * Uses upsert (on conflict do nothing) so it's safe to call on every login.
+ */
+async function ensureUserRow(
+  supabase: ReturnType<typeof createServerClient>
+) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) return;
+
+  const service = createServiceClient();
+  await service.from("users").upsert(
+    { id: user.id, email: user.email },
+    { onConflict: "id", ignoreDuplicates: true }
+  );
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
@@ -42,13 +62,19 @@ export async function GET(request: NextRequest) {
       token_hash,
       type: type as "signup" | "email",
     });
-    if (!error) return NextResponse.redirect(`${origin}${destination}`);
+    if (!error) {
+      await ensureUserRow(supabase);
+      return NextResponse.redirect(`${origin}${destination}`);
+    }
   }
 
   // Handle OAuth / PKCE flow (code exchange)
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}${destination}`);
+    if (!error) {
+      await ensureUserRow(supabase);
+      return NextResponse.redirect(`${origin}${destination}`);
+    }
   }
 
   return NextResponse.redirect(`${origin}/login?error=auth_failed`);

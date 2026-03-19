@@ -106,15 +106,20 @@ export async function GET(request: NextRequest) {
     Date.now() + tokens.expires_in * 1000
   ).toISOString();
 
-  // Update user's Spotify tokens
+  // Fetch the user's email from auth so we can upsert (email is NOT NULL)
+  const { data: { user: authUser } } = await supabase.auth.admin.getUserById(userId);
+
+  // Upsert user's Spotify tokens — creates the row if it doesn't exist yet
+  // (safety net for race conditions where /auth/callback hasn't run yet)
   const { error: updateError } = await supabase
     .from("users")
-    .update({
+    .upsert({
+      id: userId,
+      email: authUser?.email ?? "",
       spotify_access_token: encryptedAccess,
       spotify_refresh_token: encryptedRefresh,
       spotify_token_expires_at: expiresAtIso,
-    })
-    .eq("id", userId);
+    }, { onConflict: "id" });
 
   if (updateError) {
     console.error("users update failed:", updateError.message, updateError.code);
