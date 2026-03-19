@@ -42,17 +42,22 @@ class TestSaveTracks:
         assert rows[0]["camelot"] == "5A"
 
     def test_returns_stats(self, adapter, mock_client):
+        # Configure mock to return rows with IDs from upsert
+        table = mock_client.table.return_value
+        table.upsert.return_value.execute.return_value.data = [
+            {"id": 101}, {"id": 102},
+        ]
         tracks = [
             Track(title="A", artist="B", source="traktor"),
             Track(title="C", artist="D", source="traktor"),
         ]
         result = adapter.save_tracks(tracks, user_id="user-123")
-        assert result == {"imported": 2}
+        assert result == {"imported": 2, "track_ids": [101, 102]}
 
     def test_empty_tracks_skips_upsert(self, adapter, mock_client):
         result = adapter.save_tracks([], user_id="user-123")
         mock_client.table.assert_not_called()
-        assert result == {"imported": 0}
+        assert result == {"imported": 0, "track_ids": []}
 
 
 class TestLoadTracks:
