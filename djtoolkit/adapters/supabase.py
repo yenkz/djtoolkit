@@ -33,7 +33,6 @@ class SupabaseAdapter:
             result = (
                 self._client.table("tracks")
                 .upsert(rows, on_conflict="source_id,user_id")
-                .select("id")
                 .execute()
             )
             track_ids = [row["id"] for row in result.data]
