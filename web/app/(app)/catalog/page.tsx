@@ -486,7 +486,7 @@ export default function CatalogPage() {
                 style={{
                   display: "grid",
                   gridTemplateColumns:
-                    "44px 2fr 1.5fr 60px 0.7fr 0.5fr 1fr 48px",
+                    "44px 2fr 1.5fr 50px 60px 0.5fr 1fr 48px",
                   padding: "10px 14px",
                   gap: 10,
                   background: "var(--hw-list-header)",
@@ -500,8 +500,8 @@ export default function CatalogPage() {
                   { label: "", key: "" },
                   { label: "Track", key: "title" },
                   { label: "Artist", key: "artist" },
-                  { label: "Wave", key: "" },
-                  { label: "BPM / Key", key: "tempo" },
+                  { label: "BPM", key: "tempo" },
+                  { label: "Key", key: "" },
                   { label: "Energy", key: "" },
                   { label: "Tags", key: "genres" },
                   { label: "", key: "" },

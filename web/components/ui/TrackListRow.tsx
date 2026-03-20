@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import MiniWave from "./MiniWave";
 import EnergyBar from "./EnergyBar";
 import StatusDot from "./StatusDot";
 import Tag from "./Tag";
@@ -53,7 +52,7 @@ export default function TrackListRow({
       className="cursor-pointer"
       style={{
         display: "grid",
-        gridTemplateColumns: "44px 2fr 1.5fr 60px 50px 50px 0.5fr 1fr 48px",
+        gridTemplateColumns: "44px 2fr 1.5fr 50px 60px 0.5fr 1fr 48px",
         padding: "8px 14px",
         gap: 10,
         alignItems: "center",
@@ -128,11 +127,6 @@ export default function TrackListRow({
       >
         {track.artist}
       </span>
-
-      {/* Mini waveform */}
-      <div style={{ width: 48 }}>
-        <MiniWave color={color} />
-      </div>
 
       {/* BPM */}
       <span
