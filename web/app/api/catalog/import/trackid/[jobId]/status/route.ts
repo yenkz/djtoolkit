@@ -238,12 +238,31 @@ export async function GET(
       { onConflict: "youtube_url" }
     );
 
+  // Check existing tracks to avoid duplicates
+  const { data: existingRows } = await supabase
+    .from("tracks")
+    .select("title, artist")
+    .eq("user_id", user.userId);
+  const existingSet = new Set(
+    (existingRows ?? [])
+      .filter((r: Record<string, unknown>) => r.title && r.artist)
+      .map((r: Record<string, unknown>) =>
+        `${String(r.title).toLowerCase().trim()}|${String(r.artist).toLowerCase().trim()}`
+      )
+  );
+
   // Insert tracks
   let inserted = 0;
   let skipped = 0;
   const insertedIds: number[] = [];
 
   for (const t of tracks) {
+    const key = `${(t.title ?? "").toLowerCase().trim()}|${(t.artist ?? "").toLowerCase().trim()}`;
+    if (existingSet.has(key)) {
+      skipped++;
+      continue;
+    }
+
     const { data: row, error: insertErr } = await supabase
       .from("tracks")
       .insert({
@@ -265,6 +284,7 @@ export async function GET(
     }
 
     inserted++;
+    existingSet.add(key);
     insertedIds.push(row.id as number);
   }
 

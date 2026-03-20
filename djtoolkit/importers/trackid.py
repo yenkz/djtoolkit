@@ -205,6 +205,7 @@ def import_trackid(
         "skipped_unknown": 0,
         "failed": 0,
         "skipped_cached": 0,
+        "skipped_duplicate": 0,
     }
 
     if adapter is None or user_id is None:
@@ -291,13 +292,38 @@ def import_trackid(
             "search_string": build_search_string(artist, title) if (artist or title) else None,
         })
 
+    # Deduplicate against existing tracks (same title+artist for this user)
     if rows:
-        result = (
+        existing = (
             client.table("tracks")
-            .insert(rows)
+            .select("title, artist")
+            .eq("user_id", user_id)
             .execute()
-        )
-        stats["imported"] = len(result.data)
+        ).data or []
+        existing_set = {
+            (r["title"].lower().strip(), r["artist"].lower().strip())
+            for r in existing
+            if r.get("title") and r.get("artist")
+        }
+        new_rows = [
+            r for r in rows
+            if (
+                (r.get("title") or "").lower().strip(),
+                (r.get("artist") or "").lower().strip(),
+            ) not in existing_set
+        ]
+        skipped = len(rows) - len(new_rows)
+        stats["skipped_duplicate"] = skipped
+
+        if new_rows:
+            result = (
+                client.table("tracks")
+                .insert(new_rows)
+                .execute()
+            )
+            stats["imported"] = len(result.data)
+        else:
+            stats["imported"] = 0
 
     # 7. Update cache
     (client.table("trackid_jobs")
