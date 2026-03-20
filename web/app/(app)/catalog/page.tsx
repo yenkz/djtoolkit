@@ -122,7 +122,7 @@ export default function CatalogPage() {
           });
         }
         if (t.artist) artistSet.add(t.artist);
-        const mk = (t as TrackExt).musical_key;
+        const mk = t.key_normalized;
         if (mk) keySet.add(mk);
         if (t.acquisition_status) statusSet.add(t.acquisition_status);
       });
@@ -170,7 +170,7 @@ export default function CatalogPage() {
         return false;
       // Key filter
       if (filters.keys.length > 0) {
-        const mk = (t as TrackExt).musical_key;
+        const mk = t.key_normalized;
         if (!mk || !filters.keys.includes(mk)) return false;
       }
       // BPM range filter
