@@ -226,7 +226,8 @@ export type AcquisitionStatus =
   | "not_found"
   | "queued"
   | "downloading"
-  | "failed";
+  | "failed"
+  | "paused";
 
 export interface PipelineTrack {
   id: number;
@@ -248,6 +249,7 @@ export interface PipelineMonitorStatus {
   queued: number;
   downloading: number;
   failed: number;
+  paused: number;
   agents: { id: string; machine_name: string; last_seen_at: string; capabilities: string[] }[];
 }
 
@@ -281,6 +283,17 @@ export async function fetchPipelineTracks(params: {
   if (params.search) sp.set("search", params.search);
   const res = await apiClient(`/pipeline/tracks?${sp}`);
   if (!res.ok) throw new Error("Failed to fetch pipeline tracks");
+  return res.json();
+}
+
+export async function bulkPipelineAction(
+  action: "retry_failed" | "delete_failed" | "delete_candidates" | "pause_candidates" | "resume_paused",
+): Promise<{ updated?: number; deleted?: number }> {
+  const res = await apiClient("/pipeline/tracks/bulk", {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json();
 }
 

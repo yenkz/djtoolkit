@@ -4,6 +4,7 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB — Vercel request body limit
 
@@ -349,28 +350,45 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient();
 
   // Upsert tracks — ON CONFLICT (user_id, spotify_uri) DO NOTHING
-  const { data: inserted, error: insertErr } = await supabase
+  const { error: insertErr } = await supabase
     .from("tracks")
     .upsert(trackRows, {
       onConflict: "user_id,spotify_uri",
       ignoreDuplicates: true,
-    })
-    .select("id, title, artist, search_string, duration_ms, spotify_uri");
+    });
 
   if (insertErr) {
     return jsonError("Failed to import tracks", 500);
   }
 
-  const importedTracks = inserted ?? [];
-  const imported = importedTracks.length;
+  // Fetch all tracks matching the CSV's spotify_uris (both new and pre-existing)
+  // so the review step always shows them.
+  const spotifyUris = trackRows.map((r) => r.spotify_uri);
+  const allTracks: { id: number; title: string | null; artist: string | null; search_string: string; duration_ms: number | null; spotify_uri: string; acquisition_status: string }[] = [];
+  for (let i = 0; i < spotifyUris.length; i += 500) {
+    const batch = spotifyUris.slice(i, i + 500);
+    const { data } = await supabase
+      .from("tracks")
+      .select("id, title, artist, search_string, duration_ms, spotify_uri, acquisition_status")
+      .eq("user_id", user.userId)
+      .in("spotify_uri", batch);
+    if (data) allTracks.push(...data);
+  }
+
+  // Count how many are candidates (newly inserted) vs already processed
+  const imported = allTracks.filter((t) => t.acquisition_status === "candidate").length;
   const skippedDuplicates = trackRows.length - imported;
 
-  // Optionally create download jobs for each imported track
+  // Optionally create download jobs for newly imported (candidate) tracks
   let jobsCreated = 0;
-  const trackIds: number[] = importedTracks.map((t) => t.id as number);
+  const trackIds: number[] = allTracks.map((t) => t.id);
+  const candidateTracks = allTracks.filter((t) => t.acquisition_status === "candidate");
 
-  if (queueJobs && importedTracks.length > 0) {
-    const jobRows = importedTracks.map((track) => ({
+  if (queueJobs && candidateTracks.length > 0) {
+    const userSettings = await getUserSettings(supabase, user.userId);
+    const downloadSettings = getJobSettings(userSettings, "download");
+
+    const jobRows = candidateTracks.map((track) => ({
       user_id: user.userId,
       track_id: track.id,
       job_type: "download",
@@ -380,6 +398,7 @@ export async function POST(request: NextRequest) {
         artist: track.artist ?? "",
         title: track.title ?? "",
         duration_ms: track.duration_ms ?? 0,
+        ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
       },
     }));
 

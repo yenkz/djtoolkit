@@ -182,13 +182,15 @@ def test_source_lastfm_returns_none_on_no_album_key():
 
 
 def test_source_spotify_returns_none_without_client_id():
-    result = _source_spotify("spotify:track:abc", "", "some-secret")
-    assert result is None
+    img, uri = _source_spotify("", "some-secret", spotify_uri="spotify:track:abc")
+    assert img is None
+    assert uri is None
 
 
 def test_source_spotify_returns_none_without_client_secret():
-    result = _source_spotify("spotify:track:abc", "some-id", "")
-    assert result is None
+    img, uri = _source_spotify("some-id", "", spotify_uri="spotify:track:abc")
+    assert img is None
+    assert uri is None
 
 
 def test_source_spotify_returns_bytes_on_success():
@@ -200,10 +202,31 @@ def test_source_spotify_returns_bytes_on_success():
         mock_sp.track.return_value = mock_track
         with patch("djtoolkit.coverart.art._http_get_bytes", return_value=_FAKE_IMG):
             with patch("spotipy.oauth2.SpotifyClientCredentials"):
-                result = _source_spotify("spotify:track:abc", "client-id", "client-secret")
-    # spotipy import is inside the function, so we need to patch at the right level
-    # If this fails due to import path, the test still validates the guard logic
-    # (credentials present → no early return)
+                img, uri = _source_spotify("client-id", "client-secret", spotify_uri="spotify:track:abc")
+    assert uri == "spotify:track:abc"
+
+
+def test_source_spotify_searches_by_name_when_no_uri():
+    mock_search_result = {
+        "tracks": {"items": [{"uri": "spotify:track:found123"}]}
+    }
+    mock_track = {
+        "album": {"images": [{"url": "http://example.com/img.jpg", "width": 640}]}
+    }
+    with patch("spotipy.Spotify") as mock_sp_cls:
+        mock_sp = mock_sp_cls.return_value
+        mock_sp.search.return_value = mock_search_result
+        mock_sp.track.return_value = mock_track
+        with patch("djtoolkit.coverart.art._http_get_bytes", return_value=_FAKE_IMG):
+            with patch("spotipy.oauth2.SpotifyClientCredentials"):
+                img, uri = _source_spotify(
+                    "client-id", "client-secret",
+                    artist="Daft Punk", title="Around the World",
+                )
+    assert img == _FAKE_IMG
+    assert uri == "spotify:track:found123"
+    mock_sp.search.assert_called_once()
+    mock_sp.track.assert_called_once_with("spotify:track:found123")
 
 
 # ─── _fetch_art dispatch ──────────────────────────────────────────────────────
@@ -212,31 +235,53 @@ def test_source_spotify_returns_bytes_on_success():
 def test_fetch_art_returns_first_successful_source():
     with patch("djtoolkit.coverart.art._source_itunes", return_value=_FAKE_IMG):
         with patch("djtoolkit.coverart.art.time.sleep"):
-            result = _fetch_art("Artist", "Album", "Title", ["itunes"])
-    assert result == _FAKE_IMG
+            img, uri = _fetch_art("Artist", "Album", "Title", ["itunes"])
+    assert img == _FAKE_IMG
+    assert uri is None
 
 
 def test_fetch_art_tries_next_source_on_failure():
     with patch("djtoolkit.coverart.art._source_itunes", return_value=None):
         with patch("djtoolkit.coverart.art._source_deezer", return_value=_FAKE_IMG):
             with patch("djtoolkit.coverart.art.time.sleep"):
-                result = _fetch_art("Artist", "Album", "Title", ["itunes", "deezer"])
-    assert result == _FAKE_IMG
+                img, uri = _fetch_art("Artist", "Album", "Title", ["itunes", "deezer"])
+    assert img == _FAKE_IMG
+    assert uri is None
 
 
 def test_fetch_art_returns_none_when_all_sources_fail():
     with patch("djtoolkit.coverart.art._source_itunes", return_value=None):
         with patch("djtoolkit.coverart.art._source_deezer", return_value=None):
             with patch("djtoolkit.coverart.art.time.sleep"):
-                result = _fetch_art("Artist", "Album", "Title", ["itunes", "deezer"])
-    assert result is None
+                img, uri = _fetch_art("Artist", "Album", "Title", ["itunes", "deezer"])
+    assert img is None
 
 
-def test_fetch_art_skips_spotify_without_uri():
-    with patch("djtoolkit.coverart.art._source_spotify") as mock_spotify:
+def test_fetch_art_spotify_searches_when_no_uri():
+    """When spotify_uri is None, _source_spotify is called with artist+title for search."""
+    with patch("djtoolkit.coverart.art._source_spotify", return_value=(_FAKE_IMG, "spotify:track:abc123")) as mock_spotify:
         with patch("djtoolkit.coverart.art.time.sleep"):
-            _fetch_art("Artist", "Album", "Title", ["spotify"], spotify_uri=None)
-    mock_spotify.assert_not_called()
+            img, uri = _fetch_art(
+                "Artist", "Album", "Title", ["spotify"],
+                spotify_uri=None, spotify_client_id="id", spotify_client_secret="secret",
+            )
+    mock_spotify.assert_called_once()
+    assert img == _FAKE_IMG
+    assert uri == "spotify:track:abc123"
+
+
+def test_fetch_art_spotify_passes_existing_uri():
+    """When spotify_uri is provided, it's forwarded to _source_spotify."""
+    with patch("djtoolkit.coverart.art._source_spotify", return_value=(_FAKE_IMG, "spotify:track:existing")) as mock_spotify:
+        with patch("djtoolkit.coverart.art.time.sleep"):
+            img, uri = _fetch_art(
+                "Artist", "Album", "Title", ["spotify"],
+                spotify_uri="spotify:track:existing", spotify_client_id="id", spotify_client_secret="secret",
+            )
+    mock_spotify.assert_called_once()
+    assert img == _FAKE_IMG
+    # URI unchanged → found_uri should be None (no new discovery)
+    assert uri is None
 
 
 def test_fetch_art_skips_lastfm_without_api_key():
@@ -248,5 +293,5 @@ def test_fetch_art_skips_lastfm_without_api_key():
 
 def test_fetch_art_skips_unknown_source():
     with patch("djtoolkit.coverart.art.time.sleep"):
-        result = _fetch_art("Artist", "Album", "Title", ["unknown_source"])
-    assert result is None
+        img, uri = _fetch_art("Artist", "Album", "Title", ["unknown_source"])
+    assert img is None

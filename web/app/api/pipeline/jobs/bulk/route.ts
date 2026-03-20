@@ -4,6 +4,7 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 const MAX_TRACK_IDS = 1000;
 
@@ -45,6 +46,10 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceClient();
+
+  const userSettings = await getUserSettings(supabase, user.userId);
+  const downloadSettings = getJobSettings(userSettings, "download");
+
   let created = 0;
 
   for (const trackId of track_ids) {
@@ -83,6 +88,7 @@ export async function POST(request: NextRequest) {
           artist: track.artist ?? "",
           title: track.title ?? "",
           duration_ms: track.duration_ms ?? 0,
+          ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
         },
       });
 

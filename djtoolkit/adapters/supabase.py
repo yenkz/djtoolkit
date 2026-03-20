@@ -72,13 +72,21 @@ class SupabaseAdapter:
         return [Track.from_db_row(row) for row in result.data]
 
     def query_available_unenriched_spotify(self, user_id: str, force: bool = False) -> list[Track]:
-        query = (self._client.table("tracks").select("*")
-                 .eq("user_id", user_id)
-                 .eq("acquisition_status", "available"))
-        if not force:
-            query = query.eq("enriched_spotify", False)
-        result = query.execute()
-        return [Track.from_db_row(row) for row in result.data]
+        PAGE = 1000
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            query = (self._client.table("tracks").select("*")
+                     .eq("user_id", user_id)
+                     .eq("acquisition_status", "available"))
+            if not force:
+                query = query.eq("enriched_spotify", False)
+            result = query.range(offset, offset + PAGE - 1).execute()
+            rows.extend(result.data)
+            if len(result.data) < PAGE:
+                break
+            offset += PAGE
+        return [Track.from_db_row(row) for row in rows]
 
     def query_ready_for_library(self, user_id: str) -> list[Track]:
         result = (self._client.table("tracks").select("*")

@@ -7,6 +7,7 @@
  */
 
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getUserSettings, getJobSettings, isStepEnabled } from "./job-settings";
 
 const KEY_NAMES = [
   "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
@@ -92,6 +93,96 @@ export async function buildMetadataPayload(
   };
 }
 
+/**
+ * Queue the next enabled step for an exportify track.
+ * Chain: [cover_art?] → metadata
+ * `afterStep` indicates which step just completed or was skipped.
+ */
+async function queueNextExportifyStep(
+  supabase: SupabaseClient,
+  userId: string,
+  trackId: number,
+  track: Record<string, unknown>,
+  settings: Record<string, unknown>,
+  afterStep: "fingerprint" | "cover_art"
+): Promise<void> {
+  // After fingerprint → try cover_art
+  if (afterStep === "fingerprint" && isStepEnabled(settings, "cover_art")) {
+    if (!(await hasActiveJob(supabase, trackId, "cover_art"))) {
+      const coverArtSettings = getJobSettings(settings, "cover_art");
+      await supabase.from("pipeline_jobs").insert({
+        user_id: userId,
+        track_id: trackId,
+        job_type: "cover_art",
+        payload: {
+          track_id: trackId,
+          local_path: track.local_path,
+          artist: track.artist ?? "",
+          album: track.album ?? "",
+          title: track.title ?? "",
+          spotify_uri: track.spotify_uri ?? null,
+          ...(Object.keys(coverArtSettings).length > 0 && { settings: coverArtSettings }),
+        },
+      });
+    }
+    return;
+  }
+
+  // After cover_art (or skipped cover_art) → metadata
+  if (await hasActiveJob(supabase, trackId, "metadata")) return;
+  const metaPayload = await buildMetadataPayload(supabase, trackId, userId);
+  if (metaPayload) {
+    await supabase.from("pipeline_jobs").insert({
+      user_id: userId,
+      track_id: trackId,
+      job_type: "metadata",
+      payload: metaPayload,
+    });
+  }
+}
+
+/**
+ * Queue the next enabled step for a non-exportify track.
+ * Chain: [cover_art?] → [audio_analysis?] → metadata
+ * `afterStep` indicates which step just completed or was skipped.
+ */
+async function queueNextNonExportifyStep(
+  supabase: SupabaseClient,
+  userId: string,
+  trackId: number,
+  track: Record<string, unknown>,
+  settings: Record<string, unknown>,
+  afterStep: "cover_art" | "audio_analysis"
+): Promise<void> {
+  // After cover_art → try audio_analysis
+  if (afterStep === "cover_art" && isStepEnabled(settings, "audio_analysis")) {
+    if (!(await hasActiveJob(supabase, trackId, "audio_analysis"))) {
+      await supabase.from("pipeline_jobs").insert({
+        user_id: userId,
+        track_id: trackId,
+        job_type: "audio_analysis",
+        payload: {
+          track_id: trackId,
+          local_path: track.local_path as string,
+        },
+      });
+    }
+    return;
+  }
+
+  // After audio_analysis (or skipped) → metadata
+  if (await hasActiveJob(supabase, trackId, "metadata")) return;
+  const metaPayload = await buildMetadataPayload(supabase, trackId, userId);
+  if (metaPayload) {
+    await supabase.from("pipeline_jobs").insert({
+      user_id: userId,
+      track_id: trackId,
+      job_type: "metadata",
+      payload: metaPayload,
+    });
+  }
+}
+
 export async function applyJobResult(
   supabase: SupabaseClient,
   jobId: string,
@@ -109,6 +200,9 @@ export async function applyJobResult(
   if (!jobRow?.track_id) return;
   const trackId = jobRow.track_id;
 
+  // Fetch user settings once for toggle checks and payload injection
+  const userSettings = await getUserSettings(supabase, userId);
+
   switch (jobType) {
     case "download": {
       const localPath = result.local_path as string | undefined;
@@ -125,14 +219,45 @@ export async function applyJobResult(
         .eq("id", trackId)
         .eq("user_id", userId);
 
-      // Auto-queue fingerprint job (skip if one already exists)
-      if (!(await hasActiveJob(supabase, trackId, "fingerprint"))) {
-        await supabase.from("pipeline_jobs").insert({
-          user_id: userId,
-          track_id: trackId,
-          job_type: "fingerprint",
-          payload: { track_id: trackId, local_path: localPath },
-        });
+      // Chain: download → [fingerprint?] → next step
+      if (isStepEnabled(userSettings, "fingerprint")) {
+        if (!(await hasActiveJob(supabase, trackId, "fingerprint"))) {
+          await supabase.from("pipeline_jobs").insert({
+            user_id: userId,
+            track_id: trackId,
+            job_type: "fingerprint",
+            payload: { track_id: trackId, local_path: localPath },
+          });
+        }
+      } else {
+        // Fingerprint disabled — skip ahead based on track source
+        const { data: track } = await supabase
+          .from("tracks")
+          .select("local_path, artist, album, title, source, spotify_uri, duration_ms")
+          .eq("id", trackId)
+          .single();
+
+        if (track?.local_path) {
+          if (track.source === "exportify") {
+            await queueNextExportifyStep(supabase, userId, trackId, track, userSettings, "fingerprint");
+          } else {
+            // Non-exportify always goes to spotify_lookup
+            if (!(await hasActiveJob(supabase, trackId, "spotify_lookup"))) {
+              await supabase.from("pipeline_jobs").insert({
+                user_id: userId,
+                track_id: trackId,
+                job_type: "spotify_lookup",
+                payload: {
+                  track_id: trackId,
+                  artist: track.artist ?? "",
+                  title: track.title ?? "",
+                  duration_ms: track.duration_ms ?? null,
+                  spotify_uri: track.spotify_uri ?? null,
+                },
+              });
+            }
+          }
+        }
       }
 
       break;
@@ -210,24 +335,9 @@ export async function applyJobResult(
         if (!track?.local_path) break;
 
         if (track.source === "exportify") {
-          // Exportify tracks → cover_art (metadata from CSV already in DB)
-          if (!(await hasActiveJob(supabase, trackId, "cover_art"))) {
-            await supabase.from("pipeline_jobs").insert({
-              user_id: userId,
-              track_id: trackId,
-              job_type: "cover_art",
-              payload: {
-                track_id: trackId,
-                local_path: track.local_path,
-                artist: track.artist ?? "",
-                album: track.album ?? "",
-                title: track.title ?? "",
-                spotify_uri: track.spotify_uri ?? null,
-              },
-            });
-          }
+          await queueNextExportifyStep(supabase, userId, trackId, track, userSettings, "fingerprint");
         } else {
-          // Non-exportify tracks → spotify_lookup first
+          // Non-exportify tracks → spotify_lookup (always runs)
           if (!(await hasActiveJob(supabase, trackId, "spotify_lookup"))) {
             await supabase.from("pipeline_jobs").insert({
               user_id: userId,
@@ -278,20 +388,31 @@ export async function applyJobResult(
         .eq("id", trackId)
         .single();
 
-      if (track?.local_path && !(await hasActiveJob(supabase, trackId, "cover_art"))) {
-        await supabase.from("pipeline_jobs").insert({
-          user_id: userId,
-          track_id: trackId,
-          job_type: "cover_art",
-          payload: {
-            track_id: trackId,
-            local_path: track.local_path,
-            artist: track.artist ?? "",
-            album: track.album ?? "",
-            title: track.title ?? "",
-            spotify_uri: track.spotify_uri ?? null,
-          },
-        });
+      if (track?.local_path) {
+        if (isStepEnabled(userSettings, "cover_art")) {
+          if (!(await hasActiveJob(supabase, trackId, "cover_art"))) {
+            const coverArtSettings = getJobSettings(userSettings, "cover_art");
+            await supabase.from("pipeline_jobs").insert({
+              user_id: userId,
+              track_id: trackId,
+              job_type: "cover_art",
+              payload: {
+                track_id: trackId,
+                local_path: track.local_path,
+                artist: track.artist ?? "",
+                album: track.album ?? "",
+                title: track.title ?? "",
+                spotify_uri: track.spotify_uri ?? null,
+                ...(Object.keys(coverArtSettings).length > 0 && { settings: coverArtSettings }),
+              },
+            });
+          }
+        } else {
+          // Cover art disabled — skip to next non-exportify step
+          await queueNextNonExportifyStep(
+            supabase, userId, trackId, track as Record<string, unknown>, userSettings, "cover_art"
+          );
+        }
       }
 
       break;
@@ -325,30 +446,15 @@ export async function applyJobResult(
       if (!track?.local_path) break;
 
       if (track.source !== "exportify") {
-        // Non-exportify → queue audio_analysis
-        if (!(await hasActiveJob(supabase, trackId, "audio_analysis"))) {
-          await supabase.from("pipeline_jobs").insert({
-            user_id: userId,
-            track_id: trackId,
-            job_type: "audio_analysis",
-            payload: {
-              track_id: trackId,
-              local_path: track.local_path as string,
-            },
-          });
-        }
+        // Non-exportify → check audio_analysis toggle
+        await queueNextNonExportifyStep(
+          supabase, userId, trackId, track, userSettings, "cover_art"
+        );
       } else {
-        // Exportify → queue metadata directly (uses shared helper)
-        if (await hasActiveJob(supabase, trackId, "metadata")) break;
-        const metaPayload = await buildMetadataPayload(supabase, trackId, userId);
-        if (metaPayload) {
-          await supabase.from("pipeline_jobs").insert({
-            user_id: userId,
-            track_id: trackId,
-            job_type: "metadata",
-            payload: metaPayload,
-          });
-        }
+        // Exportify → queue metadata directly
+        await queueNextExportifyStep(
+          supabase, userId, trackId, track, userSettings, "cover_art"
+        );
       }
 
       break;

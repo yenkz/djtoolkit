@@ -106,6 +106,29 @@ def db_status(config: ConfigOpt = "djtoolkit.toml"):
         console.print(flag_table)
 
 
+@db_app.command("reconcile")
+def db_reconcile(
+    config: ConfigOpt = "djtoolkit.toml",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show per-track matching details")] = False,
+):
+    """Scan downloads_dir and library_dir, promote candidate/downloading tracks whose files exist on disk to available."""
+    import logging
+    from rich.logging import RichHandler
+    from djtoolkit.downloader.aioslsk_client import reconcile_disk
+    handler = RichHandler(console=console, show_path=False, show_time=False, markup=True)
+    logger = logging.getLogger("djtoolkit")
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+    logger.addHandler(handler)
+    cfg = _cfg(config)
+    adapter = _adapter()
+    uid = _user_id()
+    stats = reconcile_disk(cfg, adapter, uid)
+    console.print(
+        f"[green]✓[/green] Reconciled: [bold]{stats['updated']}[/bold] updated, "
+        f"[yellow]{stats['skipped']}[/yellow] unmatched"
+    )
+
+
 # ─── import commands ──────────────────────────────────────────────────────────
 
 @import_app.command("csv")
@@ -252,23 +275,65 @@ def fingerprint(config: ConfigOpt = "djtoolkit.toml"):
 @app.command()
 def enrich(
     config: ConfigOpt = "djtoolkit.toml",
-    spotify: Annotated[Optional[Path], typer.Option("--spotify", help="Exportify CSV for metadata enrichment")] = None,
+    spotify: Annotated[Optional[Path], typer.Option("--spotify", help="Exportify CSV or folder of CSVs for metadata enrichment")] = None,
+    spotify_api: Annotated[bool, typer.Option("--spotify-api", help="Enrich via Spotify Web API (tracks with spotify_uri, no CSV needed)")] = False,
     audio_analysis: Annotated[bool, typer.Option("--audio-analysis", help="Run audio analysis (BPM, key, loudness, danceability; genre/instrumental if TF models configured)")] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show debug logs (match details, fuzzy scores, filled fields)")] = False,
 ):
-    """Enrich imported tracks via Spotify CSV and/or audio analysis (Flow 2)."""
-    if not spotify and not audio_analysis:
-        console.print("[yellow]Specify --spotify <csv> and/or --audio-analysis[/yellow]")
+    """Enrich imported tracks via Spotify CSV, Spotify API, and/or audio analysis."""
+    if not spotify and not spotify_api and not audio_analysis:
+        console.print("[yellow]Specify --spotify <csv>, --spotify-api, and/or --audio-analysis[/yellow]")
         raise typer.Exit(1)
+
+    if verbose:
+        import logging
+        from rich.logging import RichHandler
+        handler = RichHandler(console=console, show_path=False, show_time=False,
+                              markup=True, rich_tracebacks=True)
+        handler.setLevel(logging.DEBUG)
+        enrich_logger = logging.getLogger("djtoolkit.enrichment")
+        enrich_logger.setLevel(logging.DEBUG)
+        enrich_logger.addHandler(handler)
+
     cfg = _cfg(config)
     adapter = _adapter()
     uid = _user_id()
     if spotify:
         from djtoolkit.enrichment.spotify import run as spotify_run
-        console.print(f"Enriching from Spotify CSV: {spotify}…")
-        stats = spotify_run(spotify, cfg, adapter, uid)
+        csv_files = sorted(spotify.glob("*.csv")) if spotify.is_dir() else [spotify]
+        if not csv_files:
+            console.print(f"[yellow]No CSV files found in {spotify}[/yellow]")
+            raise typer.Exit(1)
+        total_matched, total_unmatched = 0, 0
+        for csv_file in csv_files:
+            console.print(f"Enriching from: [bold]{csv_file.name}[/bold]…")
+            stats = spotify_run(csv_file, cfg, adapter, uid)
+            total_matched += stats["matched"]
+            total_unmatched += stats["unmatched"]
+            console.print(
+                f"  [green]✓ matched {stats['matched']}[/green]  "
+                f"unmatched {stats['unmatched']}"
+            )
+        if len(csv_files) > 1:
+            console.print(
+                f"\n[bold]Total:[/bold] [green]matched {total_matched}[/green]  "
+                f"unmatched {total_unmatched}  "
+                f"({len(csv_files)} CSVs)"
+            )
+    if spotify_api:
+        import os
+        from djtoolkit.enrichment.spotify import run_api
+        client_id = os.environ.get("SPOTIFY_CLIENT_ID", "")
+        client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET", "")
+        if not client_id or not client_secret:
+            console.print("[red]SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env[/red]")
+            raise typer.Exit(1)
+        console.print("Enriching via Spotify Web API…")
+        stats = run_api(adapter, uid, client_id=client_id, client_secret=client_secret)
         console.print(
-            f"[green]✓ matched {stats['matched']}[/green]  "
-            f"unmatched {stats['unmatched']}"
+            f"[green]✓ enriched {stats['enriched']}[/green]  "
+            f"[red]failed {stats['failed']}[/red]  "
+            f"skipped {stats['skipped']}"
         )
     if audio_analysis:
         from djtoolkit.enrichment.audio_analysis import run as audio_run
@@ -359,9 +424,23 @@ def metadata_apply(
 # ─── coverart commands ────────────────────────────────────────────────────────
 
 @coverart_app.command("fetch")
-def coverart_fetch(config: ConfigOpt = "djtoolkit.toml"):
+def coverart_fetch(
+    config: ConfigOpt = "djtoolkit.toml",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show debug logs (source attempts, search results, failures)")] = False,
+):
     """Fetch and embed cover art for tracks that are missing artwork."""
+    import logging
+    from rich.logging import RichHandler
     from djtoolkit.coverart.art import run
+
+    if verbose:
+        handler = RichHandler(console=console, show_path=False, show_time=False,
+                              markup=True, rich_tracebacks=True)
+        handler.setLevel(logging.DEBUG)
+        art_logger = logging.getLogger("djtoolkit.coverart")
+        art_logger.setLevel(logging.DEBUG)
+        art_logger.addHandler(handler)
+
     cfg = _cfg(config)
     stats = run(cfg, _adapter(), _user_id())
     console.print(
@@ -370,6 +449,69 @@ def coverart_fetch(config: ConfigOpt = "djtoolkit.toml"):
         f"skipped {stats['skipped']}  "
         f"[yellow]not found {stats['no_art_found']}[/yellow]"
     )
+
+
+@coverart_app.command("verify")
+def coverart_verify(
+    config: ConfigOpt = "djtoolkit.toml",
+    fix: Annotated[bool, typer.Option("--fix", help="Reset cover_art_written for tracks without embedded art")] = False,
+):
+    """Verify that tracks marked as cover_art_written actually have art embedded in the file."""
+    from djtoolkit.coverart.art import _has_cover_art
+
+    adapter = _adapter()
+    uid = _user_id()
+
+    result = adapter._client.table("tracks").select("id, artist, title, local_path") \
+        .eq("user_id", uid) \
+        .eq("acquisition_status", "available") \
+        .eq("cover_art_written", True) \
+        .execute()
+
+    tracks = result.data
+    if not tracks:
+        console.print("[dim]No tracks marked as cover_art_written.[/dim]")
+        return
+
+    liars = []
+    missing_file = []
+    verified = 0
+
+    for t in tracks:
+        path = Path(t["local_path"]) if t.get("local_path") else None
+        if not path or not path.exists():
+            missing_file.append(t)
+            continue
+        if _has_cover_art(path):
+            verified += 1
+        else:
+            liars.append(t)
+
+    console.print(
+        f"[green]✓ verified {verified}[/green]  "
+        f"[red]missing art {len(liars)}[/red]  "
+        f"[yellow]missing file {len(missing_file)}[/yellow]  "
+        f"total {len(tracks)}"
+    )
+
+    if liars:
+        console.print(f"\n[bold red]Tracks marked done but NO embedded art:[/bold red]")
+        for t in liars:
+            console.print(f"  [red]✗[/red] {t.get('artist', '?')} – {t.get('title', '?')}")
+            console.print(f"    [dim]{t.get('local_path', '')}[/dim]")
+
+    if missing_file:
+        console.print(f"\n[bold yellow]Tracks with missing/invalid file path:[/bold yellow]")
+        for t in missing_file:
+            console.print(f"  [yellow]?[/yellow] {t.get('artist', '?')} – {t.get('title', '?')}")
+            console.print(f"    [dim]{t.get('local_path', '')}[/dim]")
+
+    if fix and (liars or missing_file):
+        ids_to_reset = [t["id"] for t in liars + missing_file]
+        for tid in ids_to_reset:
+            adapter.update_track(tid, {"cover_art_written": False})
+        console.print(f"\n[green]✓ Reset cover_art_written=false for {len(ids_to_reset)} tracks.[/green]")
+        console.print("[dim]Run 'coverart fetch' to re-process them.[/dim]")
 
 
 @coverart_app.command("list")

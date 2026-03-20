@@ -41,12 +41,13 @@ target_lra  = "9"
 [cover_art]
 force          = false   # re-embed even if the file already has art
 skip_embed     = false   # dry-run: fetch only, don't write to files
-sources        = "coverart itunes deezer"
+sources        = "spotify coverart itunes deezer"
                  # Available sources (space-separated, tried in order):
+                 #   spotify  — uses spotify_uri if available, otherwise searches by artist+title;
+                 #              requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env
                  #   coverart — Cover Art Archive (MusicBrainz), free, no auth
                  #   itunes   — iTunes Search API, free, no auth (album-based)
                  #   deezer   — Deezer Search API, free, no auth (track-title-based, good for singles)
-                 #   spotify  — direct lookup via spotify_uri, requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env
                  #   lastfm   — Last.fm album art, requires LASTFM_API_KEY in .env or below
 lastfm_api_key = ""      # or set LASTFM_API_KEY in .env
 minwidth       = 800     # reject images narrower than this (px)

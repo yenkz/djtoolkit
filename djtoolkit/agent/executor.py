@@ -18,6 +18,29 @@ from djtoolkit.config import Config
 log = logging.getLogger(__name__)
 
 
+# ─── Payload settings helpers ────────────────────────────────────────────────
+
+_COVER_ART_SOURCE_MAP = {"coverartarchive": "coverart"}
+
+
+def _apply_download_settings(cfg: Config, settings: dict) -> None:
+    """Override cfg matching/soulseek fields from payload settings."""
+    if "min_score" in settings:
+        cfg.matching.min_score = settings["min_score"]
+        cfg.matching.min_score_title = settings["min_score"]
+    if "duration_tolerance_ms" in settings:
+        cfg.matching.duration_tolerance_ms = settings["duration_tolerance_ms"]
+    if "search_timeout_sec" in settings:
+        cfg.soulseek.search_timeout_sec = settings["search_timeout_sec"]
+
+
+def _resolve_cover_art_sources(cfg: Config, settings: dict) -> list[str]:
+    """Return cover art sources from payload settings or config fallback."""
+    if "coverart_sources" in settings:
+        return [_COVER_ART_SOURCE_MAP.get(s, s) for s in settings["coverart_sources"]]
+    return [s.strip() for s in cfg.cover_art.sources.split() if s.strip()]
+
+
 # ─── Soulseek client factory ─────────────────────────────────────────────────
 
 _noisy_loggers_suppressed = False
@@ -131,6 +154,9 @@ async def execute_download(
     Returns {"local_path": str} on success.
     Raises on failure.
     """
+    # Apply user settings from payload (overrides local config)
+    _apply_download_settings(cfg, payload.get("settings", {}))
+
     from djtoolkit.downloader.aioslsk_client import (
         _build_search_queries,
         _download_track,
@@ -192,6 +218,10 @@ async def execute_download_batch(
     Returns:
         {job_id: {"success": bool, "result": dict|None, "error": str|None}}
     """
+    # Apply user settings from first job's payload (single-user batches)
+    first_payload = (jobs[0].get("payload") or {}) if jobs else {}
+    _apply_download_settings(cfg, first_payload.get("settings", {}))
+
     from djtoolkit.downloader.aioslsk_client import (
         _build_search_queries,
         _pipeline_download,
@@ -351,7 +381,7 @@ async def execute_cover_art(
     spotify_uri = payload.get("spotify_uri")
 
     ca = cfg.cover_art
-    sources = [s.strip() for s in ca.sources.split() if s.strip()]
+    sources = _resolve_cover_art_sources(cfg, payload.get("settings", {}))
 
     fetch_fn = partial(
         _fetch_art, artist, album, title, sources,
@@ -362,13 +392,16 @@ async def execute_cover_art(
     )
 
     loop = asyncio.get_running_loop()
-    art_bytes = await loop.run_in_executor(None, fetch_fn)
+    art_bytes, resolved_uri = await loop.run_in_executor(None, fetch_fn)
 
     if not art_bytes:
         return {"cover_art_written": False}
 
     await loop.run_in_executor(None, _embed, local_path, art_bytes)
-    return {"cover_art_written": True}
+    result: dict[str, Any] = {"cover_art_written": True}
+    if resolved_uri and not spotify_uri:
+        result["spotify_uri"] = resolved_uri
+    return result
 
 
 # ─── Metadata ────────────────────────────────────────────────────────────────
