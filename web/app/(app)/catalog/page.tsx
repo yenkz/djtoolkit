@@ -22,6 +22,20 @@ import LCDDisplay from "@/components/ui/LCDDisplay";
 
 type ViewMode = "grid" | "list" | "compact";
 
+const PITCH_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+
+/** Resolve musical key: prefer key_normalized, fall back to Spotify key+mode integers. */
+function resolveKey(t: Track): string | undefined {
+  if (t.key_normalized) return t.key_normalized;
+  if (t.key != null) {
+    const pitch = PITCH_NAMES[t.key];
+    if (!pitch) return undefined;
+    const scale = t.mode === 1 ? "major" : "minor";
+    return `${pitch} ${scale}`;
+  }
+  return undefined;
+}
+
 /** Map API Track to the shape the sub-components expect. */
 function toComponentTrack(t: Track) {
   return {
@@ -30,7 +44,7 @@ function toComponentTrack(t: Track) {
     artist: t.artist,
     album: t.album,
     bpm: t.tempo ? Math.round(t.tempo) : undefined,
-    key: t.key_normalized,
+    key: resolveKey(t),
     genre: t.genres?.split(",")[0]?.trim() || undefined,
     energy: t.energy,
     status: t.acquisition_status,
@@ -116,7 +130,7 @@ export default function CatalogPage() {
           });
         }
         if (t.artist) artistSet.add(t.artist);
-        const mk = t.key_normalized;
+        const mk = resolveKey(t);
         if (mk) keySet.add(mk);
         if (t.acquisition_status) statusSet.add(t.acquisition_status);
       });
@@ -164,7 +178,7 @@ export default function CatalogPage() {
         return false;
       // Key filter
       if (filters.keys.length > 0) {
-        const mk = t.key_normalized;
+        const mk = resolveKey(t);
         if (!mk || !filters.keys.includes(mk)) return false;
       }
       // BPM range filter

@@ -17,6 +17,8 @@ const TRACK_COLUMNS = [
   "genres",
   "tempo",
   "key_normalized",
+  "key",
+  "mode",
   "energy",
   "artwork_url",
   "spotify_uri",

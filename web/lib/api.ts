@@ -68,6 +68,8 @@ export interface Track {
   genres?: string;
   tempo?: number;
   key_normalized?: string;
+  key?: number;
+  mode?: number;
   energy?: number;
   artwork_url?: string;
   spotify_uri?: string;
