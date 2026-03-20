@@ -67,6 +67,7 @@ export interface Track {
   year?: number;
   genres?: string;
   tempo?: number;
+  key_normalized?: string;
   artwork_url?: string;
   spotify_uri?: string;
   already_owned?: boolean;

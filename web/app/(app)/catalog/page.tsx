@@ -24,7 +24,6 @@ type ViewMode = "grid" | "list" | "compact";
 
 /** Extended track fields that may come from the API but aren't in the base type. */
 interface TrackExt extends Track {
-  musical_key?: string;
   energy?: number;
 }
 
@@ -37,7 +36,7 @@ function toComponentTrack(t: Track) {
     artist: t.artist,
     album: t.album,
     bpm: t.tempo ? Math.round(t.tempo) : undefined,
-    key: ext.musical_key,
+    key: t.key_normalized,
     genre: t.genres?.split(",")[0]?.trim() || undefined,
     energy: ext.energy,
     status: t.acquisition_status,

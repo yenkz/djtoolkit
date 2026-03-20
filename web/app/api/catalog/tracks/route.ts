@@ -16,6 +16,7 @@ const TRACK_COLUMNS = [
   "duration_ms",
   "genres",
   "tempo",
+  "key_normalized",
   "artwork_url",
   "spotify_uri",
   "local_path",
