@@ -104,9 +104,15 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  query = query
-    .order(sortBy, { ascending: sortDir, nullsFirst: false })
-    .range(from, to);
+  if (sortBy === "key_normalized") {
+    // Sort by chromatic pitch (0-11) then mode (minor/major) for musical order
+    query = query
+      .order("key", { ascending: sortDir, nullsFirst: false })
+      .order("mode", { ascending: sortDir, nullsFirst: false });
+  } else {
+    query = query.order(sortBy, { ascending: sortDir, nullsFirst: false });
+  }
+  query = query.range(from, to);
 
   const { data: tracks, count, error } = await query;
 
