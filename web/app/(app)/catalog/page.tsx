@@ -515,8 +515,8 @@ export default function CatalogPage() {
                   { label: "Track", key: "title" },
                   { label: "Artist", key: "artist" },
                   { label: "BPM", key: "tempo" },
-                  { label: "Key", key: "" },
-                  { label: "Energy", key: "" },
+                  { label: "Key", key: "key_normalized" },
+                  { label: "Energy", key: "energy" },
                   { label: "Tags", key: "genres" },
                   { label: "", key: "" },
                 ] as const).map((col, i) =>
@@ -607,9 +607,9 @@ export default function CatalogPage() {
                   { label: "Track", key: "title" },
                   { label: "Artist", key: "artist" },
                   { label: "BPM", key: "tempo" },
-                  { label: "Key", key: "" },
+                  { label: "Key", key: "key_normalized" },
                   { label: "Genre", key: "genres" },
-                  { label: "Energy", key: "" },
+                  { label: "Energy", key: "energy" },
                 ] as const).map((col, i) =>
                   col.key ? (
                     <button
