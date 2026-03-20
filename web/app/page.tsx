@@ -148,7 +148,7 @@ export default function LandingPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydration guard + async auth check
     setMounted(true);
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setUser(!!data.user));
+    supabase.auth.getSession().then(({ data }) => setUser(!!data.session?.user));
   }, []);
 
   useEffect(() => {
