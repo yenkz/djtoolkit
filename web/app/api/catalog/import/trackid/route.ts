@@ -19,6 +19,7 @@ import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
 import { randomUUID } from "crypto";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 // ─── YouTube URL validator ───────────────────────────────────────────────────
 
@@ -170,6 +171,9 @@ export async function POST(request: NextRequest) {
       insertedIds = [...new Set(allTrackIds)];
 
       if (queueJobs && newlyInsertedCount > 0) {
+        const userSettings = await getUserSettings(supabase, user.userId);
+        const downloadSettings = getJobSettings(userSettings, "download");
+
         const jobRows = newlyInserted.map((track) => ({
           user_id: user.userId,
           track_id: track.id,
@@ -180,6 +184,7 @@ export async function POST(request: NextRequest) {
             artist: track.artist ?? "",
             title: track.title ?? "",
             duration_ms: track.duration_ms ?? 0,
+            ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
           },
         }));
 

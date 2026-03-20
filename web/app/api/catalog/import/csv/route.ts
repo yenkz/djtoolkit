@@ -4,6 +4,7 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 const MAX_FILE_SIZE_BYTES = 4 * 1024 * 1024; // 4 MB — Vercel request body limit
 
@@ -370,6 +371,9 @@ export async function POST(request: NextRequest) {
   const trackIds: number[] = importedTracks.map((t) => t.id as number);
 
   if (queueJobs && importedTracks.length > 0) {
+    const userSettings = await getUserSettings(supabase, user.userId);
+    const downloadSettings = getJobSettings(userSettings, "download");
+
     const jobRows = importedTracks.map((track) => ({
       user_id: user.userId,
       track_id: track.id,
@@ -380,6 +384,7 @@ export async function POST(request: NextRequest) {
         artist: track.artist ?? "",
         title: track.title ?? "",
         duration_ms: track.duration_ms ?? 0,
+        ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
       },
     }));
 

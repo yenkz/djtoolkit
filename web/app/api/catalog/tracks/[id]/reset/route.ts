@@ -4,6 +4,7 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 /**
  * POST /api/catalog/tracks/[id]/reset
@@ -47,6 +48,9 @@ export async function POST(
     return jsonError("Track not found or not in failed state", 404);
   }
 
+  const userSettings = await getUserSettings(supabase, user.userId);
+  const downloadSettings = getJobSettings(userSettings, "download");
+
   // Enqueue a new download job for the reset track.
   const { error: jobErr } = await supabase.from("pipeline_jobs").insert({
     user_id: user.userId,
@@ -58,6 +62,7 @@ export async function POST(
       artist: updated.artist ?? "",
       title: updated.title ?? "",
       duration_ms: updated.duration_ms ?? 0,
+      ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
     },
   });
 
