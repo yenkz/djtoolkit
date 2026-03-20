@@ -22,14 +22,8 @@ import LCDDisplay from "@/components/ui/LCDDisplay";
 
 type ViewMode = "grid" | "list" | "compact";
 
-/** Extended track fields that may come from the API but aren't in the base type. */
-interface TrackExt extends Track {
-  energy?: number;
-}
-
 /** Map API Track to the shape the sub-components expect. */
 function toComponentTrack(t: Track) {
-  const ext = t as TrackExt;
   return {
     id: t.id,
     title: t.title,
@@ -38,7 +32,7 @@ function toComponentTrack(t: Track) {
     bpm: t.tempo ? Math.round(t.tempo) : undefined,
     key: t.key_normalized,
     genre: t.genres?.split(",")[0]?.trim() || undefined,
-    energy: ext.energy,
+    energy: t.energy,
     status: t.acquisition_status,
     artwork_url: t.artwork_url,
     local_path: t.local_path,
