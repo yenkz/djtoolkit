@@ -15,6 +15,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { getSpotifyToken, buildSearchString } from "@/lib/api-server/spotify";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 const SPOTIFY_API = "https://api.spotify.com/v1";
 
@@ -222,12 +223,39 @@ export async function POST(request: NextRequest) {
   // Create pipeline jobs for newly imported tracks
   let jobsCreated = 0;
   if (queueJobs && trackIds.length > 0) {
-    const jobs = trackIds.map((trackId: number) => ({
-      user_id: user.userId,
-      track_id: trackId,
-      stage: "download",
-      status: "pending",
-    }));
+    const userSettings = await getUserSettings(supabase, user.userId);
+    const downloadSettings = getJobSettings(userSettings, "download");
+
+    // Fetch track data needed for download payloads (batch by 100)
+    const trackDataMap = new Map<number, Record<string, unknown>>();
+    for (let i = 0; i < trackIds.length; i += 100) {
+      const batch = trackIds.slice(i, i + 100);
+      const { data: rows } = await supabase
+        .from("tracks")
+        .select("id, search_string, artist, title, duration_ms")
+        .eq("user_id", user.userId)
+        .in("id", batch);
+      for (const row of rows ?? []) {
+        trackDataMap.set(row.id, row);
+      }
+    }
+
+    const jobs = trackIds.map((trackId: number) => {
+      const track = trackDataMap.get(trackId) ?? {};
+      return {
+        user_id: user.userId,
+        track_id: trackId,
+        job_type: "download",
+        payload: {
+          track_id: trackId,
+          search_string: (track.search_string as string) ?? "",
+          artist: (track.artist as string) ?? "",
+          title: (track.title as string) ?? "",
+          duration_ms: (track.duration_ms as number) ?? 0,
+          ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
+        },
+      };
+    });
 
     const { data: createdJobs, error: jobError } = await supabase
       .from("pipeline_jobs")
