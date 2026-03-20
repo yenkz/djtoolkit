@@ -46,10 +46,13 @@ async def run(cfg: Config, payload: dict) -> dict:
     )
 
     loop = asyncio.get_running_loop()
-    art_bytes = await loop.run_in_executor(None, fetch_fn)
+    art_bytes, resolved_uri = await loop.run_in_executor(None, fetch_fn)
 
     if not art_bytes:
         return {"cover_art_written": False}
 
     await loop.run_in_executor(None, _embed, local_path, art_bytes)
-    return {"cover_art_written": True}
+    result: dict = {"cover_art_written": True}
+    if resolved_uri and not spotify_uri:
+        result["spotify_uri"] = resolved_uri
+    return result

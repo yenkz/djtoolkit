@@ -34,7 +34,12 @@ make enrich ARGS='--spotify path/to.csv'   # enrich DB only (no file writes)
 make enrich ARGS='--audio-analysis'        # run BPM/key/loudness analysis (DB only)
 
 # Cover art
-make fetch-cover-art              # fetch + embed cover art for tracks missing artwork
+make fetch-cover-art                          # fetch + embed cover art for tracks missing artwork
+poetry run djtoolkit coverart fetch -v        # same, with debug logs (source attempts, search results)
+poetry run djtoolkit coverart verify          # check cover_art_written tracks actually have art in file
+poetry run djtoolkit coverart verify --fix    # reset flag for tracks missing embedded art, then re-fetch
+poetry run djtoolkit coverart list            # show tracks with embedded cover art
+poetry run djtoolkit coverart list --since 7  # show tracks embedded in the last 7 days
 
 # DB utilities (Supabase-backed)
 poetry run djtoolkit db status          # track counts by acquisition_status + processing flags
@@ -159,6 +164,74 @@ Processing flags are **independent** — each is set to 1 when that pipeline ste
 | `in_library` | `library/mover.py` | file moved to `library_dir` |
 
 Each module queries only its relevant `acquisition_status` + flag combination — read the module source for exact `WHERE` clauses.
+
+---
+
+## Cover Art Pipeline
+
+**Module:** `djtoolkit/coverart/art.py`
+
+### Sources
+
+Tried in order as configured in `[cover_art] sources` (space-separated):
+
+| Source | Auth | Lookup method |
+| --- | --- | --- |
+| `spotify` | `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` in `.env` | Uses `spotify_uri` if available; otherwise searches Spotify by artist+title (curated via `search_string` cleaning). Discovered URIs are persisted back to the DB. |
+| `coverart` | None | Cover Art Archive (MusicBrainz) — release-group by artist+album, falls back to recording search by artist+title |
+| `itunes` | None | iTunes Search API — album-based |
+| `deezer` | None | Deezer Search API — track-title-based, good for singles |
+| `lastfm` | `LASTFM_API_KEY` | Last.fm `album.getinfo` — album-based |
+
+### Search strategy
+
+Each source is tried with two passes:
+
+1. **Cleaned artist + cleaned album** — strips blog prefixes, track numbers, promo suffixes
+2. **First artist only** — handles compound strings like `"A & B feat. C"` → `"A"`
+
+For Spotify search (when no `spotify_uri`), the query uses `search_string.py` cleaning: strips `feat./ft./vs.`, removes parentheticals from artist, takes primary artist (first before `;`), keeps remix info in title.
+
+### Embedding
+
+Supported formats: `.flac` (PICTURE block), `.mp3` (ID3 APIC frame), `.m4a/.aac` (MP4 `covr` atom). Unsupported formats (`.wav`, `.aiff`, `.ogg`) are skipped.
+
+### DB query
+
+`coverart fetch` processes tracks matching:
+
+```sql
+SELECT * FROM tracks
+WHERE user_id = :uid
+  AND acquisition_status = 'available'
+  AND cover_art_written = false;
+```
+
+Files that already have embedded art (checked via mutagen) are skipped and marked `cover_art_written = true` in the DB.
+
+### Config
+
+```toml
+[cover_art]
+sources        = "spotify coverart itunes deezer"  # tried in order
+force          = false    # re-embed even if art already present
+skip_embed     = false    # dry-run: fetch only, don't write to files
+minwidth       = 300      # reject images narrower than this (px)
+maxwidth       = 2000     # resize wider images (requires Pillow)
+quality        = 90       # JPEG quality after resize
+lastfm_api_key = ""       # or set LASTFM_API_KEY in .env
+```
+
+### CLI commands
+
+```bash
+djtoolkit coverart fetch          # fetch + embed art for tracks with cover_art_written=false
+djtoolkit coverart fetch -v       # with debug logs (source attempts, search results, failures)
+djtoolkit coverart verify         # check that cover_art_written=true tracks actually have art in file
+djtoolkit coverart verify --fix   # reset flag for liars, then run fetch to re-process
+djtoolkit coverart list           # show tracks with embedded cover art
+djtoolkit coverart list --since 7 # embedded in the last 7 days
+```
 
 ---
 

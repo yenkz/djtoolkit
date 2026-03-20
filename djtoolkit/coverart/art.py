@@ -9,8 +9,8 @@ Sources (tried in order as configured in ``[cover_art] sources``):
               artist+album, then falls back to recording search by artist+title (better for singles)
   itunes    — iTunes Search API — free, returns up to 3000×3000 images (album-based)
   deezer    — Deezer Search API — free, no auth. Searches by artist+title → good for singles
-  spotify   — Spotify API — exact match via ``spotify_uri`` from DB (Exportify tracks only).
-              Requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env
+  spotify   — Spotify API — uses ``spotify_uri`` if available, otherwise searches by artist+title.
+              Discovered URIs are persisted back to the DB. Requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env
   lastfm    — Last.fm album.getinfo — album-based. Requires LASTFM_API_KEY in .env or config
 
 Embedding:
@@ -298,16 +298,27 @@ def _source_deezer(artist: str, title: str) -> Optional[bytes]:
     return None
 
 
-def _source_spotify(spotify_uri: str, client_id: str, client_secret: str) -> Optional[bytes]:
-    """Direct Spotify track lookup — exact match via URI.
+def _source_spotify(
+    client_id: str,
+    client_secret: str,
+    *,
+    spotify_uri: Optional[str] = None,
+    artist: str = "",
+    title: str = "",
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Fetch album artwork from Spotify. Returns ``(image_bytes, spotify_uri)``.
 
-    Uses the Spotify Web API ``/tracks/{id}`` endpoint (Client Credentials flow).
+    When ``spotify_uri`` is provided, does a direct track lookup.
+    When missing, searches by artist+title and picks the best match.
+    Returns the resolved URI so callers can persist it back to the DB.
+
+    Uses the Spotify Web API (Client Credentials flow).
     Picks the largest image from ``album.images``.
     Requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env.
     """
     if not client_id or not client_secret:
         log.debug("Spotify source skipped — SPOTIFY_CLIENT_ID/SECRET not set")
-        return None
+        return None, None
     try:
         import spotipy
         from spotipy.oauth2 import SpotifyClientCredentials
@@ -317,15 +328,34 @@ def _source_spotify(spotify_uri: str, client_id: str, client_secret: str) -> Opt
                 client_secret=client_secret,
             )
         )
+
+        if not spotify_uri and artist and title:
+            # Search by artist + title → use curated search_string cleaning
+            from djtoolkit.utils.search_string import _clean
+            clean_artist = _clean(artist.split(";")[0].strip())
+            clean_title = _clean(title)
+            q = f"artist:{clean_artist} track:{clean_title}"
+            results = sp.search(q=q, type="track", limit=5)
+            items = results.get("tracks", {}).get("items", [])
+            if items:
+                spotify_uri = items[0]["uri"]
+                log.debug("Spotify search matched: %s → %s", q, spotify_uri)
+            else:
+                log.debug("Spotify search returned no results for: %s", q)
+                return None, None
+
+        if not spotify_uri:
+            return None, None
+
         track = sp.track(spotify_uri)
         images = track.get("album", {}).get("images", [])
         if not images:
-            return None
+            return None, spotify_uri
         best = max(images, key=lambda x: x.get("width", 0))
-        return _http_get_bytes(best["url"])
+        return _http_get_bytes(best["url"]), spotify_uri
     except Exception as exc:
         log.debug("Spotify source failed: %s", exc)
-        return None
+        return None, None
 
 
 def _source_lastfm(artist: str, album: str, api_key: str) -> Optional[bytes]:
@@ -355,8 +385,11 @@ def _fetch_art(
     spotify_client_id: str = "",
     spotify_client_secret: str = "",
     lastfm_api_key: str = "",
-) -> Optional[bytes]:
-    """Try each configured source in order. Returns the first successful image.
+) -> tuple[Optional[bytes], Optional[str]]:
+    """Try each configured source in order.
+
+    Returns ``(image_bytes, resolved_spotify_uri)``.  The URI is non-None when
+    the Spotify source discovered a URI via search (so callers can persist it).
 
     Applies two search passes:
       Pass 1 — cleaned artist + cleaned album
@@ -369,8 +402,10 @@ def _fetch_art(
     artist_c = _clean_artist(artist)
     album_c = _clean_album(album)
     first = _first_artist(artist)
+    found_uri: Optional[str] = None
 
     def _try(art: str, alb: str) -> Optional[bytes]:
+        nonlocal found_uri
         for source in sources:
             try:
                 if source == "coverart":
@@ -382,7 +417,12 @@ def _fetch_art(
                 elif source == "deezer":
                     img = _source_deezer(art, title)
                 elif source == "spotify":
-                    img = _source_spotify(spotify_uri, spotify_client_id, spotify_client_secret) if spotify_uri else None
+                    img, resolved = _source_spotify(
+                        spotify_client_id, spotify_client_secret,
+                        spotify_uri=spotify_uri, artist=art, title=title,
+                    )
+                    if resolved and resolved != spotify_uri:
+                        found_uri = resolved
                 elif source == "lastfm":
                     img = _source_lastfm(art, alb, lastfm_api_key) if lastfm_api_key and alb else None
                 else:
@@ -400,14 +440,15 @@ def _fetch_art(
     # Pass 1: cleaned artist + cleaned album
     result = _try(artist_c, album_c)
     if result:
-        return result
+        return result, found_uri
 
     # Pass 2: first artist only — helps with "A & B feat. C" compound strings
     if first != artist_c:
         log.debug("retrying with first artist only: %r", first)
-        return _try(first, album_c)
+        result = _try(first, album_c)
+        return result, found_uri
 
-    return None
+    return None, found_uri
 
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
@@ -548,13 +589,18 @@ def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
                 continue
 
             # Fetch art from configured sources
-            img_data = _fetch_art(
+            img_data, resolved_uri = _fetch_art(
                 artist, album, title, sources,
                 spotify_uri=track.spotify_uri,
                 spotify_client_id=spotify_client_id,
                 spotify_client_secret=spotify_client_secret,
                 lastfm_api_key=lastfm_api_key,
             )
+
+            # Persist newly discovered spotify_uri back to DB
+            if resolved_uri and not track.spotify_uri:
+                adapter.update_track(track_id, {"spotify_uri": resolved_uri})
+
             if not img_data:
                 log.warning("no cover art found: %r / %r", artist, album)
                 stats["no_art_found"] += 1
