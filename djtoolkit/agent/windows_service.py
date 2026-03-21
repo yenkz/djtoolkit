@@ -52,7 +52,12 @@ def install() -> Path | None:
             ]
             win32service.ChangeServiceConfig2(
                 svc, win32service.SERVICE_CONFIG_FAILURE_ACTIONS,
-                {"ResetPeriod": 86400, "Actions": actions}
+                {
+                    "ResetPeriod": 86400,
+                    "RebootMsg": "",
+                    "Command": "",
+                    "Actions": actions,
+                },
             )
         finally:
             win32service.CloseServiceHandle(svc)
