@@ -5,6 +5,8 @@ import MiniWave from "./MiniWave";
 import EnergyBar from "./EnergyBar";
 import StatusDot from "./StatusDot";
 import Tag from "./Tag";
+import { usePreviewPlayer } from "@/lib/preview-player-context";
+import { LED_COLORS } from "@/lib/design-system/tokens";
 
 interface Track {
   id: number;
@@ -17,6 +19,7 @@ interface Track {
   energy?: number;
   status?: string;
   artwork_url?: string;
+  preview_url?: string;
 }
 
 interface TrackCardProps {
@@ -36,6 +39,14 @@ function artistColor(name: string): string {
 
 export default function TrackCard({ track, onClick }: TrackCardProps) {
   const [hovered, setHovered] = useState(false);
+  const { currentTrackId, isPlaying, progress, play, pause } =
+    usePreviewPlayer();
+  const isThisPlaying =
+    currentTrackId === track.id && isPlaying;
+  const isThisPaused =
+    currentTrackId === track.id && !isPlaying;
+  const isThisActive = currentTrackId === track.id;
+  const LED = LED_COLORS.green;
   const color = artistColor(track.artist);
   const initials = track.artist.slice(0, 2).toUpperCase();
   const tags = track.genre ? [track.genre] : [];
@@ -50,11 +61,13 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
         background: hovered
           ? "var(--hw-card-hover)"
           : "var(--hw-card-bg)",
-        border: `1px solid ${hovered ? "var(--hw-border-light)" : "var(--hw-card-border)"}`,
+        border: `2px solid ${isThisActive ? LED.on : hovered ? "var(--hw-border-light)" : "var(--hw-card-border)"}`,
         borderRadius: 8,
-        boxShadow: hovered
-          ? "0 4px 16px rgba(0,0,0,0.1)"
-          : "0 1px 3px rgba(0,0,0,0.04)",
+        boxShadow: isThisActive
+          ? LED.glowHot
+          : hovered
+            ? "0 4px 16px rgba(0,0,0,0.1)"
+            : "0 1px 3px rgba(0,0,0,0.04)",
         transform: hovered ? "translateY(-2px)" : "none",
         transition: "all 0.2s ease",
       }}
@@ -101,6 +114,92 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
         >
           <MiniWave color={color} />
         </div>
+
+        {/* Play/Pause overlay */}
+        {track.preview_url && (hovered || isThisActive) && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={isThisPlaying ? "Pause preview" : "Play preview"}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isThisPlaying) {
+                pause();
+              } else {
+                play(track.id, track.preview_url!);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                if (isThisPlaying) pause();
+                else play(track.id, track.preview_url!);
+              }
+            }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(0,0,0,0.45)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              zIndex: 2,
+            }}
+          >
+            <div
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: "50%",
+                background: "rgba(0,0,0,0.6)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: `2px solid ${LED.on}`,
+                boxShadow: LED.glow,
+                backdropFilter: "blur(4px)",
+              }}
+            >
+              {isThisPlaying ? (
+                <svg width="12" height="14" viewBox="0 0 12 14">
+                  <rect x="1" y="0" width="3.5" height="14" rx="1" fill={LED.on} />
+                  <rect x="7.5" y="0" width="3.5" height="14" rx="1" fill={LED.on} />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24">
+                  <path d="M6 3l12 9-12 9V3z" fill={LED.on} />
+                </svg>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Progress bar */}
+        {isThisActive && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 3,
+              background: "var(--hw-groove, #0E0C0E)",
+              zIndex: 3,
+            }}
+          >
+            <div
+              style={{
+                width: `${progress * 100}%`,
+                height: "100%",
+                background: `linear-gradient(90deg, ${LED.on}, ${LED.mid})`,
+                borderRadius: "0 2px 2px 0",
+                transition: "width 0.25s linear",
+              }}
+            />
+          </div>
+        )}
 
         {/* Status top-right */}
         {track.status && (
@@ -180,7 +279,7 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
           style={{
             fontSize: 14,
             fontWeight: 700,
-            color: "var(--hw-text)",
+            color: isThisActive ? LED.on : "var(--hw-text)",
             lineHeight: 1.3,
             marginBottom: 2,
           }}
