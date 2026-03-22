@@ -1,17 +1,27 @@
 import Foundation
 
+enum JobStatus: String {
+    case success
+    case failed
+    case inProgress = "in_progress"
+}
+
 struct RecentJob: Identifiable {
     let id = UUID()
     let title: String
     let artist: String
     let jobType: String
-    let status: String // "success", "failed", or "in_progress"
+    let status: JobStatus
     let completedAt: Date
 
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f
+    }()
+
     var relativeTime: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: completedAt, relativeTo: Date())
+        Self.relativeFormatter.localizedString(for: completedAt, relativeTo: Date())
     }
 }
 
@@ -33,7 +43,8 @@ enum StatusReader {
             guard let title = job["title"] as? String,
                   let artist = job["artist"] as? String,
                   let jobType = job["job_type"] as? String,
-                  let status = job["status"] as? String,
+                  let statusStr = job["status"] as? String,
+                  let status = JobStatus(rawValue: statusStr),
                   let timestamp = job["completed_at"] as? Double else {
                 return nil
             }

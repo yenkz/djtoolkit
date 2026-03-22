@@ -22,15 +22,18 @@ struct ActivityPopoverView: View {
                 List(jobs) { job in
                     HStack(spacing: 10) {
                         // Status icon
-                        if job.status == "in_progress" {
+                        switch job.status {
+                        case .inProgress:
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(width: 20, height: 20)
-                        } else {
-                            Image(systemName: job.status == "success"
-                                  ? "checkmark.circle.fill"
-                                  : "xmark.circle.fill")
-                                .foregroundStyle(job.status == "success" ? .green : .red)
+                        case .success:
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.title3)
+                        case .failed:
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.red)
                                 .font(.title3)
                         }
 
@@ -59,7 +62,7 @@ struct ActivityPopoverView: View {
         case "cover_art": return "Cover art for '\(job.title)'"
         case "metadata": return "Tagged '\(job.title)'"
         case "audio_analysis": return "Analyzed '\(job.title)'"
-        default: return "\(job.jobType): '\(job.title)'"
+        default: return "Processed '\(job.title)'"
         }
     }
 }

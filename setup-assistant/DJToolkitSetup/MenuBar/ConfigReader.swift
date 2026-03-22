@@ -24,9 +24,15 @@ enum ConfigReader {
             return defaultDownloadsDir
         }
 
-        // Simple line-by-line TOML parsing — find downloads_dir = "..."
+        // Simple line-by-line TOML parsing — find downloads_dir in [agent] section
+        var inAgentSection = false
         for line in contents.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") {
+                inAgentSection = trimmed == "[agent]"
+                continue
+            }
+            guard inAgentSection else { continue }
             if trimmed.hasPrefix("downloads_dir") {
                 if let eqIndex = trimmed.firstIndex(of: "=") {
                     var value = trimmed[trimmed.index(after: eqIndex)...]
@@ -37,11 +43,7 @@ enum ConfigReader {
                     }
                     // Expand ~
                     if value.hasPrefix("~") {
-                        value = value.replacingOccurrences(
-                            of: "~",
-                            with: FileManager.default.homeDirectoryForCurrentUser.path,
-                            range: value.startIndex..<value.index(after: value.startIndex)
-                        )
+                        value = (value as NSString).expandingTildeInPath
                     }
                     return value.isEmpty ? defaultDownloadsDir : value
                 }
