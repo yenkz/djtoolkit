@@ -62,3 +62,14 @@ jobs:
 
       - name: Build (type-check + bundle)
         run: npm run build
+
+  build-agent-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore NuGet packages
+        run: dotnet restore setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -r win-x64
+
+      - name: Build Setup Assistant
+        run: msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:minimal
