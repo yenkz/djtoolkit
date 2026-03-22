@@ -89,6 +89,7 @@ export interface PreviewTrack {
   duration_ms?: number;
   genres?: string;
   spotify_uri?: string;
+  preview_url?: string;
   artwork_url?: string;
   search_string?: string;
   already_owned: boolean;

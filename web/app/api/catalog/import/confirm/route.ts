@@ -39,6 +39,7 @@ interface PreviewTrack {
   explicit?: boolean;
   added_by?: string;
   added_at?: string;
+  preview_url?: string;
 }
 
 const MAX_TRACKS = 2000;
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
       explicit: t.explicit ?? null,
       added_by: t.added_by || null,
       added_at: t.added_at || null,
+      preview_url: t.preview_url || null,
     }));
 
     const { error: upsertErr } = await supabase

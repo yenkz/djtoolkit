@@ -22,6 +22,7 @@ import {
   type ParseResult,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
+import { usePreviewPlayer } from "@/lib/preview-player-context";
 import LCDDisplay from "@/components/ui/LCDDisplay";
 import Checkbox from "@/components/ui/Checkbox";
 import ActionButton from "@/components/ui/ActionButton";
@@ -356,16 +357,26 @@ function TrackReviewRow({
   isOwned: boolean;
   onToggle: () => void;
 }) {
+  const { currentTrackId, isPlaying, progress, play, pause } = usePreviewPlayer();
+  const previewTrack = track as unknown as PreviewTrack;
+  const previewUrl = previewTrack.preview_url;
+  const isThisPlaying = currentTrackId === track.id && isPlaying;
+  const isThisActive = currentTrackId === track.id;
+  // Preview tracks don't have a numeric id yet — derive a stable one from _key
+  const playId = track.id ?? Math.abs((previewTrack._key ?? "").split("").reduce((a: number, c: string) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0));
+
   return (
     <div
       onClick={onToggle}
       className="grid items-center cursor-pointer transition-colors duration-100 border-b last:border-0"
       style={{
-        gridTemplateColumns: "28px 44px 2fr 1.5fr 1fr",
+        gridTemplateColumns: "28px 44px 32px 2fr 1.5fr 1fr",
         padding: "10px 16px",
         gap: 12,
         borderColor: "var(--hw-border)",
-        background: isSelected ? "transparent" : "var(--hw-body)",
+        background: isThisActive
+          ? "color-mix(in srgb, var(--led-green) 5%, transparent)"
+          : isSelected ? "transparent" : "var(--hw-body)",
         opacity: isSelected ? 1 : 0.5,
       }}
     >
@@ -374,9 +385,71 @@ function TrackReviewRow({
         onChange={() => onToggle()}
       />
       <MiniArt name={track.artist ?? track.title ?? "??"} src={track.artwork_url} size={40} />
+      {/* Play/Pause preview button */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={isThisPlaying ? "Pause preview" : "Play preview"}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!previewUrl) return;
+          if (isThisPlaying) pause();
+          else play(playId, previewUrl);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!previewUrl) return;
+            if (isThisPlaying) pause();
+            else play(playId, previewUrl);
+          }
+        }}
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: "50%",
+          background: isThisActive ? "var(--hw-groove, #0E0C0E)" : "var(--hw-raised)",
+          border: isThisActive ? "2px solid var(--led-green)" : "1.5px solid var(--hw-border-light)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: previewUrl ? "pointer" : "default",
+          opacity: previewUrl ? 1 : 0.25,
+          boxShadow: isThisActive ? "0 0 8px var(--led-green-dim, rgba(68,255,68,0.3))" : "none",
+          transition: "all 0.2s",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {isThisPlaying ? (
+          <svg width="8" height="10" viewBox="0 0 12 14">
+            <rect x="1" y="0" width="3.5" height="14" rx="1" fill="var(--led-green)" />
+            <rect x="7.5" y="0" width="3.5" height="14" rx="1" fill="var(--led-green)" />
+          </svg>
+        ) : (
+          <svg width="10" height="10" viewBox="0 0 24 24">
+            <path d="M6 3l12 9-12 9V3z" fill={previewUrl ? "var(--led-green-dim, #6A8A6A)" : "var(--hw-text-muted)"} />
+          </svg>
+        )}
+        {/* Circular progress */}
+        {isThisActive && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: 0,
+              width: `${progress * 100}%`,
+              height: 2,
+              background: "var(--led-green)",
+              transition: "width 0.25s linear",
+            }}
+          />
+        )}
+      </div>
       <span
         className="font-sans text-sm font-semibold overflow-hidden text-ellipsis whitespace-nowrap"
-        style={{ color: isSelected ? "var(--hw-text)" : "var(--hw-text-dim)" }}
+        style={{ color: isThisActive ? "var(--led-green)" : isSelected ? "var(--hw-text)" : "var(--hw-text-dim)" }}
       >
         {track.title}
       </span>
@@ -1374,7 +1447,7 @@ function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2
         <div
           className="grid items-center sticky top-0 z-10"
           style={{
-            gridTemplateColumns: "28px 44px 2fr 1.5fr 1fr",
+            gridTemplateColumns: "28px 44px 32px 2fr 1.5fr 1fr",
             padding: "10px 16px",
             gap: 12,
             background: "var(--hw-raised)",
@@ -1385,6 +1458,7 @@ function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2
             checked={allSelected}
             onChange={() => toggleAll()}
           />
+          <span />
           <span />
           <span className="font-mono text-[9px] font-bold uppercase" style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}>
             TRACK

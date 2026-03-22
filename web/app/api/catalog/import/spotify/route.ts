@@ -228,6 +228,7 @@ export async function POST(request: NextRequest) {
       explicit: r.explicit as boolean | undefined,
       added_by: r.added_by as string | undefined,
       added_at: r.added_at as string | undefined,
+      preview_url: r.preview_url as string | undefined,
     }));
 
     return NextResponse.json(
