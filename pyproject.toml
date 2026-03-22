@@ -21,7 +21,7 @@ aioslsk    = {version = ">=1.6,<2", python = ">=3.11,<3.15"}
 spotipy    = "^2.24"
 librosa    = "^0.10"
 pyloudnorm = "^0.1"
-Pillow     = "^10.0"
+Pillow     = "^12.1"
 # essentia-tensorflow: optional TF genre/instrumental models (Linux/macOS x86_64, Python ≤3.11 only)
 # Install manually: pip install essentia-tensorflow
 keyring = "^25.0"
