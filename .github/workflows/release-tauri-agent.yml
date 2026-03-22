@@ -1,0 +1,198 @@
+name: Release — Tauri Agent
+
+on:
+  push:
+    tags:
+      - "agent-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. agent-v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+
+jobs:
+  build-sidecar:
+    name: Build Python sidecar (${{ matrix.name }})
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            target-triple: aarch64-apple-darwin
+            spec: packaging/macos/djtoolkit.spec
+            binary-name: djtoolkit
+          - name: Windows x64
+            os: windows-latest
+            target-triple: x86_64-pc-windows-msvc
+            spec: packaging/windows/djtoolkit.spec
+            binary-name: djtoolkit.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Install chromaprint (macOS)
+        if: runner.os == 'macOS'
+        run: brew install chromaprint
+
+      - name: Download fpcalc.exe (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $chromaprintVersion = "1.5.1"
+          $url = "https://github.com/acoustid/chromaprint/releases/download/v${chromaprintVersion}/chromaprint-fpcalc-${chromaprintVersion}-windows-x86_64.zip"
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          Invoke-WebRequest -Uri $url -OutFile "dist\fpcalc.zip"
+          Expand-Archive -Path "dist\fpcalc.zip" -DestinationPath "dist\fpcalc-tmp" -Force
+          Get-ChildItem -Path "dist\fpcalc-tmp" -Recurse -Filter "fpcalc.exe" |
+            Copy-Item -Destination "dist\fpcalc.exe"
+          Remove-Item -Recurse "dist\fpcalc-tmp", "dist\fpcalc.zip"
+        shell: pwsh
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+
+      - name: Install PyInstaller
+        run: poetry run pip install pyinstaller
+
+      - name: Build sidecar binary
+        run: poetry run pyinstaller ${{ matrix.spec }} --clean --noconfirm
+
+      # Rename to Tauri sidecar convention: djtoolkit-{target-triple}
+      - name: Rename sidecar (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mv dist/${{ matrix.binary-name }} dist/djtoolkit-${{ matrix.target-triple }}
+          chmod +x dist/djtoolkit-${{ matrix.target-triple }}
+
+      - name: Rename sidecar (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Move-Item -Path "dist\${{ matrix.binary-name }}" -Destination "dist\djtoolkit-${{ matrix.target-triple }}.exe"
+        shell: pwsh
+
+      # Bundle fpcalc alongside
+      - name: Bundle fpcalc (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          FPCALC=$(which fpcalc || echo "/opt/homebrew/bin/fpcalc")
+          cp "$FPCALC" dist/fpcalc-${{ matrix.target-triple }}
+          chmod +x dist/fpcalc-${{ matrix.target-triple }}
+
+      - name: Bundle fpcalc (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Move-Item -Path "dist\fpcalc.exe" -Destination "dist\fpcalc-${{ matrix.target-triple }}.exe"
+        shell: pwsh
+
+      - name: Upload sidecar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target-triple }}
+          path: |
+            dist/djtoolkit-${{ matrix.target-triple }}*
+            dist/fpcalc-${{ matrix.target-triple }}*
+
+  build-tauri:
+    name: Build Tauri app (${{ matrix.name }})
+    needs: build-sidecar
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            target: aarch64-apple-darwin
+            target-triple: aarch64-apple-darwin
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            target-triple: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: agent-app/src-tauri
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent-app/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: agent-app
+        run: npm ci
+
+      # Download the sidecar binary built in the previous job
+      - name: Download sidecar artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target-triple }}
+          path: agent-app/src-tauri/binaries/
+
+      - name: Make sidecar executable (macOS)
+        if: runner.os == 'macOS'
+        run: chmod +x agent-app/src-tauri/binaries/*
+
+      - name: List sidecar binaries
+        run: ls -la agent-app/src-tauri/binaries/
+
+      # Build the Tauri app with tauri-action (handles signing + packaging)
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing (optional — set these secrets to enable)
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows code signing (optional)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: agent-app
+          tauriScript: npm run tauri
+          args: --target ${{ matrix.target }}
+          tagName: ${{ env.RELEASE_VERSION }}
+          releaseName: "djtoolkit Agent ${{ env.RELEASE_VERSION }}"
+          releaseBody: |
+            Cross-platform djtoolkit agent app (Tauri v2).
+
+            **macOS**: Download the `.dmg`, open it, drag to Applications.
+            **Windows**: Download the `.msi`, run the installer.
+          releaseDraft: false
+          prerelease: false

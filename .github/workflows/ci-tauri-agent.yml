@@ -1,0 +1,83 @@
+name: CI — Tauri Agent
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "agent-app/**"
+      - "djtoolkit/agent/**"
+      - ".github/workflows/ci-tauri-agent.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "agent-app/**"
+      - "djtoolkit/agent/**"
+      - ".github/workflows/ci-tauri-agent.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.os }})
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: agent-app/src-tauri
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent-app/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: agent-app
+        run: npm ci
+
+      - name: Check TypeScript
+        working-directory: agent-app
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: agent-app
+        run: npx vite build
+
+      - name: Check Rust
+        working-directory: agent-app/src-tauri
+        run: cargo check --target ${{ matrix.target }}
+
+      # Full Tauri build (validates bundling config without producing installers)
+      - name: Install Tauri CLI
+        working-directory: agent-app
+        run: npm run tauri -- --version
+
+      - name: Tauri build check (macOS)
+        if: runner.os == 'macOS'
+        working-directory: agent-app
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles none
+
+      - name: Tauri build check (Windows)
+        if: runner.os == 'Windows'
+        working-directory: agent-app
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles none
