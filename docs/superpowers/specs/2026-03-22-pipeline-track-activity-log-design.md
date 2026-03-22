@@ -77,6 +77,7 @@ Uses the existing `PipelineJob` interface (already defined in api.ts for the his
 - Only one row can be expanded at a time (expanding another collapses the previous)
 - On expand: fetch jobs via `fetchTrackJobs(track.id)`, show a brief loading spinner
 - On collapse: clear fetched data
+- On fetch failure: show `toast.error()` and collapse the row
 
 ### Layout
 
@@ -131,7 +132,7 @@ Vertical timeline, each entry is a card/block. Ordered chronologically (oldest f
 | Field | Display |
 |-------|---------|
 | Job type | Bold label (e.g., "Download", "Fingerprint") |
-| Status | Colored badge (reuse `StatusBadge` or similar) |
+| Status | Colored badge (same LED color scheme as pipeline) |
 | Created | Relative time (e.g., "2h ago") |
 | Claimed | Relative time, or "—" if not claimed |
 | Completed | Relative time, or "—" if not completed |
