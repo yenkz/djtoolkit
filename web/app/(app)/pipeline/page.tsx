@@ -9,6 +9,986 @@ import {
   bulkPipelineAction,
   bulkCreateJobs,
   fetchTrackJobs,
+  type PipelineMonitorStatus,
+  type PipelineTrack,
+  type PipelineTrackList,
+  type PipelineJob,
+  type AcquisitionStatus,
+} from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
+import LCDDisplay from "@/components/ui/LCDDisplay";
+import MiniSearch from "@/components/ui/MiniSearch";
+import JobChainStrip from "@/components/ui/JobChainStrip";
+import PipelineDetailPanel from "@/components/ui/PipelineDetailPanel";
+
+/* ── LED color map ──────────────────────────────────────────────────────── */
+
+const STATUS_LED: Record<
+  string,
+  { color: string; bg: string; border: string; pulse?: boolean }
+> = {
+  candidate: {
+    color: "var(--hw-text-dim)",
+    bg: "transparent",
+    border: "transparent",
+  },
+  searching: {
+    color: "var(--led-orange)",
+    bg: "color-mix(in srgb, var(--led-orange) 7%, transparent)",
+    border: "color-mix(in srgb, var(--led-orange) 20%, transparent)",
+    pulse: true,
+  },
+  found: {
+    color: "var(--led-green)",
+    bg: "color-mix(in srgb, var(--led-green) 7%, transparent)",
+    border: "color-mix(in srgb, var(--led-green) 20%, transparent)",
+  },
+  not_found: {
+    color: "var(--led-red)",
+    bg: "color-mix(in srgb, var(--led-red) 7%, transparent)",
+    border: "color-mix(in srgb, var(--led-red) 20%, transparent)",
+  },
+  queued: {
+    color: "var(--led-blue)",
+    bg: "color-mix(in srgb, var(--led-blue) 7%, transparent)",
+    border: "color-mix(in srgb, var(--led-blue) 20%, transparent)",
+  },
+  downloading: {
+    color: "var(--led-blue)",
+    bg: "color-mix(in srgb, var(--led-blue) 7%, transparent)",
+    border: "color-mix(in srgb, var(--led-blue) 20%, transparent)",
+    pulse: true,
+  },
+  failed: {
+    color: "var(--led-red)",
+    bg: "color-mix(in srgb, var(--led-red) 7%, transparent)",
+    border: "color-mix(in srgb, var(--led-red) 20%, transparent)",
+  },
+  paused: {
+    color: "var(--hw-text-dim)",
+    bg: "color-mix(in srgb, var(--hw-text-dim) 7%, transparent)",
+    border: "color-mix(in srgb, var(--hw-text-dim) 20%, transparent)",
+  },
+};
+
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+
+function agentStatusColor(lastSeen: string): string {
+  const diff = Date.now() - new Date(lastSeen).getTime();
+  if (diff < 2 * 60 * 1000) return "bg-led-green";
+  if (diff < 10 * 60 * 1000) return "bg-led-orange";
+  return "bg-led-red";
+}
+
+function relativeTime(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+/* ── Filter options ──────────────────────────────────────────────────────── */
+
+const FILTER_OPTIONS: { value: AcquisitionStatus | ""; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "candidate", label: "Candidate" },
+  { value: "searching", label: "Searching" },
+  { value: "found", label: "Found" },
+  { value: "queued", label: "Queued" },
+  { value: "downloading", label: "Downloading" },
+  { value: "not_found", label: "Not Found" },
+  { value: "failed", label: "Failed" },
+  { value: "paused", label: "Paused" },
+];
+
+/* ── Sub-components ──────────────────────────────────────────────────────── */
+
+function StatusBadge({ status }: { status: string }) {
+  const led = STATUS_LED[status] ?? STATUS_LED.candidate;
+  return (
+    <span
+      className="font-mono shrink-0 inline-flex items-center gap-1.5"
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 0.5,
+        color: led.color,
+        background: led.bg,
+        border: `1px solid ${led.border}`,
+        padding: "3px 10px",
+        borderRadius: 4,
+        textTransform: "uppercase",
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: led.color,
+          ...(led.pulse ? { animation: "led-pulse 1.5s infinite" } : {}),
+        }}
+      />
+      {status.replace("_", " ")}
+    </span>
+  );
+}
+
+/* ── Sort arrow indicator ─────────────────────────────────────────────────── */
+
+function SortArrow({
+  column,
+  sortBy,
+  sortDir,
+}: {
+  column: string;
+  sortBy: string;
+  sortDir: "asc" | "desc";
+}) {
+  if (sortBy !== column) return null;
+  return (
+    <span style={{ marginLeft: 4, fontSize: 10 }}>
+      {sortDir === "asc" ? "\u25B2" : "\u25BC"}
+    </span>
+  );
+}
+
+/* ── Bulk action types ───────────────────────────────────────────────────── */
+
+type BulkAction =
+  | "retry_failed"
+  | "delete_failed"
+  | "delete_candidates"
+  | "pause_candidates"
+  | "resume_paused"
+  | "queue_candidates";
+
+/* ── Page ─────────────────────────────────────────────────────────────────── */
+
+export default function PipelineMonitorPage() {
+  const [status, setStatus] = useState<PipelineMonitorStatus | null>(null);
+  const [trackData, setTrackData] = useState<PipelineTrackList | null>(null);
+  const [statusFilter, setStatusFilter] = useState<AcquisitionStatus | "">("");
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+  const [sortBy, setSortBy] = useState("updated_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [editingQuery, setEditingQuery] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [retrying, setRetrying] = useState<Set<number>>(new Set());
+  const [queuing, setQueuing] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  /* ── Expand / detail state ───────────────────────────────────── */
+
+  const [expandedTrackId, setExpandedTrackId] = useState<number | null>(null);
+  const [expandedJobs, setExpandedJobs] = useState<PipelineJob[] | null>(null);
+  const [expandedLoading, setExpandedLoading] = useState(false);
+  const [detailTrack, setDetailTrack] = useState<PipelineTrack | null>(null);
+  const [detailJobs, setDetailJobs] = useState<PipelineJob[] | null>(null);
+
+  /* ── Data loading ─────────────────────────────────────────────── */
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await fetchPipelineMonitorStatus();
+      setStatus(s);
+    } catch {
+      // silent — LCD will show stale data
+    }
+  }, []);
+
+  const loadTracks = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchPipelineTracks({
+        page,
+        per_page: perPage,
+        status: statusFilter || undefined,
+        sort_by: sortBy,
+        sort_dir: sortDir,
+        search: search || undefined,
+      });
+      setTrackData(data);
+      setSelected(new Set());
+    } catch {
+      toast.error("Failed to load pipeline tracks");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, perPage, statusFilter, sortBy, sortDir, search]);
+
+  useEffect(() => {
+    loadStatus();
+    loadTracks();
+  }, [loadStatus, loadTracks]);
+
+  /* ── Realtime subscription ────────────────────────────────────── */
+
+  useEffect(() => {
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    async function setup() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+      channel = supabase
+        .channel("pipeline-tracks")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "tracks",
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          (payload) => {
+            const row = payload.new as Record<string, unknown>;
+            if (
+              ["available", "duplicate"].includes(
+                row.acquisition_status as string,
+              )
+            )
+              return;
+            clearTimeout(refreshRef.current);
+            refreshRef.current = setTimeout(() => {
+              loadStatus();
+              loadTracks();
+            }, 1000);
+          },
+        )
+        .subscribe();
+    }
+    setup();
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Retry handler ────────────────────────────────────────────── */
+
+  async function handleRetry(trackId: number, newSearchString?: string) {
+    setRetrying((prev) => new Set(prev).add(trackId));
+    try {
+      await retryPipelineTrack(trackId, newSearchString);
+      toast.success("Track queued for retry");
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Retry failed");
+    } finally {
+      setRetrying((prev) => {
+        const next = new Set(prev);
+        next.delete(trackId);
+        return next;
+      });
+    }
+  }
+
+  /* ── Queue handler (single + multi) ──────────────────────────── */
+
+  async function handleQueue(trackId: number) {
+    setQueuing((prev) => new Set(prev).add(trackId));
+    try {
+      const result = await bulkCreateJobs([trackId]);
+      if (result.created > 0) {
+        toast.success("Download job created");
+      } else {
+        toast.info("Track already has an active job");
+      }
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Failed to queue track");
+    } finally {
+      setQueuing((prev) => {
+        const next = new Set(prev);
+        next.delete(trackId);
+        return next;
+      });
+    }
+  }
+
+  async function handleQueueSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkActing(true);
+    try {
+      const result = await bulkCreateJobs(ids);
+      toast.success(`${result.created} download job${result.created !== 1 ? "s" : ""} created`);
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Failed to queue selected tracks");
+    } finally {
+      setBulkActing(false);
+      setConfirmAction(null);
+    }
+  }
+
+  /* ── Expand handler ──────────────────────────────────────────── */
+
+  async function handleExpand(trackId: number) {
+    if (expandedTrackId === trackId) {
+      setExpandedTrackId(null);
+      setExpandedJobs(null);
+      return;
+    }
+    setExpandedTrackId(trackId);
+    setExpandedJobs(null);
+    setExpandedLoading(true);
+    try {
+      const data = await fetchTrackJobs(trackId);
+      setExpandedJobs(data.jobs);
+    } catch {
+      toast.error("Failed to load job history");
+      setExpandedTrackId(null);
+    } finally {
+      setExpandedLoading(false);
+    }
+  }
+
+  /* ── Selection helpers ─────────────────────────────────────────── */
+
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (!trackData) return;
+    const allIds = trackData.tracks.map((t) => t.id);
+    const allSelected = allIds.every((id) => selected.has(id));
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allIds));
+    }
+  }
+
+  const selectedCandidateCount = trackData
+    ? trackData.tracks.filter(
+        (t) => selected.has(t.id) && t.acquisition_status === "candidate",
+      ).length
+    : 0;
+
+  /* ── Bulk action state ───────────────────────────────────────── */
+
+  const [bulkActing, setBulkActing] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<BulkAction | null>(null);
+
+  const failedCount =
+    (status?.failed ?? 0) + (status?.not_found ?? 0);
+
+  const CONFIRM_LABELS: Record<
+    BulkAction,
+    { title: string; desc: string; btn: string; color: string }
+  > = {
+    retry_failed: {
+      title: "Retry All Failed",
+      desc: `Reset ${failedCount} failed/not-found tracks to candidate?`,
+      btn: "Retry All",
+      color: "var(--led-orange)",
+    },
+    delete_failed: {
+      title: "Delete All Failed",
+      desc: `Permanently delete ${failedCount} failed/not-found tracks?`,
+      btn: "Delete All",
+      color: "var(--led-red)",
+    },
+    delete_candidates: {
+      title: "Cancel All Candidates",
+      desc: `Permanently delete ${status?.candidate ?? 0} candidate tracks?`,
+      btn: "Delete All",
+      color: "var(--led-red)",
+    },
+    pause_candidates: {
+      title: "Pause All Candidates",
+      desc: `Pause ${status?.candidate ?? 0} candidate tracks? They won't be picked up by the agent until resumed.`,
+      btn: "Pause All",
+      color: "var(--led-orange)",
+    },
+    resume_paused: {
+      title: "Resume All Paused",
+      desc: `Resume ${status?.paused ?? 0} paused tracks? They'll be queued as candidates for the agent to pick up.`,
+      btn: "Resume All",
+      color: "var(--led-green)",
+    },
+    queue_candidates: {
+      title: "Queue Idle Candidates",
+      desc: `Create download jobs for ${status?.candidate ?? 0} candidate tracks that have no active job? The agent will start processing them.`,
+      btn: "Queue All",
+      color: "var(--led-blue)",
+    },
+  };
+
+  async function handleBulkAction(action: BulkAction) {
+    setBulkActing(true);
+    try {
+      const result = await bulkPipelineAction(action);
+      const count = result.updated ?? result.deleted ?? result.created ?? 0;
+      const verbs: Record<string, string> = {
+        retry_failed: "retried",
+        delete_failed: "deleted",
+        delete_candidates: "cancelled",
+        pause_candidates: "paused",
+        resume_paused: "resumed",
+        queue_candidates: "queued",
+      };
+      const verb = verbs[action] ?? "updated";
+      toast.success(`${count} track${count !== 1 ? "s" : ""} ${verb}`);
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Bulk action failed");
+    } finally {
+      setBulkActing(false);
+      setConfirmAction(null);
+    }
+  }
+
+  /* ── Sort handler ─────────────────────────────────────────────── */
+
+  function handleSort(col: string) {
+    if (sortBy === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(col);
+      setSortDir("desc");
+    }
+    setPage(1);
+  }
+
+  /* ── Derived values ───────────────────────────────────────────── */
+
+  const totalPages = trackData
+    ? Math.ceil(trackData.total / trackData.per_page)
+    : 0;
+
+  const agent = status?.agents?.[0] ?? null;
+
+  /* ── Render ───────────────────────────────────────────────────── */
+
+  return (
+    <div className="space-y-6">
+      {/* Title + Search */}
+      <div className="flex items-center gap-4">
+        <h1
+          className="font-bold shrink-0"
+          style={{
+            fontSize: 28,
+            fontWeight: 900,
+            letterSpacing: -1,
+            color: "var(--hw-text)",
+          }}
+        >
+          Pipeline Monitor
+        </h1>
+        <div className="flex-1" />
+        <div style={{ width: "clamp(180px, 24vw, 300px)" }}>
+          <MiniSearch
+            value={search}
+            onChange={(v) => {
+              setSearch(v);
+              setPage(1);
+            }}
+            placeholder="Search tracks..."
+          />
+        </div>
+      </div>
+
+      {/* ── Realtime indicator bar ──────────────────────────────── */}
+      <div
+        className="flex items-center justify-between"
+        style={{
+          background: "var(--hw-surface)",
+          border: "1px solid var(--hw-border)",
+          borderRadius: 6,
+          padding: "8px 14px",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className="bg-led-green"
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              display: "inline-block",
+              animation: "led-pulse 1.5s infinite",
+            }}
+          />
+          <span
+            className="font-mono"
+            style={{
+              fontSize: 11,
+              color: "var(--hw-text-dim)",
+              letterSpacing: 0.5,
+            }}
+          >
+            Realtime &middot; Supabase
+          </span>
+        </div>
+        {agent && (
+          <div className="flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${agentStatusColor(agent.last_seen_at)}`}
+            />
+            <span
+              className="font-mono"
+              style={{ fontSize: 11, color: "var(--hw-text-dim)" }}
+            >
+              {agent.machine_name}
+            </span>
+            <span
+              className="font-mono"
+              style={{ fontSize: 10, color: "var(--hw-text-muted)" }}
+            >
+              {relativeTime(agent.last_seen_at)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ── LCD stat bar ────────────────────────────────────────── */}
+      <div className="grid grid-cols-4 md:grid-cols-7 gap-3 mb-6">
+        <LCDDisplay value={status?.candidate ?? 0} label="Candidates" />
+        <LCDDisplay value={status?.searching ?? 0} label="Searching" />
+        <LCDDisplay value={status?.found ?? 0} label="Found" />
+        <LCDDisplay value={status?.downloading ?? 0} label="Downloading" />
+        <LCDDisplay value={status?.not_found ?? 0} label="Not Found" />
+        <LCDDisplay value={status?.failed ?? 0} label="Failed" />
+        <LCDDisplay value={status?.paused ?? 0} label="Paused" />
+      </div>
+
+      {/* ── Filter buttons ──────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {FILTER_OPTIONS.map((f) => {
+          const count = f.value
+            ? (status?.[f.value] ?? 0)
+            : Object.values(status ?? {}).reduce(
+                (a, v) => a + (typeof v === "number" ? v : 0),
+                0,
+              );
+          const isActive = statusFilter === f.value;
+          return (
+            <button
+              key={f.value}
+              onClick={() => {
+                setStatusFilter(f.value as AcquisitionStatus | "");
+                setPage(1);
+              }}
+              className="font-mono uppercase"
+              style={{
+                fontSize: 11,
+                padding: "6px 14px",
+                borderRadius: 4,
+                border: isActive
+                  ? "1px solid var(--led-orange)"
+                  : "1px solid #333",
+                background: isActive
+                  ? "rgba(255, 160, 51, 0.08)"
+                  : "var(--hw-surface)",
+                color: isActive
+                  ? "var(--hw-lcd-text)"
+                  : "var(--hw-text-dim)",
+                letterSpacing: 0.5,
+                cursor: "pointer",
+              }}
+            >
+              {f.label} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Bulk action toolbar ─────────────────────────────────── */}
+      {(failedCount > 0 ||
+        (status?.candidate ?? 0) > 0 ||
+        (status?.paused ?? 0) > 0) && (
+        <div
+          className="flex flex-wrap items-center gap-2"
+          style={{
+            background: "var(--hw-surface)",
+            border: "1px solid var(--hw-border)",
+            borderRadius: 6,
+            padding: "8px 14px",
+          }}
+        >
+          <span
+            className="font-mono uppercase"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              marginRight: 8,
+            }}
+          >
+            Bulk Actions
+          </span>
+          {failedCount > 0 && (
+            <>
+              <BulkBtn
+                label={`Retry All Failed (${failedCount})`}
+                color="var(--led-orange)"
+                onClick={() => setConfirmAction("retry_failed")}
+              />
+              <BulkBtn
+                label={`Delete All Failed (${failedCount})`}
+                color="var(--led-red)"
+                onClick={() => setConfirmAction("delete_failed")}
+              />
+            </>
+          )}
+          {(status?.candidate ?? 0) > 0 && (
+            <>
+              <BulkBtn
+                label={`Queue Idle Candidates (${status?.candidate ?? 0})`}
+                color="var(--led-blue)"
+                onClick={() => setConfirmAction("queue_candidates")}
+              />
+              <BulkBtn
+                label={`Pause Candidates (${status?.candidate ?? 0})`}
+                color="var(--led-orange)"
+                onClick={() => setConfirmAction("pause_candidates")}
+              />
+              <BulkBtn
+                label={`Cancel Candidates (${status?.candidate ?? 0})`}
+                color="var(--led-red)"
+                onClick={() => setConfirmAction("delete_candidates")}
+              />
+            </>
+          )}
+          {(status?.paused ?? 0) > 0 && (
+            <BulkBtn
+              label={`Resume Paused (${status?.paused ?? 0})`}
+              color="var(--led-green)"
+              onClick={() => setConfirmAction("resume_paused")}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Confirm dialog overlay ────────────────────────────── */}
+      {confirmAction && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.6)",
+          }}
+          onClick={() => !bulkActing && setConfirmAction(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--hw-surface)",
+              border: "1px solid var(--hw-border)",
+              borderRadius: 8,
+              padding: "24px 28px",
+              maxWidth: 400,
+              width: "90vw",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3
+              className="font-mono"
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: "var(--hw-text)",
+                marginBottom: 8,
+              }}
+            >
+              {CONFIRM_LABELS[confirmAction].title}
+            </h3>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--hw-text-dim)",
+                marginBottom: 20,
+                lineHeight: 1.5,
+              }}
+            >
+              {CONFIRM_LABELS[confirmAction].desc}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                disabled={bulkActing}
+                className="font-mono"
+                style={{
+                  fontSize: 12,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  border: "1px solid var(--hw-border)",
+                  background: "transparent",
+                  color: "var(--hw-text-dim)",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleBulkAction(confirmAction)}
+                disabled={bulkActing}
+                className="font-mono"
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  border: `1px solid ${CONFIRM_LABELS[confirmAction].color}`,
+                  background: `color-mix(in srgb, ${CONFIRM_LABELS[confirmAction].color} 15%, transparent)`,
+                  color: CONFIRM_LABELS[confirmAction].color,
+                  cursor: bulkActing ? "not-allowed" : "pointer",
+                  opacity: bulkActing ? 0.6 : 1,
+                }}
+              >
+                {bulkActing ? "..." : CONFIRM_LABELS[confirmAction].btn}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Track table ─────────────────────────────────────────── */}
+      <div
+        className="rounded-md overflow-hidden"
+        style={{
+          background: "var(--hw-list-bg, var(--hw-surface))",
+          border: "1.5px solid var(--hw-list-border, var(--hw-border))",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+        }}
+      >
+        {/* Table header */}
+        <div
+          className="hidden md:grid items-center gap-3 px-4 py-2.5"
+          style={{
+            gridTemplateColumns: "28px 44px 1fr 120px 1fr 80px 80px 80px",
+            borderBottom:
+              "1px solid var(--hw-list-border, var(--hw-border))",
+            background: "var(--hw-list-header, var(--hw-surface))",
+          }}
+        >
+          {/* Select all checkbox */}
+          <input
+            type="checkbox"
+            checked={
+              !!trackData &&
+              trackData.tracks.length > 0 &&
+              trackData.tracks.every((t) => selected.has(t.id))
+            }
+            onChange={toggleSelectAll}
+            style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--led-blue)" }}
+          />
+          {/* Artwork spacer */}
+          <span />
+          {/* Track */}
+          <button
+            onClick={() => handleSort("title")}
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Track
+            <SortArrow column="title" sortBy={sortBy} sortDir={sortDir} />
+          </button>
+          {/* Status */}
+          <button
+            onClick={() => handleSort("acquisition_status")}
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Status
+            <SortArrow
+              column="acquisition_status"
+              sortBy={sortBy}
+              sortDir={sortDir}
+            />
+          </button>
+          {/* Search Query */}
+          <button
+            onClick={() => handleSort("search_string")}
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Search Query
+            <SortArrow
+              column="search_string"
+              sortBy={sortBy}
+              sortDir={sortDir}
+            />
+          </button>
+          {/* Results */}
+          <button
+            onClick={() => handleSort("search_results_count")}
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Results
+            <SortArrow
+              column="search_results_count"
+              sortBy={sortBy}
+              sortDir={sortDir}
+            />
+          </button>
+          {/* Added */}
+          <button
+            onClick={() => handleSort("created_at")}
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Added
+            <SortArrow
+              column="created_at"
+              sortBy={sortBy}
+              sortDir={sortDir}
+            />
+          </button>
+          {/* Actions */}
+          <span
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+            }}
+          >
+            Actions
+          </span>
+        </div>
+
+        {/* Table body */}
+        {loading && !trackData ? (
+          <div style={{ padding: "40px 20px", textAlign: "center" }}>
+            <span
+              className="font-mono"
+              style={{ fontSize: 13, color: "var(--hw-text-dim)" }}
+            >
+              Loading...
+            </span>
+          </div>
+        ) : !trackData || trackData.tracks.length === 0 ? (
+          <div style={{ padding: "40px 20px", textAlign: "center" }}>
+            <span style={{ fontSize: 14, color: "var(--hw-text-dim)" }}>
+              No tracks found.
+            </span>
+          </div>
+        ) : (
+          trackData.tracks.map((track) => (
+            <div key={track.id}>
+              <TrackRow
+                track={track}
+                editingQuery={editingQuery}
+                editValue={editValue}
+                retrying={retrying.has(track.id)}
+                queuing={queuing.has(track.id)}
+                isSelected={selected.has(track.id)}
+                isExpanded={expandedTrackId === track.id}
+                onToggleSelect={() => toggleSelect(track.id)}
+                onExpand={() => handleExpand(track.id)}
+                onEditStart={(id, val) => {
+                  setEditingQuery(id);
+                  setEditValue(val);
+                }}
+                onEditChange={setEditValue}
+                onEditCancel={() => setEditingQuery(null)}
+                onEditSubmit={(id) => {
+                  handleRetry(id, editValue);
+                  setEditingQuery(null);
+                }}
+                onRetry={(id) => handleRetry(id)}
+                onQueue={(id) => handleQueue(id)}
+              />
+              {/* Expansion panel */}
+              {expandedTrackId === track.id && (
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--hw-list-border, var(--hw-border))",
+                    background: "color-mix(in srgb, var(--led-blue) 3%, var(--hw-list-row-bg, var(--hw-surface)))",
+                  }}
+                >
+                  {expandedLoading ? (
+                    <div style={{ padding: "10px 16px 10px 88px" }}>
+                      <span className="font-mono" style={{ fontSize: 11, color: "var(--hw-text-muted)" }}>
+                        Loading job history...
+                      </span>
+                    </div>
+                  ) : expandedJobs ? (
+                    <JobChainStrip
+                      jobs={expandedJobs}
+                      source={track.source}
+                      onViewDetails={() => {
+                        setDetailTrack(track);
+                        setDetailJobs(expandedJobs);
+                      }}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </div>
           ))
         )}
       </div>
@@ -141,6 +1121,7 @@ import {
         </div>
       )}
 
+      {/* ── Detail panel ────────────────────────────────────────── */}
       {detailTrack && detailJobs && (
         <PipelineDetailPanel
           track={detailTrack}
@@ -238,8 +1219,9 @@ function TrackRow({
       style={{
         gridTemplateColumns: "28px 44px 1fr 120px 1fr 80px 80px 80px",
         padding: "10px 16px",
-        borderBottom:
-          "1px solid var(--hw-list-border, var(--hw-border))",
+        borderBottom: isExpanded
+          ? "none"
+          : "1px solid var(--hw-list-border, var(--hw-border))",
         background: isSelected
           ? "color-mix(in srgb, var(--led-blue) 6%, var(--hw-list-row-bg, var(--hw-surface)))"
           : hovered
