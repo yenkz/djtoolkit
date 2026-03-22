@@ -4,6 +4,7 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { auditLog, getClientIp } from "@/lib/api-server/audit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
+import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
 /**
  * POST /api/pipeline/tracks/bulk
@@ -12,11 +13,12 @@ import { jsonError } from "@/lib/api-server/errors";
  *
  * Body: { action: "retry_failed" | "delete_failed" | "delete_candidates" | "pause_candidates" | "resume_paused" }
  *
- * - retry_failed:      reset all failed + not_found tracks → candidate
- * - delete_failed:     permanently delete all failed + not_found tracks
- * - delete_candidates: permanently delete all candidate tracks (cancel)
- * - pause_candidates:  move all candidate tracks → paused (agent skips them)
- * - resume_paused:     move all paused tracks → candidate (agent picks them up)
+ * - retry_failed:       reset all failed + not_found tracks → candidate
+ * - delete_failed:      permanently delete all failed + not_found tracks
+ * - delete_candidates:  permanently delete all candidate tracks (cancel)
+ * - pause_candidates:   move all candidate tracks → paused (agent skips them)
+ * - resume_paused:      move all paused tracks → candidate (agent picks them up)
+ * - queue_candidates:   create download jobs for idle candidates (no active job)
  */
 export async function POST(request: NextRequest) {
   const rl = await rateLimit(request, limiters.write);
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest) {
   const { action } = body;
   const VALID_ACTIONS = [
     "retry_failed", "delete_failed", "delete_candidates",
-    "pause_candidates", "resume_paused",
+    "pause_candidates", "resume_paused", "queue_candidates",
   ];
   if (!action || !VALID_ACTIONS.includes(action)) {
     return jsonError(
@@ -187,6 +189,73 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ updated });
+  }
+
+  if (action === "queue_candidates") {
+    // Find all candidate tracks for this user
+    const { data: candidates, error: fetchErr } = await supabase
+      .from("tracks")
+      .select("id, title, artist, search_string, duration_ms")
+      .eq("user_id", user.userId)
+      .eq("acquisition_status", "candidate");
+
+    if (fetchErr) return jsonError(fetchErr.message, 500);
+
+    const trackIds = (candidates ?? []).map((t) => t.id);
+    if (trackIds.length === 0) {
+      return NextResponse.json({ created: 0 });
+    }
+
+    // Find which already have an active job
+    const activeJobTrackIds = new Set<number>();
+    for (let i = 0; i < trackIds.length; i += 100) {
+      const batch = trackIds.slice(i, i + 100);
+      const { data: activeJobs } = await supabase
+        .from("pipeline_jobs")
+        .select("track_id")
+        .in("track_id", batch)
+        .in("status", ["pending", "claimed", "running"]);
+      for (const j of activeJobs ?? []) {
+        if (j.track_id) activeJobTrackIds.add(j.track_id);
+      }
+    }
+
+    // Filter to idle candidates only
+    const idle = (candidates ?? []).filter((t) => !activeJobTrackIds.has(t.id));
+    if (idle.length === 0) {
+      return NextResponse.json({ created: 0 });
+    }
+
+    const userSettings = await getUserSettings(supabase, user.userId);
+    const downloadSettings = getJobSettings(userSettings, "download");
+
+    let created = 0;
+    for (const track of idle) {
+      const { error: insertErr } = await supabase
+        .from("pipeline_jobs")
+        .insert({
+          user_id: user.userId,
+          track_id: track.id,
+          job_type: "download",
+          payload: {
+            track_id: track.id,
+            search_string: track.search_string ?? "",
+            artist: track.artist ?? "",
+            title: track.title ?? "",
+            duration_ms: track.duration_ms ?? 0,
+            ...(Object.keys(downloadSettings).length > 0 && { settings: downloadSettings }),
+          },
+        });
+      if (!insertErr) created++;
+    }
+
+    await auditLog(user.userId, "track.bulk_queue_candidates", {
+      resourceType: "pipeline_job",
+      details: { created, idle_count: idle.length },
+      ipAddress: getClientIp(request),
+    });
+
+    return NextResponse.json({ created });
   }
 
   return jsonError("Unknown action", 400);

@@ -342,8 +342,8 @@ export async function fetchPipelineTracks(params: {
 }
 
 export async function bulkPipelineAction(
-  action: "retry_failed" | "delete_failed" | "delete_candidates" | "pause_candidates" | "resume_paused",
-): Promise<{ updated?: number; deleted?: number }> {
+  action: "retry_failed" | "delete_failed" | "delete_candidates" | "pause_candidates" | "resume_paused" | "queue_candidates",
+): Promise<{ updated?: number; deleted?: number; created?: number }> {
   const res = await apiClient("/pipeline/tracks/bulk", {
     method: "POST",
     body: JSON.stringify({ action }),

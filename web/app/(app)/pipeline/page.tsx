@@ -156,7 +156,8 @@ type BulkAction =
   | "delete_failed"
   | "delete_candidates"
   | "pause_candidates"
-  | "resume_paused";
+  | "resume_paused"
+  | "queue_candidates";
 
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 
@@ -317,19 +318,26 @@ export default function PipelineMonitorPage() {
       btn: "Resume All",
       color: "var(--led-green)",
     },
+    queue_candidates: {
+      title: "Queue Idle Candidates",
+      desc: `Create download jobs for ${status?.candidate ?? 0} candidate tracks that have no active job? The agent will start processing them.`,
+      btn: "Queue All",
+      color: "var(--led-blue)",
+    },
   };
 
   async function handleBulkAction(action: BulkAction) {
     setBulkActing(true);
     try {
       const result = await bulkPipelineAction(action);
-      const count = result.updated ?? result.deleted ?? 0;
+      const count = result.updated ?? result.deleted ?? result.created ?? 0;
       const verbs: Record<string, string> = {
         retry_failed: "retried",
         delete_failed: "deleted",
         delete_candidates: "cancelled",
         pause_candidates: "paused",
         resume_paused: "resumed",
+        queue_candidates: "queued",
       };
       const verb = verbs[action] ?? "updated";
       toast.success(`${count} track${count !== 1 ? "s" : ""} ${verb}`);
@@ -539,6 +547,11 @@ export default function PipelineMonitorPage() {
           )}
           {(status?.candidate ?? 0) > 0 && (
             <>
+              <BulkBtn
+                label={`Queue Idle Candidates (${status?.candidate ?? 0})`}
+                color="var(--led-blue)"
+                onClick={() => setConfirmAction("queue_candidates")}
+              />
               <BulkBtn
                 label={`Pause Candidates (${status?.candidate ?? 0})`}
                 color="var(--led-orange)"
