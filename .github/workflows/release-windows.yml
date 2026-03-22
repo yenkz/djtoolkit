@@ -86,12 +86,13 @@ jobs:
           VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           $v = "$env:VERSION" -replace '^v',''
+          $root = (Get-Location).Path
           wix build packaging/windows/djtoolkit.wxs `
             -o "dist/djtoolkit-${v}-windows.msi" `
             -d Version=$v `
-            -d BinaryPath="dist/djtoolkit.exe" `
-            -d FpcalcPath="dist/fpcalc.exe" `
-            -d SetupDir="dist/setup"
+            -d BinaryPath="$root\dist\djtoolkit.exe" `
+            -d FpcalcPath="$root\dist\fpcalc.exe" `
+            -d SetupDir="$root\dist\setup"
         shell: pwsh
 
       - name: Upload release assets
