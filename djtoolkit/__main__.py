@@ -672,6 +672,9 @@ def agent_configure_headless(
     # Expand ~ for the response but keep unexpanded in config if user passed ~
     expanded_downloads = str(Path(downloads_dir).expanduser())
 
+    # TOML treats backslashes as escape chars; use forward slashes (Windows handles them fine)
+    toml_downloads_dir = downloads_dir.replace("\\", "/")
+
     cfg_dir = config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_path = cfg_dir / "config.toml"
@@ -680,7 +683,7 @@ def agent_configure_headless(
 cloud_url = "{cloud_url}"
 poll_interval_sec = {poll_interval}
 max_concurrent_jobs = 2
-downloads_dir = "{downloads_dir}"
+downloads_dir = "{toml_downloads_dir}"
 
 [soulseek]
 search_timeout_sec = 15
@@ -974,6 +977,8 @@ def _setup_terminal_wizard():
 
     # Write agent config
     downloads_dir = str(default_downloads_dir())
+    # TOML treats backslashes as escape chars; use forward slashes (Windows handles them fine)
+    toml_downloads_dir = downloads_dir.replace("\\", "/")
     cfg_dir = config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_path = cfg_dir / "config.toml"
@@ -982,7 +987,7 @@ def _setup_terminal_wizard():
 cloud_url = "https://api.djtoolkit.com"
 poll_interval_sec = 30
 max_concurrent_jobs = 2
-downloads_dir = "{downloads_dir}"
+downloads_dir = "{toml_downloads_dir}"
 
 [soulseek]
 search_timeout_sec = 15
