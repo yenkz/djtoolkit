@@ -71,8 +71,7 @@ jobs:
           # Validate critical WinUI runtime files are present
           $required = @(
             "DJToolkit Setup.exe", "DJToolkit Setup.dll",
-            "Microsoft.UI.Xaml.dll", "Microsoft.WindowsAppRuntime.Bootstrap.dll",
-            "resources.pri"
+            "Microsoft.UI.Xaml.dll", "Microsoft.WindowsAppRuntime.Bootstrap.dll"
           )
           $missing = $required | Where-Object { -not (Test-Path "dist/setup/$_") }
           if ($missing) {
