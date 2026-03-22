@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const perPage = Math.min(100, Math.max(1, Number(sp.get("per_page")) || 25));
   const status = sp.get("status");
   const search = sp.get("search");
-  const ALLOWED_SORT = new Set(["updated_at", "title", "acquisition_status", "search_results_count"]);
+  const ALLOWED_SORT = new Set(["updated_at", "created_at", "title", "acquisition_status", "search_results_count"]);
   const sortBy = ALLOWED_SORT.has(sp.get("sort_by") ?? "") ? sp.get("sort_by")! : "updated_at";
   const sortDir = sp.get("sort_dir") === "asc";
   const offset = (page - 1) * perPage;
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   const columns = [
     "id", "title", "artist", "album", "artwork_url",
     "acquisition_status", "search_string", "search_results_count",
-    "updated_at",
+    "created_at", "updated_at",
   ].join(",");
 
   let query = supabase

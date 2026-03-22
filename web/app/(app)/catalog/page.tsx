@@ -50,6 +50,7 @@ function toComponentTrack(t: Track) {
     status: t.acquisition_status,
     artwork_url: t.artwork_url,
     local_path: t.local_path,
+    created_at: t.created_at,
   };
 }
 
@@ -500,7 +501,7 @@ export default function CatalogPage() {
                 style={{
                   display: "grid",
                   gridTemplateColumns:
-                    "44px 2fr 1.5fr 50px 60px 0.5fr 1fr 48px",
+                    "44px 2fr 1.5fr 50px 60px 0.5fr 0.8fr 0.6fr 48px",
                   padding: "10px 14px",
                   gap: 10,
                   background: "var(--hw-list-header)",
@@ -518,6 +519,7 @@ export default function CatalogPage() {
                   { label: "Key", key: "key_normalized" },
                   { label: "Energy", key: "energy" },
                   { label: "Tags", key: "genres" },
+                  { label: "Added", key: "created_at" },
                   { label: "", key: "" },
                 ] as const).map((col, i) =>
                   col.key ? (
@@ -592,7 +594,7 @@ export default function CatalogPage() {
                 style={{
                   display: "grid",
                   gridTemplateColumns:
-                    "6px 2fr 1.5fr 0.6fr 0.5fr 0.6fr 0.5fr",
+                    "6px 2fr 1.5fr 0.6fr 0.5fr 0.6fr 0.5fr 0.6fr",
                   padding: "8px 14px",
                   gap: 10,
                   background: "var(--hw-list-header)",
@@ -610,6 +612,7 @@ export default function CatalogPage() {
                   { label: "Key", key: "key_normalized" },
                   { label: "Genre", key: "genres" },
                   { label: "Energy", key: "energy" },
+                  { label: "Added", key: "created_at" },
                 ] as const).map((col, i) =>
                   col.key ? (
                     <button

@@ -661,7 +661,7 @@ export default function PipelineMonitorPage() {
         <div
           className="hidden md:grid items-center gap-3 px-4 py-2.5"
           style={{
-            gridTemplateColumns: "44px 1fr 120px 1fr 80px 80px",
+            gridTemplateColumns: "44px 1fr 120px 1fr 80px 80px 80px",
             borderBottom:
               "1px solid var(--hw-list-border, var(--hw-border))",
             background: "var(--hw-list-header, var(--hw-surface))",
@@ -749,6 +749,28 @@ export default function PipelineMonitorPage() {
             Results
             <SortArrow
               column="search_results_count"
+              sortBy={sortBy}
+              sortDir={sortDir}
+            />
+          </button>
+          {/* Added */}
+          <button
+            onClick={() => handleSort("created_at")}
+            className="font-mono uppercase text-left"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 1,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            Added
+            <SortArrow
+              column="created_at"
               sortBy={sortBy}
               sortDir={sortDir}
             />
@@ -961,7 +983,7 @@ function TrackRow({
       onMouseLeave={() => setHovered(false)}
       className="grid items-center gap-3 px-4"
       style={{
-        gridTemplateColumns: "44px 1fr 120px 1fr 80px 80px",
+        gridTemplateColumns: "44px 1fr 120px 1fr 80px 80px 80px",
         padding: "10px 16px",
         borderBottom:
           "1px solid var(--hw-list-border, var(--hw-border))",
@@ -1103,6 +1125,20 @@ function TrackRow({
         {resultsCount === null || resultsCount === undefined
           ? "\u2014"
           : resultsCount}
+      </span>
+
+      {/* Added date */}
+      <span
+        className="font-mono"
+        style={{ fontSize: 10, color: "var(--hw-text-muted)" }}
+      >
+        {track.created_at
+          ? new Date(track.created_at).toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "2-digit",
+            })
+          : ""}
       </span>
 
       {/* Actions */}

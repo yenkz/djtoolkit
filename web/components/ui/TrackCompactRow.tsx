@@ -15,6 +15,7 @@ interface Track {
   energy?: number;
   status?: string;
   artwork_url?: string;
+  created_at?: string;
 }
 
 interface TrackCompactRowProps {
@@ -38,7 +39,7 @@ export default function TrackCompactRow({
       className="cursor-pointer"
       style={{
         display: "grid",
-        gridTemplateColumns: "6px 2fr 1.5fr 0.6fr 0.5fr 0.6fr 0.5fr",
+        gridTemplateColumns: "6px 2fr 1.5fr 0.6fr 0.5fr 0.6fr 0.5fr 0.6fr",
         padding: "6px 14px",
         gap: 10,
         alignItems: "center",
@@ -100,6 +101,20 @@ export default function TrackCompactRow({
 
       {/* Energy */}
       <EnergyBar level={track.energy ?? 0} />
+
+      {/* Added date */}
+      <span
+        className="font-mono"
+        style={{ fontSize: 9, color: "var(--hw-text-muted)" }}
+      >
+        {track.created_at
+          ? new Date(track.created_at).toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "2-digit",
+            })
+          : ""}
+      </span>
     </div>
   );
 }

@@ -74,6 +74,7 @@ export interface Track {
   key?: number;
   mode?: number;
   energy?: number;
+  created_at?: string;
 }
 
 export interface PreviewTrack {
@@ -291,6 +292,7 @@ export interface PipelineTrack {
   acquisition_status: AcquisitionStatus;
   search_string: string | null;
   search_results_count: number | null;
+  created_at: string;
   updated_at: string;
 }
 
