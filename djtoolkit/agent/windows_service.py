@@ -151,7 +151,8 @@ class DJToolkitAgentService(_ServiceBase):
     _svc_name_ = SERVICE_NAME
     _svc_display_name_ = DISPLAY_NAME
 
-    def __init__(self):
+    def __init__(self, args):
+        super().__init__(args)
         import win32event
         self.stop_event = win32event.CreateEvent(None, 0, 0, None)
         self._loop = None
