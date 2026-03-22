@@ -68,5 +68,18 @@
       <ComponentRef Id="TrayAutoStart" />
     </Feature>
 
+    <!-- Launch Setup Assistant after first install (not upgrades/uninstall) -->
+    <CustomAction Id="LaunchSetup"
+                  Directory="SetupDir"
+                  ExeCommand="&quot;[SetupDir]DJToolkit Setup.exe&quot;"
+                  Return="asyncNoWait"
+                  Impersonate="yes" />
+
+    <InstallExecuteSequence>
+      <Custom Action="LaunchSetup" After="InstallFinalize">
+        NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE
+      </Custom>
+    </InstallExecuteSequence>
+
   </Package>
 </Wix>
