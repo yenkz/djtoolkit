@@ -42,17 +42,16 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
   const [currentTrackId, setCurrentTrackId] = useState<number | null>(null);
   const [currentUri, setCurrentUri] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [apiReady, setApiReady] = useState(false);
+  const [apiReady, setApiReady] = useState(
+    () => typeof window !== "undefined" && !!(window as any).SpotifyIframeApi
+  );
   const embedRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<any>(null);
 
   // Load the Spotify iFrame API script once
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if ((window as any).SpotifyIframeApi) {
-      setApiReady(true);
-      return;
-    }
+    if ((window as any).SpotifyIframeApi) return;
 
     (window as any).onSpotifyIframeApiReady = (IFrameAPI: any) => {
       (window as any).SpotifyIframeApi = IFrameAPI;
