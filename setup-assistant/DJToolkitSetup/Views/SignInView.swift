@@ -73,6 +73,9 @@ struct SignInView: View {
 
         do {
             // 1. OAuth — supabaseURL comes from SUPABASE_URL env var (set at build time)
+            guard state.supabaseURL.hasPrefix("https://") else {
+                throw OAuthError.missingSupabaseURL
+            }
             let (jwt, email) = try await oauthService.signIn(
                 supabaseURL: state.supabaseURL
             )

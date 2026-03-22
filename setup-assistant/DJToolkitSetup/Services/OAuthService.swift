@@ -73,11 +73,13 @@ class OAuthService: NSObject, ASWebAuthenticationPresentationContextProviding {
 enum OAuthError: LocalizedError {
     case noCallback
     case missingToken
+    case missingSupabaseURL
 
     var errorDescription: String? {
         switch self {
         case .noCallback: return "Sign-in was cancelled."
         case .missingToken: return "No access token received. Please try again."
+        case .missingSupabaseURL: return "Supabase URL not configured. This build is missing the SupabaseURL setting — please reinstall from a release build."
         }
     }
 }
