@@ -93,11 +93,10 @@ jobs:
         shell: pwsh
 
       - name: Delete existing MSI asset
+        continue-on-error: true
         run: |
           $v = "$env:RELEASE_VERSION" -replace '^v',''
-          $asset = "djtoolkit-${v}-windows.msi"
-          gh release delete-asset $env:RELEASE_VERSION $asset --yes 2>$null
-          Write-Host "Cleared old asset (if any): $asset"
+          gh release delete-asset $env:RELEASE_VERSION "djtoolkit-${v}-windows.msi" --yes
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
