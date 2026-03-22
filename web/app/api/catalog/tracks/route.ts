@@ -22,6 +22,7 @@ const TRACK_COLUMNS = [
   "energy",
   "artwork_url",
   "spotify_uri",
+  "preview_url",
   "local_path",
   "fingerprinted",
   "enriched_spotify",

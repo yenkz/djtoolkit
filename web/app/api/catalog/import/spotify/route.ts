@@ -39,6 +39,7 @@ interface SpotifyTrack {
     images?: Array<{ url: string }>;
   };
   external_ids?: { isrc?: string };
+  preview_url?: string | null;
 }
 
 function mapSpotifyTrack(
@@ -77,6 +78,7 @@ function mapSpotifyTrack(
     ),
     acquisition_status: "candidate",
     source: "spotify",
+    preview_url: track.preview_url || null,
   };
 }
 
