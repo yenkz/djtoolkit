@@ -46,7 +46,7 @@ public sealed class TrayIconManager : IDisposable
         recentActivity.Click += OnRecentActivity;
         openDashboard.Click += (_, _) => Process.Start(new ProcessStartInfo("https://app.djtoolkit.net") { UseShellExecute = true });
         rerunSetup.Click += (_, _) => Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule!.FileName) { UseShellExecute = true });
-        exit.Click += (_, _) => Application.Current.Exit();
+        exit.Click += (_, _) => { Dispose(); Application.Current.Exit(); };
 
         _menu = new MenuFlyout();
         _menu.Items.Add(_statusItem);
@@ -116,15 +116,27 @@ public sealed class TrayIconManager : IDisposable
 
     private async void OnStartupToggle(object sender, RoutedEventArgs e)
     {
-        if (_startupToggle.IsChecked)
+        try
         {
-            StartupManager.Enable();
-            await CLIBridge.StartAgent();
+            if (_startupToggle.IsChecked)
+            {
+                StartupManager.Enable();
+                await CLIBridge.StartAgent();
+            }
+            else
+            {
+                StartupManager.Disable();
+                await CLIBridge.StopAgent();
+            }
         }
-        else
+        catch (Win32Exception)
         {
-            StartupManager.Disable();
-            await CLIBridge.StopAgent();
+            // UAC cancelled — revert toggle state
+            _startupToggle.IsChecked = !_startupToggle.IsChecked;
+            if (_startupToggle.IsChecked)
+                StartupManager.Enable();
+            else
+                StartupManager.Disable();
         }
         _serviceMonitor.Poll();
     }
@@ -137,7 +149,7 @@ public sealed class TrayIconManager : IDisposable
         Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
     }
 
-    private async void OnOpenLogs(object sender, RoutedEventArgs e)
+    private void OnOpenLogs(object sender, RoutedEventArgs e)
     {
         var logPath = ConfigReader.LogFilePath;
         if (File.Exists(logPath))
@@ -146,14 +158,11 @@ public sealed class TrayIconManager : IDisposable
         }
         else
         {
-            var dialog = new ContentDialog
-            {
-                Title = "No Logs",
-                Content = "No log file found. Start the agent first.",
-                CloseButtonText = "OK",
-                XamlRoot = _trayIcon.ContextFlyout?.XamlRoot,
-            };
-            await dialog.ShowAsync();
+            System.Windows.Forms.MessageBox.Show(
+                "No log file found. Start the agent first.",
+                "No Logs",
+                System.Windows.Forms.MessageBoxButtons.OK,
+                System.Windows.Forms.MessageBoxIcon.Information);
         }
     }
 
