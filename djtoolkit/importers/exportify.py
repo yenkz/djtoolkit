@@ -40,6 +40,70 @@ _CSV_TO_DB = {
     "Time Signature":    "time_signature",
 }
 
+# Spotify data exports use the account's locale for column headers.
+# Map known translations → canonical English names used by _CSV_TO_DB.
+_HEADER_ALIASES: dict[str, str] = {
+    # Spanish
+    "URI de la canción": "Track URI",
+    "Nombre de la canción": "Track Name",
+    "Nombre(s) del artista": "Artist Name(s)",
+    "Nombre del álbum": "Album Name",
+    "Fecha de lanzamiento del álbum": "Release Date",
+    "Duración de la canción (ms)": "Duration (ms)",
+    "Explícito": "Explicit",
+    "Popularidad": "Popularity",
+    "Añadido por": "Added By",
+    "Añadido en": "Added At",
+    # French
+    "URI de la piste": "Track URI",
+    "Nom de la piste": "Track Name",
+    "Nom(s) de l'artiste": "Artist Name(s)",
+    "Nom de l'album": "Album Name",
+    "Date de sortie de l'album": "Release Date",
+    "Durée de la piste (ms)": "Duration (ms)",
+    "Explicite": "Explicit",
+    "Popularité": "Popularity",
+    "Ajouté par": "Added By",
+    "Ajouté le": "Added At",
+    # Portuguese
+    "URI da faixa": "Track URI",
+    "Nome da faixa": "Track Name",
+    "Nome(s) do(s) artista(s)": "Artist Name(s)",
+    "Nome do álbum": "Album Name",
+    "Data de lançamento do álbum": "Release Date",
+    "Duração da faixa (ms)": "Duration (ms)",
+    "Popularidade": "Popularity",
+    "Adicionado por": "Added By",
+    "Adicionado em": "Added At",
+    # German
+    "Titel-URI": "Track URI",
+    "Titelname": "Track Name",
+    "Name(n) des/der Künstler(s)": "Artist Name(s)",
+    "Albumname": "Album Name",
+    "Veröffentlichungsdatum des Albums": "Release Date",
+    "Titeldauer (ms)": "Duration (ms)",
+    "Explizit": "Explicit",
+    "Popularität": "Popularity",
+    "Hinzugefügt von": "Added By",
+    "Hinzugefügt am": "Added At",
+}
+
+
+def _normalize_headers(row: dict[str, str]) -> dict[str, str]:
+    """Remap non-English CSV headers to canonical English names."""
+    if "Track URI" in row:
+        return row  # already English
+    out: dict[str, str] = {}
+    for k, v in row.items():
+        out[_HEADER_ALIASES.get(k, k)] = v
+    # Fallback: detect URI column from data
+    if "Track URI" not in out:
+        for k, v in row.items():
+            if v.startswith("spotify:track:"):
+                out["Track URI"] = v
+                break
+    return out
+
 
 def _parse_year(release_date: str) -> int | None:
     if release_date:
@@ -65,10 +129,11 @@ def import_csv(csv_path: str | Path, adapter: "SupabaseAdapter", user_id: str) -
     csv_path = Path(csv_path)
     rows: list[dict] = []
 
-    with open(csv_path, newline="", encoding="utf-8") as f:
+    with open(csv_path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             row = {k.strip(): v.strip() for k, v in row.items()}
+            row = _normalize_headers(row)
             record: dict = {
                 "acquisition_status": "candidate",
                 "source": "exportify",
@@ -137,6 +202,7 @@ def parse_csv_rows(data: bytes) -> list[dict]:
     tracks: list[dict] = []
     for row in reader:
         row = {k.strip(): (v.strip() if v else None) for k, v in row.items() if k is not None}
+        row = _normalize_headers(row)
         record: dict = {}
         for csv_col, db_col in _CSV_TO_DB.items():
             record[db_col] = row.get(csv_col) or None

@@ -57,6 +57,95 @@ const FLOAT_COLUMNS = new Set([
   "tempo",
 ]);
 
+// ─── Header aliases for non-English Spotify exports ─────────────────────────
+// Spotify data exports use the account's locale for column headers.
+// Map known translations → canonical English names used by CSV_TO_DB.
+
+const HEADER_ALIASES: Record<string, string> = {
+  // Spanish
+  "URI de la canción": "Track URI",
+  "Nombre de la canción": "Track Name",
+  "Nombre(s) del artista": "Artist Name(s)",
+  "Nombre del álbum": "Album Name",
+  "Fecha de lanzamiento del álbum": "Release Date",
+  "Duración de la canción (ms)": "Duration (ms)",
+  "Explícito": "Explicit",
+  "Popularidad": "Popularity",
+  "Añadido por": "Added By",
+  "Añadido en": "Added At",
+  // French
+  "URI de la piste": "Track URI",
+  "Nom de la piste": "Track Name",
+  "Nom(s) de l'artiste": "Artist Name(s)",
+  "Nom de l'album": "Album Name",
+  "Date de sortie de l'album": "Release Date",
+  "Durée de la piste (ms)": "Duration (ms)",
+  "Explicite": "Explicit",
+  "Popularité": "Popularity",
+  "Ajouté par": "Added By",
+  "Ajouté le": "Added At",
+  // Portuguese
+  "URI da faixa": "Track URI",
+  "Nome da faixa": "Track Name",
+  "Nome(s) do(s) artista(s)": "Artist Name(s)",
+  "Nome do álbum": "Album Name",
+  "Data de lançamento do álbum": "Release Date",
+  "Duração da faixa (ms)": "Duration (ms)",
+  "Explícito": "Explicit",
+  "Popularidade": "Popularity",
+  "Adicionado por": "Added By",
+  "Adicionado em": "Added At",
+  // German
+  "Titel-URI": "Track URI",
+  "Titelname": "Track Name",
+  "Name(n) des/der Künstler(s)": "Artist Name(s)",
+  "Albumname": "Album Name",
+  "Veröffentlichungsdatum des Albums": "Release Date",
+  "Titeldauer (ms)": "Duration (ms)",
+  "Explizit": "Explicit",
+  "Popularität": "Popularity",
+  "Hinzugefügt von": "Added By",
+  "Hinzugefügt am": "Added At",
+};
+
+/**
+ * Normalize CSV headers to canonical English names.
+ * If English headers are already present, returns rows as-is.
+ * Falls back to detecting the URI column from data patterns.
+ */
+function normalizeHeaders(
+  csvRows: Record<string, string>[]
+): Record<string, string>[] {
+  if (csvRows.length === 0) return csvRows;
+  const headers = Object.keys(csvRows[0]);
+  if (headers.includes("Track URI")) return csvRows;
+
+  const remap: Record<string, string> = {};
+  for (const h of headers) {
+    if (HEADER_ALIASES[h]) remap[h] = HEADER_ALIASES[h];
+  }
+
+  // Fallback: detect URI column from data (language-agnostic)
+  if (!Object.values(remap).includes("Track URI")) {
+    for (const h of headers) {
+      if ((csvRows[0][h] ?? "").startsWith("spotify:track:")) {
+        remap[h] = "Track URI";
+        break;
+      }
+    }
+  }
+
+  if (Object.keys(remap).length === 0) return csvRows;
+
+  return csvRows.map((row) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(row)) {
+      out[remap[k] ?? k] = v;
+    }
+    return out;
+  });
+}
+
 // ─── Search string builder ──────────────────────────────────────────────────
 
 function buildSearchString(artist: string, title: string): string {
@@ -330,11 +419,14 @@ export async function POST(request: NextRequest) {
 
   // Read and parse CSV — strip UTF-8 BOM that Exportify includes
   const text = (await file.text()).replace(/^\uFEFF/, "");
-  const csvRows = parseCsv(text);
+  const rawRows = parseCsv(text);
 
-  if (csvRows.length === 0) {
+  if (rawRows.length === 0) {
     return jsonError("CSV file is empty or has no data rows", 400);
   }
+
+  // Normalize non-English headers (e.g. Spanish Spotify exports) to English
+  const csvRows = normalizeHeaders(rawRows);
 
   // Build track rows, filtering invalid rows
   const trackRows: TrackInsert[] = [];
@@ -344,8 +436,9 @@ export async function POST(request: NextRequest) {
   }
 
   if (trackRows.length === 0) {
+    const headers = Object.keys(rawRows[0] ?? {}).slice(0, 5).join(", ");
     return jsonError(
-      "No valid tracks found in CSV (missing spotify_uri column?)",
+      `No valid tracks found in CSV. Headers found: ${headers}…`,
       400
     );
   }

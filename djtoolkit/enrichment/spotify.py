@@ -86,8 +86,10 @@ def run(csv_path: Path, cfg: Config, adapter: "SupabaseAdapter", user_id: str, f
     stats: dict = {"matched": 0, "unmatched": 0, "matched_ids": []}
 
     # Load CSV
+    from djtoolkit.importers.exportify import _normalize_headers
+
     with open(csv_path, newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
+        rows = [_normalize_headers(r) for r in csv.DictReader(f)]
 
     if not rows:
         return stats
