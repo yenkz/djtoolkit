@@ -4,10 +4,7 @@ on:
   push:
     branches: [master]
     paths:
-      - "djtoolkit/service/**"
-      - "djtoolkit/adapters/**"
-      - "djtoolkit/models/**"
-      - "djtoolkit/db/**"
+      - "djtoolkit/**"
       - "Dockerfile"
       - "docker-compose.yml"
       - "pyproject.toml"

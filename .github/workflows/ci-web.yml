@@ -1,40 +1,21 @@
-name: CI
+name: CI — Web
 
 on:
   push:
     branches: [master]
+    paths:
+      - "web/**"
+      - ".github/workflows/ci-web.yml"
   pull_request:
     branches: [master]
+    paths:
+      - "web/**"
+      - ".github/workflows/ci-web.yml"
 
 permissions:
   contents: read
 
 jobs:
-  test-api:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Poetry
-        run: |
-          pip install poetry==2.3.2
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "poetry"
-
-      - name: Verify lock file
-        run: poetry check --lock
-
-      - name: Install dependencies
-        run: poetry install --no-interaction
-
-      - name: Run tests
-        run: poetry run pytest --tb=short -q
-
   test-web:
     runs-on: ubuntu-latest
     defaults:
