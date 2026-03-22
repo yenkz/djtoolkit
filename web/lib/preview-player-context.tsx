@@ -39,7 +39,7 @@ export function usePreviewPlayer() {
 function toEmbedUrl(spotifyUri: string): string | null {
   const parts = spotifyUri.split(":");
   if (parts.length === 3 && parts[1] === "track") {
-    return `https://open.spotify.com/embed/track/${parts[2]}?utm_source=generator&theme=0`;
+    return `https://open.spotify.com/embed/track/${parts[2]}?utm_source=generator&theme=0&autoplay=1`;
   }
   return null;
 }
