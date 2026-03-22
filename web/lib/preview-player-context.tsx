@@ -5,13 +5,16 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
+  useRef,
   type ReactNode,
 } from "react";
 import { LED_COLORS, HARDWARE, FONTS } from "@/lib/design-system/tokens";
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 interface PreviewPlayerState {
   currentTrackId: number | null;
-  spotifyEmbedUrl: string | null;
   isPlaying: boolean;
 }
 
@@ -35,37 +38,99 @@ export function usePreviewPlayer() {
   return ctx;
 }
 
-/** Convert spotify:track:XXXXX to an embed URL */
-function toEmbedUrl(spotifyUri: string): string | null {
-  const parts = spotifyUri.split(":");
-  if (parts.length === 3 && parts[1] === "track") {
-    return `https://open.spotify.com/embed/track/${parts[2]}?utm_source=generator&theme=0&autoplay=1`;
-  }
-  return null;
-}
-
 export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
   const [currentTrackId, setCurrentTrackId] = useState<number | null>(null);
-  const [spotifyEmbedUrl, setSpotifyEmbedUrl] = useState<string | null>(null);
+  const [currentUri, setCurrentUri] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [apiReady, setApiReady] = useState(false);
+  const embedRef = useRef<HTMLDivElement | null>(null);
+  const controllerRef = useRef<any>(null);
+
+  // Load the Spotify iFrame API script once
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if ((window as any).SpotifyIframeApi) {
+      setApiReady(true);
+      return;
+    }
+
+    (window as any).onSpotifyIframeApiReady = (IFrameAPI: any) => {
+      (window as any).SpotifyIframeApi = IFrameAPI;
+      setApiReady(true);
+    };
+
+    const existing = document.querySelector(
+      'script[src="https://open.spotify.com/embed/iframe-api/v1"]'
+    );
+    if (!existing) {
+      const script = document.createElement("script");
+      script.src = "https://open.spotify.com/embed/iframe-api/v1";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  // Create or update the embed controller when URI changes
+  useEffect(() => {
+    if (!apiReady || !currentUri || !embedRef.current) return;
+
+    const IFrameAPI = (window as any).SpotifyIframeApi;
+    if (!IFrameAPI) return;
+
+    // If controller already exists, just load the new URI
+    if (controllerRef.current) {
+      controllerRef.current.loadUri(currentUri);
+      controllerRef.current.play();
+      return;
+    }
+
+    // Clear the container before creating a new controller
+    embedRef.current.innerHTML = "";
+
+    const options = {
+      uri: currentUri,
+      width: 300,
+      height: 80,
+    };
+
+    IFrameAPI.createController(
+      embedRef.current,
+      options,
+      (controller: any) => {
+        controllerRef.current = controller;
+
+        controller.addListener("playback_update", (e: any) => {
+          if (e.data.isPaused && !e.data.isBuffering) {
+            setIsPlaying(false);
+          } else if (!e.data.isPaused) {
+            setIsPlaying(true);
+          }
+        });
+
+        controller.addListener("ready", () => {
+          controller.play();
+        });
+      }
+    );
+  }, [apiReady, currentUri]);
 
   const play = useCallback((trackId: number, spotifyUri: string) => {
-    const url = toEmbedUrl(spotifyUri);
-    if (!url) return;
     setCurrentTrackId(trackId);
-    setSpotifyEmbedUrl(url);
+    setCurrentUri(spotifyUri);
     setIsPlaying(true);
   }, []);
 
   const pause = useCallback(() => {
-    setIsPlaying(false);
-    setSpotifyEmbedUrl(null);
-    setCurrentTrackId(null);
+    controllerRef.current?.togglePlay();
   }, []);
 
   const stop = useCallback(() => {
+    if (controllerRef.current) {
+      controllerRef.current.destroy();
+      controllerRef.current = null;
+    }
     setCurrentTrackId(null);
-    setSpotifyEmbedUrl(null);
+    setCurrentUri(null);
     setIsPlaying(false);
   }, []);
 
@@ -73,12 +138,12 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
 
   return (
     <PreviewPlayerContext.Provider
-      value={{ currentTrackId, spotifyEmbedUrl, isPlaying, play, pause, stop }}
+      value={{ currentTrackId, isPlaying, play, pause, stop }}
     >
       {children}
 
       {/* Floating Spotify embed player */}
-      {spotifyEmbedUrl && (
+      {currentUri && (
         <div
           style={{
             position: "fixed",
@@ -126,15 +191,8 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
             &#10005;
           </button>
 
-          <iframe
-            src={spotifyEmbedUrl}
-            width={300}
-            height={80}
-            frameBorder={0}
-            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-            loading="lazy"
-            style={{ display: "block" }}
-          />
+          {/* Spotify iFrame API container */}
+          <div ref={embedRef} />
         </div>
       )}
     </PreviewPlayerContext.Provider>
