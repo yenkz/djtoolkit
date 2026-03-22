@@ -50,7 +50,7 @@ function toComponentTrack(t: Track) {
     status: t.acquisition_status,
     artwork_url: t.artwork_url,
     local_path: t.local_path,
-    created_at: t.created_at,
+    created_at: t.updated_at ?? t.created_at,
     preview_url: t.preview_url,
   };
 }
@@ -63,7 +63,7 @@ export default function CatalogPage() {
   const [perPage, setPerPage] = useState(50);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("created_at");
+  const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [loading, setLoading] = useState(true);
   // New design state
@@ -520,7 +520,7 @@ export default function CatalogPage() {
                   { label: "Key", key: "key_normalized" },
                   { label: "Energy", key: "energy" },
                   { label: "Tags", key: "genres" },
-                  { label: "Added", key: "created_at" },
+                  { label: "Added", key: "updated_at" },
                   { label: "", key: "" },
                 ] as const).map((col, i) =>
                   col.key ? (
@@ -613,7 +613,7 @@ export default function CatalogPage() {
                   { label: "Key", key: "key_normalized" },
                   { label: "Genre", key: "genres" },
                   { label: "Energy", key: "energy" },
-                  { label: "Added", key: "created_at" },
+                  { label: "Added", key: "updated_at" },
                 ] as const).map((col, i) =>
                   col.key ? (
                     <button
