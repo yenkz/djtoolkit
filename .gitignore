@@ -70,6 +70,7 @@ postman/
 .claude/
 .mcp.json
 .superpowers/
+docs/superpowers/
 
 # Git worktrees
 .worktrees/

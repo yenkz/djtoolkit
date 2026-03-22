@@ -17,7 +17,7 @@ from djtoolkit.agent.executor import execute_job, execute_download_batch, shutdo
 from djtoolkit.agent.keychain import load_agent_credentials
 from djtoolkit.agent.state import (
     save_job_state, load_orphaned_jobs, cleanup_job,
-    save_daemon_status, clear_daemon_status,
+    save_daemon_status, clear_daemon_status, record_recent_job,
 )
 from djtoolkit.config import Config
 
@@ -158,6 +158,12 @@ async def run_daemon(
             result = await execute_job(job_type, payload, cfg, creds)
             save_job_state(job_id, "completed", payload, result)
             reported = await client.report_result(job_id, success=True, result=result)
+            record_recent_job(
+                title=payload.get("title", ""),
+                artist=payload.get("artist", ""),
+                job_type=job_type,
+                status="completed",
+            )
             if reported:
                 cleanup_job(job_id)
                 log.info("Job %s completed successfully", job_id)
@@ -166,6 +172,12 @@ async def run_daemon(
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
             log.error("Job %s failed: %s", job_id, error_msg)
+            record_recent_job(
+                title=payload.get("title", ""),
+                artist=payload.get("artist", ""),
+                job_type=job_type,
+                status="failed",
+            )
             save_job_state(job_id, "failed", payload, {"error": error_msg})
             reported = await client.report_result(job_id, success=False, error=error_msg)
             if reported:
@@ -233,6 +245,14 @@ async def run_daemon(
 
         async def _tracking_report(job_id, success, result, error):
             reported_ids.add(job_id)
+            job_meta = next((j for j in jobs if j["id"] == job_id), {})
+            job_payload = job_meta.get("payload") or {}
+            record_recent_job(
+                title=job_payload.get("title", ""),
+                artist=job_payload.get("artist", ""),
+                job_type="download",
+                status="completed" if success else "failed",
+            )
             await _report(job_id, success, result, error)
 
         def _update_phase(phase: str):

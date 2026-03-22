@@ -47,6 +47,16 @@
           </RegistryKey>
         </Component>
 
+        <!-- Auto-start tray app on login -->
+        <Component Id="TrayAutoStart" Guid="A8D3F7E1-4B29-4C8A-9E5D-6F1A2B3C4D5E">
+          <RegistryValue Root="HKCU"
+                         Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                         Name="DJToolkit Agent"
+                         Type="string"
+                         Value="&quot;[INSTALLFOLDER]DJToolkit Setup.exe&quot; --tray"
+                         KeyPath="yes" />
+        </Component>
+
       </Directory>
     </StandardDirectory>
 
@@ -56,6 +66,7 @@
       <ComponentRef Id="SetupAssistant" />
       <ComponentRef Id="PathEntry" />
       <ComponentRef Id="ProtocolHandler" />
+      <ComponentRef Id="TrayAutoStart" />
     </Feature>
 
   </Package>

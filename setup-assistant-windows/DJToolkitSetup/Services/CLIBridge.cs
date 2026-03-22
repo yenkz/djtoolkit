@@ -65,4 +65,10 @@ public static class CLIBridge
         await proc.WaitForExitAsync();
         return new CLIResult(proc.ExitCode, stdout, stderr);
     }
+
+    public static Task<CLIResult> StartAgent() =>
+        RunAsync(["agent", "start"], elevate: true);
+
+    public static Task<CLIResult> StopAgent() =>
+        RunAsync(["agent", "stop"], elevate: true);
 }

@@ -8,12 +8,29 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import deque
 from pathlib import Path
 from typing import Any
 
+from djtoolkit.agent.paths import config_dir as _config_dir
+
 log = logging.getLogger(__name__)
 
-DEFAULT_JOBS_DIR = Path.home() / ".djtoolkit" / "jobs"
+DEFAULT_JOBS_DIR = _config_dir() / "jobs"
+
+_recent_jobs: deque[dict] = deque(maxlen=10)
+
+
+def record_recent_job(title: str, artist: str, job_type: str, status: str) -> None:
+    """Append a completed or failed job to the recent jobs feed."""
+    import time
+    _recent_jobs.appendleft({
+        "title": title,
+        "artist": artist,
+        "job_type": job_type,
+        "status": status,
+        "completed_at": time.time(),
+    })
 
 
 def _jobs_dir(base: Path | None = None) -> Path:
@@ -80,7 +97,7 @@ def cleanup_all(*, jobs_dir: Path | None = None) -> int:
 
 # ─── Daemon activity status ──────────────────────────────────────────────────
 
-STATUS_FILE = Path.home() / ".djtoolkit" / "agent-status.json"
+STATUS_FILE = _config_dir() / "agent-status.json"
 
 
 def save_daemon_status(status: dict) -> None:
@@ -88,6 +105,7 @@ def save_daemon_status(status: dict) -> None:
     import time
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     status["updated_at"] = time.time()
+    status["recent_jobs"] = list(_recent_jobs)
     STATUS_FILE.write_text(json.dumps(status, indent=2))
 
 

@@ -10,11 +10,21 @@
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.*" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.*" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.*" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.*" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.*" />
+    <PackageReference Include="Tomlyn" Version="0.17.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\tray-green.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\tray-gray.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\tray-yellow.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
