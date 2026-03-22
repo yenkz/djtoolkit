@@ -4,8 +4,7 @@
   <Package Name="djtoolkit"
            Version="$(var.Version)"
            Manufacturer="djtoolkit"
-           UpgradeCode="E7A3F1D2-8B4C-4A5E-9D6F-1C2B3A4D5E6F"
-           Platform="x64">
+           UpgradeCode="E7A3F1D2-8B4C-4A5E-9D6F-1C2B3A4D5E6F">
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of djtoolkit is already installed." />
     <MediaTemplate EmbedCab="yes" />

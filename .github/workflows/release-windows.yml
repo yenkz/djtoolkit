@@ -84,6 +84,7 @@ jobs:
           $v = "$env:VERSION" -replace '^v',''
           $root = (Get-Location).Path
           wix build packaging/windows/djtoolkit.wxs `
+            -arch x64 `
             -o "dist/djtoolkit-${v}-windows.msi" `
             -d Version=$v `
             -d BinaryPath="$root\dist\djtoolkit.exe" `
