@@ -91,7 +91,7 @@ const HEADER_ALIASES: Record<string, string> = {
   "Nome do álbum": "Album Name",
   "Data de lançamento do álbum": "Release Date",
   "Duração da faixa (ms)": "Duration (ms)",
-  "Explícito": "Explicit",
+  // "Explícito" already mapped by Spanish above (same word in Portuguese)
   "Popularidade": "Popularity",
   "Adicionado por": "Added By",
   "Adicionado em": "Added At",

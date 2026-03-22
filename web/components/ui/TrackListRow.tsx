@@ -68,13 +68,18 @@ export default function TrackListRow({
         alignItems: "center",
         borderBottom: isLast
           ? "none"
-          : "1px solid var(--hw-list-border)",
+          : `1px solid ${isThisActive ? `${LED.on}33` : "var(--hw-list-border)"}`,
         borderLeft: isThisActive ? `3px solid ${LED.on}` : "3px solid transparent",
-        background: hovered
-          ? "var(--hw-list-row-hover)"
-          : "var(--hw-list-row-bg)",
-        boxShadow: isThisActive ? LED.glow : "none",
-        transition: "background 0.12s, border-left 0.2s, box-shadow 0.2s",
+        borderRight: isThisActive ? `1px solid ${LED.on}33` : "1px solid transparent",
+        background: isThisActive
+          ? `linear-gradient(90deg, ${LED.on}15 0%, ${LED.on}08 100%)`
+          : hovered
+            ? "var(--hw-list-row-hover)"
+            : "var(--hw-list-row-bg)",
+        boxShadow: isThisActive
+          ? `${LED.glow}, inset 0 0 20px ${LED.on}08`
+          : "none",
+        transition: "all 0.2s ease",
       }}
     >
       {/* Artwork thumbnail */}
