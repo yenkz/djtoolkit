@@ -79,5 +79,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create CI config
+        run: cp setup-assistant/Config.xcconfig.ci setup-assistant/Config.xcconfig
+
       - name: Build Setup Assistant
         run: xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj -scheme DJToolkitSetup -configuration Release build CODE_SIGNING_ALLOWED=NO
