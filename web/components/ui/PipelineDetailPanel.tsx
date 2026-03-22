@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { type PipelineJob, type PipelineTrack, fetchTracksByIds } from "@/lib/api";
 
 /* ── Status colors ─────────────────────────────────────────────────────── */
@@ -199,28 +199,29 @@ interface PipelineDetailPanelProps {
 export default function PipelineDetailPanel({ track, jobs, onClose }: PipelineDetailPanelProps) {
   const [flags, setFlags] = useState<TrackFlags | null>(null);
 
-  const loadFlags = useCallback(async () => {
-    try {
-      const tracks = await fetchTracksByIds([track.id]);
-      if (tracks.length > 0) {
-        const t = tracks[0] as unknown as Record<string, unknown>;
-        setFlags({
-          fingerprinted: !!t.fingerprinted,
-          enriched_spotify: !!t.enriched_spotify,
-          enriched_audio: !!t.enriched_audio,
-          metadata_written: !!t.metadata_written,
-          cover_art_written: !!t.cover_art_written,
-          in_library: !!t.in_library,
-        });
-      }
-    } catch {
-      // Flags section is optional — fail silently
-    }
-  }, [track.id]);
-
   useEffect(() => {
-    loadFlags();
-  }, [loadFlags]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const tracks = await fetchTracksByIds([track.id]);
+        if (cancelled) return;
+        if (tracks.length > 0) {
+          const t = tracks[0] as unknown as Record<string, unknown>;
+          setFlags({
+            fingerprinted: !!t.fingerprinted,
+            enriched_spotify: !!t.enriched_spotify,
+            enriched_audio: !!t.enriched_audio,
+            metadata_written: !!t.metadata_written,
+            cover_art_written: !!t.cover_art_written,
+            in_library: !!t.in_library,
+          });
+        }
+      } catch {
+        // Flags section is optional — fail silently
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [track.id]);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
