@@ -4,9 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v0.1.12)"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
   build-windows:
@@ -16,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -72,7 +82,7 @@ jobs:
 
       - name: Build MSI
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           $v = "$env:VERSION" -replace '^v',''
           wix build packaging/windows/djtoolkit.wxs `
@@ -86,6 +96,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_VERSION }}
           draft: false
           files: dist/*.msi
         env:

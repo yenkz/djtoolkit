@@ -4,9 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. v0.1.12)"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
   build-macos:
@@ -16,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
 
       - name: Install chromaprint (fpcalc)
         run: brew install chromaprint
@@ -58,7 +68,7 @@ jobs:
 
       - name: Build installer
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           # Strip leading 'v' from tag for VERSION
           export VERSION="${VERSION#v}"
@@ -66,7 +76,7 @@ jobs:
 
       - name: Create Homebrew tarball
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           VERSION="${VERSION#v}"
           TAR_NAME="djtoolkit-${VERSION}-arm64.tar.gz"
@@ -77,6 +87,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_VERSION }}
           draft: false
           files: |
             *.dmg
@@ -94,16 +105,16 @@ jobs:
 
       - name: Download release tarballs
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${VERSION#v}"
-          gh release download "${{ github.ref_name }}" \
+          gh release download "${{ env.RELEASE_VERSION }}" \
             --pattern "djtoolkit-${VERSION}-arm64.tar.gz"
 
       - name: Generate formula
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           VERSION="${VERSION#v}"
           SHA_ARM64=$(sha256sum "djtoolkit-${VERSION}-arm64.tar.gz" | cut -d' ' -f1)
@@ -128,5 +139,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/djtoolkit.rb
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "Update djtoolkit to ${{ github.ref_name }}"
+          git commit -m "Update djtoolkit to ${{ env.RELEASE_VERSION }}"
           git push
