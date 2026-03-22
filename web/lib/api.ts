@@ -258,6 +258,17 @@ export async function fetchPipelineJobs(params: {
   return res.json();
 }
 
+export async function fetchTrackJobs(
+  trackId: number
+): Promise<PipelineJobList> {
+  const qs = new URLSearchParams();
+  qs.set("track_id", String(trackId));
+  qs.set("per_page", "200");
+  const res = await apiClient(`/pipeline/jobs/history?${qs}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export async function retryPipelineJobs(params: {
   job_ids?: string[];
   filter_status?: string;
@@ -292,6 +303,7 @@ export interface PipelineTrack {
   acquisition_status: AcquisitionStatus;
   search_string: string | null;
   search_results_count: number | null;
+  source: string | null;
   created_at: string;
   updated_at: string;
 }

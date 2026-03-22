@@ -8,14 +8,18 @@ import {
   retryPipelineTrack,
   bulkPipelineAction,
   bulkCreateJobs,
+  fetchTrackJobs,
   type PipelineMonitorStatus,
   type PipelineTrack,
   type PipelineTrackList,
+  type PipelineJob,
   type AcquisitionStatus,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import LCDDisplay from "@/components/ui/LCDDisplay";
 import MiniSearch from "@/components/ui/MiniSearch";
+import JobChainStrip from "@/components/ui/JobChainStrip";
+import PipelineDetailPanel from "@/components/ui/PipelineDetailPanel";
 
 /* ── LED color map ──────────────────────────────────────────────────────── */
 
@@ -178,6 +182,11 @@ export default function PipelineMonitorPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [expandedTrackId, setExpandedTrackId] = useState<number | null>(null);
+  const [expandedJobs, setExpandedJobs] = useState<PipelineJob[] | null>(null);
+  const [expandedLoading, setExpandedLoading] = useState(false);
+  const [detailTrack, setDetailTrack] = useState<PipelineTrack | null>(null);
+  const [detailJobs, setDetailJobs] = useState<PipelineJob[] | null>(null);
 
   /* ── Data loading ─────────────────────────────────────────────── */
 
@@ -434,6 +443,28 @@ export default function PipelineMonitorPage() {
       setSortDir("desc");
     }
     setPage(1);
+  }
+
+  /* ── Expand handler ──────────────────────────────────────────── */
+
+  async function handleExpand(trackId: number) {
+    if (expandedTrackId === trackId) {
+      setExpandedTrackId(null);
+      setExpandedJobs(null);
+      return;
+    }
+    setExpandedTrackId(trackId);
+    setExpandedJobs(null);
+    setExpandedLoading(true);
+    try {
+      const data = await fetchTrackJobs(trackId);
+      setExpandedJobs(data.jobs);
+    } catch {
+      toast.error("Failed to load job history");
+      setExpandedTrackId(null);
+    } finally {
+      setExpandedLoading(false);
+    }
   }
 
   /* ── Derived values ───────────────────────────────────────────── */
@@ -904,28 +935,54 @@ export default function PipelineMonitorPage() {
           </div>
         ) : (
           trackData.tracks.map((track) => (
-            <TrackRow
-              key={track.id}
-              track={track}
-              editingQuery={editingQuery}
-              editValue={editValue}
-              retrying={retrying.has(track.id)}
-              queuing={queuing.has(track.id)}
-              isSelected={selected.has(track.id)}
-              onToggleSelect={() => toggleSelect(track.id)}
-              onEditStart={(id, val) => {
-                setEditingQuery(id);
-                setEditValue(val);
-              }}
-              onEditChange={setEditValue}
-              onEditCancel={() => setEditingQuery(null)}
-              onEditSubmit={(id) => {
-                handleRetry(id, editValue);
-                setEditingQuery(null);
-              }}
-              onRetry={(id) => handleRetry(id)}
-              onQueue={(id) => handleQueue(id)}
-            />
+            <div key={track.id}>
+              <TrackRow
+                track={track}
+                editingQuery={editingQuery}
+                editValue={editValue}
+                retrying={retrying.has(track.id)}
+                queuing={queuing.has(track.id)}
+                isSelected={selected.has(track.id)}
+                isExpanded={expandedTrackId === track.id}
+                onToggleSelect={() => toggleSelect(track.id)}
+                onExpand={() => handleExpand(track.id)}
+                onEditStart={(id, val) => {
+                  setEditingQuery(id);
+                  setEditValue(val);
+                }}
+                onEditChange={setEditValue}
+                onEditCancel={() => setEditingQuery(null)}
+                onEditSubmit={(id) => {
+                  handleRetry(id, editValue);
+                  setEditingQuery(null);
+                }}
+                onRetry={(id) => handleRetry(id)}
+                onQueue={(id) => handleQueue(id)}
+              />
+              {expandedTrackId === track.id && (
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--hw-list-border, var(--hw-border))",
+                    background: "color-mix(in srgb, var(--led-blue) 3%, var(--hw-list-row-bg, var(--hw-surface)))",
+                  }}
+                >
+                  {expandedLoading ? (
+                    <div className="font-mono" style={{ padding: "10px 16px 10px 88px", fontSize: 11, color: "var(--hw-text-muted)" }}>
+                      Loading job history...
+                    </div>
+                  ) : expandedJobs ? (
+                    <JobChainStrip
+                      jobs={expandedJobs}
+                      source={track.source}
+                      onViewDetails={() => {
+                        setDetailTrack(track);
+                        setDetailJobs(expandedJobs);
+                      }}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </div>
           ))
         )}
       </div>
@@ -1057,6 +1114,17 @@ export default function PipelineMonitorPage() {
           </div>
         </div>
       )}
+
+      {detailTrack && detailJobs && (
+        <PipelineDetailPanel
+          track={detailTrack}
+          jobs={detailJobs}
+          onClose={() => {
+            setDetailTrack(null);
+            setDetailJobs(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1102,7 +1170,9 @@ function TrackRow({
   retrying,
   queuing,
   isSelected,
+  isExpanded,
   onToggleSelect,
+  onExpand,
   onEditStart,
   onEditChange,
   onEditCancel,
@@ -1116,7 +1186,9 @@ function TrackRow({
   retrying: boolean;
   queuing: boolean;
   isSelected: boolean;
+  isExpanded: boolean;
   onToggleSelect: () => void;
+  onExpand: () => void;
   onEditStart: (id: number, val: string) => void;
   onEditChange: (val: string) => void;
   onEditCancel: () => void;
@@ -1202,8 +1274,14 @@ function TrackRow({
         )}
       </div>
 
-      {/* Track info */}
-      <div className="min-w-0">
+      {/* Track info — click to expand */}
+      <div
+        className="min-w-0 cursor-pointer"
+        onClick={(e) => {
+          e.stopPropagation();
+          onExpand();
+        }}
+      >
         <div
           className="truncate text-sm"
           style={{ fontWeight: 600, color: "var(--hw-text)" }}
