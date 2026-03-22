@@ -6,6 +6,9 @@ final class MenuBarManager {
     private let agentMonitor = AgentMonitor()
     private var popover: NSPopover?
     private var observation: Any?
+    private let updateChecker = UpdateChecker()
+    private var updateObservation: Any?
+    private var reconfigureWindow: NSWindow?
 
     private static var plistPath: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -22,11 +25,18 @@ final class MenuBarManager {
         observeStatus()
 
         agentMonitor.startPolling()
+
+        // Start update checker
+        NotificationManager.requestAuthorization()
+        updateChecker.startPeriodicChecks()
+        observeUpdates()
+
         updateIcon()
     }
 
     func teardown() {
         agentMonitor.stopPolling()
+        updateChecker.stopPeriodicChecks()
         if let statusItem {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
@@ -42,6 +52,24 @@ final class MenuBarManager {
             Task { @MainActor in
                 self?.updateIcon()
                 self?.observeStatus()
+            }
+        }
+    }
+
+    private func observeUpdates() {
+        updateObservation = withObservationTracking {
+            _ = updateChecker.updateAvailable
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.updateIcon()
+                self?.observeUpdates()
+                // Send notification for new version
+                if let self, self.updateChecker.shouldNotify() {
+                    if let version = self.updateChecker.latestVersion {
+                        NotificationManager.sendUpdateNotification(version: version)
+                        self.updateChecker.markNotified()
+                    }
+                }
             }
         }
     }
@@ -78,7 +106,7 @@ final class MenuBarManager {
         case .notInstalled: .systemYellow
         }
 
-        guard let dotColor else {
+        if dotColor == nil && !updateChecker.updateAvailable {
             button.image = base
             return
         }
@@ -95,8 +123,22 @@ final class MenuBarManager {
             width: dotSize,
             height: dotSize
         )
-        dotColor.setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
+        dotColor?.setFill()
+        if dotColor != nil {
+            NSBezierPath(ovalIn: dotRect).fill()
+        }
+
+        // Update badge (top-right) — blue dot when update available
+        if updateChecker.updateAvailable {
+            NSColor.systemBlue.setFill()
+            let badgeRect = NSRect(
+                x: size.width - dotSize - 1,
+                y: size.height - dotSize - 1,
+                width: dotSize,
+                height: dotSize
+            )
+            NSBezierPath(ovalIn: badgeRect).fill()
+        }
         composited.unlockFocus()
 
         // Composited image must NOT be template to preserve dot color
@@ -185,6 +227,10 @@ final class MenuBarManager {
 
         menu.addItem(.separator())
 
+        let reconfigureItem = NSMenuItem(title: "Reconfigure Agent...", action: #selector(openReconfigure), keyEquivalent: "")
+        reconfigureItem.target = self
+        menu.addItem(reconfigureItem)
+
         let openDashboard = NSMenuItem(title: "Open Web Dashboard", action: #selector(openWebDashboard), keyEquivalent: "")
         openDashboard.target = self
         menu.addItem(openDashboard)
@@ -192,6 +238,32 @@ final class MenuBarManager {
         let rerunSetup = NSMenuItem(title: "Re-run Setup...", action: #selector(rerunSetup), keyEquivalent: "")
         rerunSetup.target = self
         menu.addItem(rerunSetup)
+
+        menu.addItem(.separator())
+
+        // Check for Updates
+        if updateChecker.isDownloading {
+            let downloadingItem = NSMenuItem(title: "Downloading update...", action: nil, keyEquivalent: "")
+            downloadingItem.isEnabled = false
+            menu.addItem(downloadingItem)
+        } else if updateChecker.updateAvailable, let version = updateChecker.latestVersion {
+            let updateItem = NSMenuItem(title: "Update Available (v\(version))", action: #selector(installUpdate), keyEquivalent: "")
+            updateItem.target = self
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.menuFont(ofSize: 13).bold()]
+            updateItem.attributedTitle = NSAttributedString(string: "Update Available (v\(version))", attributes: attrs)
+            menu.addItem(updateItem)
+        } else {
+            let checkItem = NSMenuItem(title: "Check for Updates", action: #selector(checkForUpdates), keyEquivalent: "")
+            checkItem.target = self
+            menu.addItem(checkItem)
+        }
+
+        menu.addItem(.separator())
+
+        // Uninstall
+        let uninstallItem = NSMenuItem(title: "Uninstall Agent...", action: #selector(uninstallAgent), keyEquivalent: "")
+        uninstallItem.target = self
+        menu.addItem(uninstallItem)
 
         menu.addItem(.separator())
 
@@ -295,11 +367,43 @@ final class MenuBarManager {
     }
 
     @objc private func rerunSetup() {
-        guard let executablePath = Bundle.main.executablePath else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = [] // no --tray
-        try? process.run()
+        NSWorkspace.shared.openApplication(
+            at: Bundle.main.bundleURL,
+            configuration: NSWorkspace.OpenConfiguration()
+        )
+    }
+
+    @objc private func checkForUpdates() {
+        updateChecker.checkForUpdates()
+    }
+
+    @objc private func installUpdate() {
+        updateChecker.downloadAndInstall()
+    }
+
+    @objc private func openReconfigure() {
+        if let existing = reconfigureWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let isRunning = agentMonitor.status == .running
+        let view = ReconfigureView(agentRunning: isRunning)
+        let hostingController = NSHostingController(rootView: view)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Reconfigure djtoolkit Agent"
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        reconfigureWindow = window
+    }
+
+    @objc private func uninstallAgent() {
+        guard let level = Uninstaller.showConfirmation() else { return }
+        let errors = Uninstaller.uninstall(level: level)
+        Uninstaller.showCompletionAndQuit(errors: errors)
     }
 
     @objc private func quit() {

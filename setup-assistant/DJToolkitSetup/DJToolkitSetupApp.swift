@@ -68,6 +68,17 @@ struct DJToolkitSetupApp: App {
         let manager = MenuBarManager()
         manager.setup()
         Self.menuBarManager = manager
+
+        // First-run: if no config exists, auto-launch wizard
+        let configPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".djtoolkit/config.toml")
+        if !FileManager.default.fileExists(atPath: configPath.path) {
+            // Launch wizard (same as Re-run Setup)
+            NSWorkspace.shared.openApplication(
+                at: Bundle.main.bundleURL,
+                configuration: NSWorkspace.OpenConfiguration()
+            ) { _, _ in }
+        }
     }
 
     private func readPID(at url: URL) -> pid_t? {
