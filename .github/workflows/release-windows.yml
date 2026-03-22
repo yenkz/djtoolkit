@@ -58,22 +58,13 @@ jobs:
           FPCALC_PATH: dist\fpcalc.exe
         run: poetry run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Restore Setup Assistant
-        run: dotnet restore setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -r win-x64
-        shell: pwsh
-
-      - name: Build Setup Assistant
+      - name: Publish Setup Assistant
         run: |
-          msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:normal
-          $exe = Get-ChildItem -Recurse -Path "setup-assistant-windows/DJToolkitSetup/bin" -Filter "DJToolkit Setup.exe" | Select-Object -First 1
-          if (-not $exe) { Write-Error "DJToolkit Setup.exe not found in bin/"; exit 1 }
-          $binDir = $exe.DirectoryName
-          Write-Host "Publishing from: $binDir"
-          New-Item -ItemType Directory -Path "dist/setup" -Force | Out-Null
-          Copy-Item "$binDir/*" "dist/setup/" -Recurse
+          dotnet publish setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj `
+            -c Release -r win-x64 --self-contained `
+            -o dist/setup
+          $exe = Get-Item "dist/setup/DJToolkit Setup.exe" -ErrorAction SilentlyContinue
+          if (-not $exe) { Write-Error "DJToolkit Setup.exe not found in dist/setup/"; exit 1 }
           Write-Host "Setup assistant files: $((Get-ChildItem -Recurse 'dist/setup' -File).Count)"
         shell: pwsh
 
@@ -94,6 +85,16 @@ jobs:
             -d FpcalcPath="$root\dist\fpcalc.exe" `
             -d SetupDir="$root\dist\setup"
         shell: pwsh
+
+      - name: Delete existing MSI asset
+        run: |
+          $v = "$env:RELEASE_VERSION" -replace '^v',''
+          $asset = "djtoolkit-${v}-windows.msi"
+          gh release delete-asset $env:RELEASE_VERSION $asset --yes 2>$null
+          Write-Host "Cleared old asset (if any): $asset"
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
