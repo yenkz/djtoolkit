@@ -70,6 +70,7 @@
 		A20001010000000000000019 /* ConfigWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigWriter.swift; sourceTree = "<group>"; };
 		A2000101000000000000001A /* Uninstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Uninstaller.swift; sourceTree = "<group>"; };
 		A2000101000000000000001B /* ReconfigureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconfigureView.swift; sourceTree = "<group>"; };
+		A2000101000000000000001C /* DJToolkitSetup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = DJToolkitSetup.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				A20001010000000000000001 /* DJToolkitSetupApp.swift */,
+				A2000101000000000000001C /* DJToolkitSetup.entitlements */,
 				A2000101000000000000000C /* Info.plist */,
 				A2000101000000000000000F /* Assets.xcassets */,
 				A70001010000000000000003 /* Models */,
@@ -444,7 +446,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_ENTITLEMENTS = DJToolkitSetup/DJToolkitSetup.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -472,7 +474,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_ENTITLEMENTS = DJToolkitSetup/DJToolkitSetup.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
