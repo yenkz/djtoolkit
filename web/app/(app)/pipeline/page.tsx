@@ -7,6 +7,7 @@ import {
   fetchPipelineTracks,
   retryPipelineTrack,
   bulkPipelineAction,
+  bulkCreateJobs,
   type PipelineMonitorStatus,
   type PipelineTrack,
   type PipelineTrackList,
@@ -172,6 +173,8 @@ export default function PipelineMonitorPage() {
   const [editingQuery, setEditingQuery] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
+  const [queuing, setQueuing] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -199,6 +202,7 @@ export default function PipelineMonitorPage() {
         search: search || undefined,
       });
       setTrackData(data);
+      setSelected(new Set());
     } catch {
       toast.error("Failed to load pipeline tracks");
     } finally {
@@ -275,6 +279,75 @@ export default function PipelineMonitorPage() {
       });
     }
   }
+
+  /* ── Queue handler (single + multi) ──────────────────────────── */
+
+  async function handleQueue(trackId: number) {
+    setQueuing((prev) => new Set(prev).add(trackId));
+    try {
+      const result = await bulkCreateJobs([trackId]);
+      if (result.created > 0) {
+        toast.success("Download job created");
+      } else {
+        toast.info("Track already has an active job");
+      }
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Failed to queue track");
+    } finally {
+      setQueuing((prev) => {
+        const next = new Set(prev);
+        next.delete(trackId);
+        return next;
+      });
+    }
+  }
+
+  async function handleQueueSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkActing(true);
+    try {
+      const result = await bulkCreateJobs(ids);
+      toast.success(`${result.created} download job${result.created !== 1 ? "s" : ""} created`);
+      loadStatus();
+      loadTracks();
+    } catch {
+      toast.error("Failed to queue selected tracks");
+    } finally {
+      setBulkActing(false);
+      setConfirmAction(null);
+    }
+  }
+
+  /* ── Selection helpers ─────────────────────────────────────────── */
+
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (!trackData) return;
+    const allIds = trackData.tracks.map((t) => t.id);
+    const allSelected = allIds.every((id) => selected.has(id));
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allIds));
+    }
+  }
+
+  const selectedCandidateCount = trackData
+    ? trackData.tracks.filter(
+        (t) => selected.has(t.id) && t.acquisition_status === "candidate",
+      ).length
+    : 0;
 
   /* ── Bulk action state ───────────────────────────────────────── */
 
@@ -674,12 +747,23 @@ export default function PipelineMonitorPage() {
         <div
           className="hidden md:grid items-center gap-3 px-4 py-2.5"
           style={{
-            gridTemplateColumns: "44px 1fr 120px 1fr 80px 80px 80px",
+            gridTemplateColumns: "28px 44px 1fr 120px 1fr 80px 80px 80px",
             borderBottom:
               "1px solid var(--hw-list-border, var(--hw-border))",
             background: "var(--hw-list-header, var(--hw-surface))",
           }}
         >
+          {/* Select all checkbox */}
+          <input
+            type="checkbox"
+            checked={
+              !!trackData &&
+              trackData.tracks.length > 0 &&
+              trackData.tracks.every((t) => selected.has(t.id))
+            }
+            onChange={toggleSelectAll}
+            style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--led-blue)" }}
+          />
           {/* Artwork spacer */}
           <span />
           {/* Track */}
@@ -826,6 +910,9 @@ export default function PipelineMonitorPage() {
               editingQuery={editingQuery}
               editValue={editValue}
               retrying={retrying.has(track.id)}
+              queuing={queuing.has(track.id)}
+              isSelected={selected.has(track.id)}
+              onToggleSelect={() => toggleSelect(track.id)}
               onEditStart={(id, val) => {
                 setEditingQuery(id);
                 setEditValue(val);
@@ -837,10 +924,56 @@ export default function PipelineMonitorPage() {
                 setEditingQuery(null);
               }}
               onRetry={(id) => handleRetry(id)}
+              onQueue={(id) => handleQueue(id)}
             />
           ))
         )}
       </div>
+
+      {/* ── Selection action bar ─────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div
+          className="flex items-center gap-3"
+          style={{
+            background: "color-mix(in srgb, var(--led-blue) 6%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--led-blue) 25%, transparent)",
+            borderRadius: 6,
+            padding: "8px 14px",
+          }}
+        >
+          <span
+            className="font-mono"
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--led-blue)",
+            }}
+          >
+            {selected.size} selected
+          </span>
+          {selectedCandidateCount > 0 && (
+            <BulkBtn
+              label={`Queue ${selectedCandidateCount} Candidate${selectedCandidateCount !== 1 ? "s" : ""}`}
+              color="var(--led-blue)"
+              onClick={handleQueueSelected}
+            />
+          )}
+          <button
+            onClick={() => setSelected(new Set())}
+            className="font-mono"
+            style={{
+              fontSize: 10,
+              color: "var(--hw-text-dim)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              marginLeft: "auto",
+            }}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
 
       {/* ── Pagination ──────────────────────────────────────────── */}
       {trackData && totalPages > 0 && (
@@ -967,27 +1100,36 @@ function TrackRow({
   editingQuery,
   editValue,
   retrying,
+  queuing,
+  isSelected,
+  onToggleSelect,
   onEditStart,
   onEditChange,
   onEditCancel,
   onEditSubmit,
   onRetry,
+  onQueue,
 }: {
   track: PipelineTrack;
   editingQuery: number | null;
   editValue: string;
   retrying: boolean;
+  queuing: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
   onEditStart: (id: number, val: string) => void;
   onEditChange: (val: string) => void;
   onEditCancel: () => void;
   onEditSubmit: (id: number) => void;
   onRetry: (id: number) => void;
+  onQueue: (id: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const isEditing = editingQuery === track.id;
   const canRetry =
     track.acquisition_status === "not_found" ||
     track.acquisition_status === "failed";
+  const canQueue = track.acquisition_status === "candidate";
   const resultsCount = track.search_results_count;
 
   return (
@@ -996,16 +1138,25 @@ function TrackRow({
       onMouseLeave={() => setHovered(false)}
       className="grid items-center gap-3 px-4"
       style={{
-        gridTemplateColumns: "44px 1fr 120px 1fr 80px 80px 80px",
+        gridTemplateColumns: "28px 44px 1fr 120px 1fr 80px 80px 80px",
         padding: "10px 16px",
         borderBottom:
           "1px solid var(--hw-list-border, var(--hw-border))",
-        background: hovered
-          ? "var(--hw-list-row-hover, var(--hw-raised))"
-          : "var(--hw-list-row-bg, var(--hw-surface))",
+        background: isSelected
+          ? "color-mix(in srgb, var(--led-blue) 6%, var(--hw-list-row-bg, var(--hw-surface)))"
+          : hovered
+            ? "var(--hw-list-row-hover, var(--hw-raised))"
+            : "var(--hw-list-row-bg, var(--hw-surface))",
         transition: "background 0.15s ease",
       }}
     >
+      {/* Checkbox */}
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={onToggleSelect}
+        style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--led-blue)" }}
+      />
       {/* Artwork */}
       <div
         style={{
@@ -1155,7 +1306,30 @@ function TrackRow({
       </span>
 
       {/* Actions */}
-      <div>
+      <div className="flex gap-1.5">
+        {canQueue && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onQueue(track.id);
+            }}
+            disabled={queuing}
+            className="font-mono shrink-0 transition-colors duration-150 disabled:opacity-50"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: queuing ? "var(--hw-text-muted)" : "var(--led-blue)",
+              background: "transparent",
+              border: "1px solid color-mix(in srgb, var(--led-blue) 40%, transparent)",
+              padding: "3px 10px",
+              borderRadius: 4,
+              cursor: queuing ? "not-allowed" : "pointer",
+            }}
+            title="Create download job for this track"
+          >
+            {queuing ? "..." : "Queue"}
+          </button>
+        )}
         {canRetry && (
           <button
             onClick={(e) => {
