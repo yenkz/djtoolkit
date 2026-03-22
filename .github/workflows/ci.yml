@@ -73,3 +73,11 @@ jobs:
 
       - name: Build Setup Assistant
         run: msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:minimal
+
+  build-agent-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Setup Assistant
+        run: xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj -scheme DJToolkitSetup -configuration Release build CODE_SIGNING_ALLOWED=NO
