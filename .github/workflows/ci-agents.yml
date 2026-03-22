@@ -1,0 +1,44 @@
+name: CI — Setup Assistants
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "setup-assistant-windows/**"
+      - "setup-assistant/**"
+      - ".github/workflows/ci-agents.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "setup-assistant-windows/**"
+      - "setup-assistant/**"
+      - ".github/workflows/ci-agents.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-agent-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: dotnet restore setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -r win-x64
+
+      - name: Build Setup Assistant
+        run: msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:minimal
+
+  build-agent-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create CI config
+        run: cp setup-assistant/Config.xcconfig.ci setup-assistant/Config.xcconfig
+
+      - name: Build Setup Assistant
+        run: xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj -scheme DJToolkitSetup -configuration Release build CODE_SIGNING_ALLOWED=NO

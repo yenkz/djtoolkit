@@ -62,27 +62,3 @@ jobs:
 
       - name: Build (type-check + bundle)
         run: npm run build
-
-  build-agent-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Build Setup Assistant
-        run: dotnet build setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -c Release -r win-x64 -p:Platform=x64
-
-  build-agent-macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create CI config
-        run: cp setup-assistant/Config.xcconfig.ci setup-assistant/Config.xcconfig
-
-      - name: Build Setup Assistant
-        run: xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj -scheme DJToolkitSetup -configuration Release build CODE_SIGNING_ALLOWED=NO
