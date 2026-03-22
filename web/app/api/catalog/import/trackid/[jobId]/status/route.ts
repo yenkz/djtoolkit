@@ -53,7 +53,7 @@ export async function GET(
 
   const { data: job, error } = await supabase
     .from("trackid_import_jobs")
-    .select("status, progress, step, error, result, trackid_job_id, youtube_url, user_id, updated_at")
+    .select("status, progress, step, error, result, trackid_job_id, youtube_url, user_id, updated_at, preview")
     .eq("id", jobId)
     .eq("user_id", user.userId)
     .maybeSingle();
@@ -237,6 +237,58 @@ export async function GET(
       },
       { onConflict: "youtube_url" }
     );
+
+  const isPreview = !!job.preview;
+
+  if (isPreview) {
+    const { data: ownedRows } = await supabase
+      .from("tracks")
+      .select("title, artist")
+      .eq("user_id", user.userId)
+      .eq("acquisition_status", "available");
+    const ownedSet = new Set(
+      (ownedRows ?? [])
+        .filter((r: Record<string, unknown>) => r.title && r.artist)
+        .map((r: Record<string, unknown>) =>
+          `${String(r.title).toLowerCase().trim()}|${String(r.artist).toLowerCase().trim()}`
+        )
+    );
+
+    const previewTracks = tracks.map((t) => {
+      const key = `${(t.title ?? "").toLowerCase().trim()}|${(t.artist ?? "").toLowerCase().trim()}`;
+      return {
+        _key: key,
+        source: "trackid",
+        title: t.title ?? "",
+        artist: t.artist ?? "",
+        artists: t.artists != null ? t.artists : undefined,
+        duration_ms: t.duration_ms != null ? t.duration_ms : undefined,
+        search_string: t.search_string,
+        already_owned: ownedSet.has(key),
+      };
+    });
+
+    const resultObj = { tracks: previewTracks, total: previewTracks.length };
+
+    await supabase
+      .from("trackid_import_jobs")
+      .update({
+        status: "completed",
+        progress: 100,
+        step: `Done — ${previewTracks.length} track${previewTracks.length !== 1 ? "s" : ""} identified`,
+        result: JSON.stringify(resultObj),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobId);
+
+    return NextResponse.json({
+      status: "completed",
+      progress: 100,
+      step: `Done — ${previewTracks.length} track${previewTracks.length !== 1 ? "s" : ""} identified`,
+      error: null,
+      result: resultObj,
+    });
+  }
 
   // Insert tracks
   let inserted = 0;

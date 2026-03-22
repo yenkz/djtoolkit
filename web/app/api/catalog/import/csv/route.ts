@@ -284,6 +284,9 @@ export async function POST(request: NextRequest) {
 
   const { searchParams } = request.nextUrl;
   const queueJobs = searchParams.get("queue_jobs") !== "false";
+  const preview = searchParams.get("preview") === "true";
+
+  const supabase = createServiceClient();
 
   // Parse multipart form data
   let formData: FormData;
@@ -347,7 +350,63 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = createServiceClient();
+  if (preview) {
+    // Check already_owned: find existing available tracks with matching spotify_uri
+    const spotifyUris = trackRows.map((r) => r.spotify_uri).filter(Boolean) as string[];
+    const ownedUris = new Set<string>();
+    for (let i = 0; i < spotifyUris.length; i += 500) {
+      const batch = spotifyUris.slice(i, i + 500);
+      const { data: owned } = await supabase
+        .from("tracks")
+        .select("spotify_uri")
+        .eq("user_id", user.userId)
+        .eq("acquisition_status", "available")
+        .in("spotify_uri", batch);
+      for (const row of owned ?? []) {
+        if (row.spotify_uri) ownedUris.add(row.spotify_uri);
+      }
+    }
+
+    const previewTracks = trackRows.map((r) => ({
+      _key: r.spotify_uri as string,
+      source: r.source as string,
+      title: (r.title as string) ?? "",
+      artist: (r.artist as string) ?? "",
+      artists: r.artists as string | undefined,
+      album: r.album as string | undefined,
+      year: r.year as number | undefined,
+      duration_ms: r.duration_ms as number | undefined,
+      genres: r.genres as string | undefined,
+      spotify_uri: r.spotify_uri as string | undefined,
+      artwork_url: null as string | null,
+      search_string: r.search_string as string,
+      already_owned: ownedUris.has(r.spotify_uri as string),
+      release_date: r.release_date as string | undefined,
+      isrc: null as string | null,
+      popularity: r.popularity as number | undefined,
+      record_label: r.record_label as string | undefined,
+      danceability: r.danceability as number | undefined,
+      energy: r.energy as number | undefined,
+      key: r.key as number | undefined,
+      loudness: r.loudness as number | undefined,
+      mode: r.mode as number | undefined,
+      speechiness: r.speechiness as number | undefined,
+      acousticness: r.acousticness as number | undefined,
+      instrumentalness: r.instrumentalness as number | undefined,
+      liveness: r.liveness as number | undefined,
+      valence: r.valence as number | undefined,
+      tempo: r.tempo as number | undefined,
+      time_signature: r.time_signature as number | undefined,
+      explicit: r.explicit as boolean | undefined,
+      added_by: r.added_by as string | undefined,
+      added_at: r.added_at as string | undefined,
+    }));
+
+    return NextResponse.json(
+      { tracks: previewTracks, total: previewTracks.length },
+      { status: 200 }
+    );
+  }
 
   // Upsert tracks — ON CONFLICT (user_id, spotify_uri) DO NOTHING
   const { error: insertErr } = await supabase

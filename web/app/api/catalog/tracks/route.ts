@@ -26,6 +26,8 @@ const TRACK_COLUMNS = [
   "cover_art_written",
   "in_library",
   "metadata_source",
+  "key_normalized",
+  "energy",
   "created_at",
   "updated_at",
 ].join(", ");

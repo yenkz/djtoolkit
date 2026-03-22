@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
 
   const { searchParams } = request.nextUrl;
   const queueJobs = searchParams.get("queue_jobs") !== "false";
+  const preview = searchParams.get("preview") === "true";
 
   // Parse body
   let body: { url?: string };
@@ -127,6 +128,40 @@ export async function POST(request: NextRequest) {
   if (cached?.tracks) {
     // Cache hit — insert tracks immediately and create a completed job
     const cachedTracks = (cached.tracks as CachedTrack[]) ?? [];
+
+    if (preview) {
+      const { data: existingRows } = await supabase
+        .from("tracks")
+        .select("title, artist")
+        .eq("user_id", user.userId)
+        .eq("acquisition_status", "available");
+      const ownedSet = new Set(
+        (existingRows ?? [])
+          .filter((r: Record<string, unknown>) => r.title && r.artist)
+          .map((r: Record<string, unknown>) =>
+            `${String(r.title).toLowerCase().trim()}|${String(r.artist).toLowerCase().trim()}`
+          )
+      );
+
+      const previewTracks = cachedTracks.map((t) => {
+        const key = `${(t.title ?? "").toLowerCase().trim()}|${(t.artist ?? "").toLowerCase().trim()}`;
+        return {
+          _key: key,
+          source: "trackid",
+          title: t.title ?? "",
+          artist: t.artist ?? "",
+          artists: t.artists ?? undefined,
+          duration_ms: t.duration_ms ?? undefined,
+          search_string: t.search_string ?? undefined,
+          already_owned: ownedSet.has(key),
+        };
+      });
+
+      return NextResponse.json(
+        { tracks: previewTracks, total: previewTracks.length, cached: true },
+        { status: 200 }
+      );
+    }
 
     const trackRows = cachedTracks.map((t) => ({
       user_id: user.userId,
@@ -257,6 +292,7 @@ export async function POST(request: NextRequest) {
     progress: 0,
     step: "Submitted to TrackID.dev…",
     trackid_job_id: trackidJobId,
+    preview,
   });
 
   await auditLog(user.userId, "track.import.trackid", {

@@ -22,24 +22,17 @@ import LCDDisplay from "@/components/ui/LCDDisplay";
 
 type ViewMode = "grid" | "list" | "compact";
 
-/** Extended track fields that may come from the API but aren't in the base type. */
-interface TrackExt extends Track {
-  musical_key?: string;
-  energy?: number;
-}
-
 /** Map API Track to the shape the sub-components expect. */
 function toComponentTrack(t: Track) {
-  const ext = t as TrackExt;
   return {
     id: t.id,
     title: t.title,
     artist: t.artist,
     album: t.album,
     bpm: t.tempo ? Math.round(t.tempo) : undefined,
-    key: ext.musical_key,
+    key: t.key_normalized,
     genre: t.genres?.split(",")[0]?.trim() || undefined,
-    energy: ext.energy,
+    energy: t.energy,
     status: t.acquisition_status,
     artwork_url: t.artwork_url,
     local_path: t.local_path,
@@ -123,7 +116,7 @@ export default function CatalogPage() {
           });
         }
         if (t.artist) artistSet.add(t.artist);
-        const mk = (t as TrackExt).musical_key;
+        const mk = t.key_normalized;
         if (mk) keySet.add(mk);
         if (t.acquisition_status) statusSet.add(t.acquisition_status);
       });
@@ -171,7 +164,7 @@ export default function CatalogPage() {
         return false;
       // Key filter
       if (filters.keys.length > 0) {
-        const mk = (t as TrackExt).musical_key;
+        const mk = t.key_normalized;
         if (!mk || !filters.keys.includes(mk)) return false;
       }
       // BPM range filter

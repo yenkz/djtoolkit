@@ -70,6 +70,57 @@ export interface Track {
   artwork_url?: string;
   spotify_uri?: string;
   already_owned?: boolean;
+  key_normalized?: string;
+  energy?: number;
+}
+
+export interface PreviewTrack {
+  _key: string;
+  source: string;
+  title: string;
+  artist: string;
+  artists?: string;
+  album?: string;
+  year?: number;
+  duration_ms?: number;
+  genres?: string;
+  spotify_uri?: string;
+  artwork_url?: string;
+  search_string?: string;
+  already_owned: boolean;
+  release_date?: string;
+  isrc?: string;
+  popularity?: number;
+  record_label?: string;
+  danceability?: number;
+  energy?: number;
+  key?: number;
+  loudness?: number;
+  mode?: number;
+  speechiness?: number;
+  acousticness?: number;
+  instrumentalness?: number;
+  liveness?: number;
+  valence?: number;
+  tempo?: number;
+  time_signature?: number;
+  explicit?: boolean;
+  added_by?: string;
+  added_at?: string;
+}
+
+export interface PreviewResult {
+  tracks: PreviewTrack[];
+  total: number;
+  has_more?: boolean;
+  next_offset?: number | null;
+}
+
+export interface ConfirmResult {
+  imported: number;
+  skipped_duplicates: number;
+  jobs_created: number;
+  track_ids: number[];
 }
 
 export interface CatalogStats {
@@ -405,6 +456,64 @@ export async function importCsvNoJobs(file: File): Promise<ImportResult> {
     form
   );
   if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function previewImportCsv(file: File): Promise<PreviewResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiClientForm(
+    `/catalog/import/csv?preview=true`,
+    form
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function previewImportSpotify(
+  playlistId: string
+): Promise<PreviewResult> {
+  const combined: PreviewResult = { tracks: [], total: 0 };
+
+  let offset = 0;
+  while (true) {
+    const res = await apiClient(
+      `/catalog/import/spotify?preview=true&offset=${offset}`,
+      { method: "POST", body: JSON.stringify({ playlist_id: playlistId }) }
+    );
+    if (!res.ok) throw new Error(await extractError(res));
+    const chunk: PreviewResult = await res.json();
+
+    combined.tracks.push(...chunk.tracks);
+    combined.total += chunk.total;
+
+    if (!chunk.has_more || chunk.next_offset == null) break;
+    offset = chunk.next_offset;
+  }
+
+  return combined;
+}
+
+export async function submitTrackIdPreview(
+  url: string
+): Promise<{ job_id: string } | PreviewResult> {
+  const res = await apiClient(
+    `/catalog/import/trackid?preview=true`,
+    { method: "POST", body: JSON.stringify({ url }) }
+  );
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function confirmImport(
+  tracks: PreviewTrack[],
+  queueJobs: boolean
+): Promise<ConfirmResult> {
+  const res = await apiClient("/catalog/import/confirm", {
+    method: "POST",
+    body: JSON.stringify({ tracks, queue_jobs: queueJobs }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
   return res.json();
 }
 
