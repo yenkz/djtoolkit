@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using H.NotifyIcon;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -12,6 +13,11 @@ namespace DJToolkitSetup.Tray;
 
 public sealed class TrayIconManager : IDisposable
 {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
+    private const uint MB_OK = 0x0;
+    private const uint MB_ICONINFORMATION = 0x40;
+
     private readonly TaskbarIcon _trayIcon;
     private readonly ServiceMonitor _serviceMonitor;
     private readonly MenuFlyout _menu;
@@ -158,11 +164,8 @@ public sealed class TrayIconManager : IDisposable
         }
         else
         {
-            System.Windows.Forms.MessageBox.Show(
-                "No log file found. Start the agent first.",
-                "No Logs",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Information);
+            MessageBox(IntPtr.Zero, "No log file found. Start the agent first.",
+                "No Logs", MB_OK | MB_ICONINFORMATION);
         }
     }
 
