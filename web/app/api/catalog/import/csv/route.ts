@@ -328,8 +328,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Read and parse CSV
-  const text = await file.text();
+  // Read and parse CSV — strip UTF-8 BOM that Exportify includes
+  const text = (await file.text()).replace(/^\uFEFF/, "");
   const csvRows = parseCsv(text);
 
   if (csvRows.length === 0) {
