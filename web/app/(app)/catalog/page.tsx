@@ -51,6 +51,7 @@ function toComponentTrack(t: Track) {
     artwork_url: t.artwork_url,
     local_path: t.local_path,
     created_at: t.created_at,
+    preview_url: t.preview_url,
   };
 }
 

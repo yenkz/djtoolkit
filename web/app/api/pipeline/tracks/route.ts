@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   const columns = [
     "id", "title", "artist", "album", "artwork_url",
     "acquisition_status", "search_string", "search_results_count",
-    "created_at", "updated_at",
+    "source", "created_at", "updated_at",
   ].join(",");
 
   let query = supabase

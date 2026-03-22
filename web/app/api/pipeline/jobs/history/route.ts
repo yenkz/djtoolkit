@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
 
   const statusFilter = searchParams.get("status");
   const jobTypeFilter = searchParams.get("job_type");
+  const trackIdParam = searchParams.get("track_id");
+  const trackId = trackIdParam ? parseInt(trackIdParam, 10) : null;
 
   const supabase = createServiceClient();
 
@@ -37,7 +39,6 @@ export async function GET(request: NextRequest) {
       "id, job_type, status, track_id, payload, result, error, retry_count, claimed_at, completed_at, created_at"
     )
     .eq("user_id", user.userId)
-    .order("created_at", { ascending: false })
     .range((page - 1) * perPage, page * perPage - 1);
 
   if (statusFilter) {
@@ -48,6 +49,12 @@ export async function GET(request: NextRequest) {
     countQuery = countQuery.eq("job_type", jobTypeFilter);
     dataQuery = dataQuery.eq("job_type", jobTypeFilter);
   }
+  if (trackId && !isNaN(trackId)) {
+    countQuery = countQuery.eq("track_id", trackId);
+    dataQuery = dataQuery.eq("track_id", trackId);
+  }
+
+  dataQuery = dataQuery.order("created_at", { ascending: !!trackId });
 
   const [countResult, dataResult] = await Promise.all([
     countQuery,
