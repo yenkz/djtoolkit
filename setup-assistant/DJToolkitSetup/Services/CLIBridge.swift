@@ -1,9 +1,11 @@
 import Foundation
+import Security
 
 enum CLIBridgeError: LocalizedError {
     case binaryNotFound
     case executionFailed(String)
     case invalidOutput(String)
+    case keychainError(OSStatus)
 
     var errorDescription: String? {
         switch self {
@@ -13,11 +15,14 @@ enum CLIBridgeError: LocalizedError {
             return "CLI command failed: \(msg)"
         case .invalidOutput(let msg):
             return "Unexpected CLI output: \(msg)"
+        case .keychainError(let status):
+            let msg = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown"
+            return "Keychain error: \(msg)"
         }
     }
 }
 
-struct CLIResult: Decodable {
+struct CLIResult {
     let status: String
     let message: String?
     let config_path: String?
@@ -25,6 +30,40 @@ struct CLIResult: Decodable {
 }
 
 enum CLIBridge {
+    // MARK: - Keychain
+
+    private static let keychainService = "djtoolkit"
+
+    private static func setKeychainPassword(account: String, password: String) throws {
+        let data = Data(password.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+        ]
+        // Delete existing entry first
+        SecItemDelete(query as CFDictionary)
+
+        var addQuery = query
+        addQuery[kSecValueData as String] = data
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw CLIBridgeError.keychainError(status)
+        }
+    }
+
+    private static func hasKeychainPassword(account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: false,
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
+    // MARK: - Binary resolution
+
     /// Locate the djtoolkit binary on disk.
     static func findBinary() -> URL? {
         let candidates = [
@@ -55,59 +94,9 @@ enum CLIBridge {
         return nil
     }
 
-    /// Run a CLI command with optional stdin data. Returns stdout.
-    static func run(_ arguments: [String], stdin: String? = nil) async throws -> String {
-        guard let binary = findBinary() else {
-            throw CLIBridgeError.binaryNotFound
-        }
+    // MARK: - Configure (native)
 
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-
-        process.executableURL = binary
-        process.arguments = arguments
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        // Inherit user environment so PyInstaller can extract to TMPDIR
-        var env = ProcessInfo.processInfo.environment
-        if env["TMPDIR"] == nil {
-            env["TMPDIR"] = NSTemporaryDirectory()
-        }
-        // Ensure PATH includes Homebrew so child processes can find dependencies
-        let brewPrefix = "/opt/homebrew/bin:/usr/local/bin"
-        env["PATH"] = brewPrefix + ":" + (env["PATH"] ?? "/usr/bin:/bin")
-        process.environment = env
-
-        if let stdin {
-            let stdinPipe = Pipe()
-            process.standardInput = stdinPipe
-            let inputData = Data(stdin.utf8)
-            stdinPipe.fileHandleForWriting.write(inputData)
-            stdinPipe.fileHandleForWriting.closeFile()
-        }
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-        if process.terminationStatus != 0 {
-            if let data = stdout.data(using: .utf8),
-               let result = try? JSONDecoder().decode(CLIResult.self, from: data) {
-                throw CLIBridgeError.executionFailed(result.message ?? "Unknown error")
-            }
-            throw CLIBridgeError.executionFailed(stderr.isEmpty ? stdout : stderr)
-        }
-
-        return stdout
-    }
-
-    /// Run configure-headless with credentials piped via stdin.
+    /// Store credentials and write config file — no CLI binary needed.
     static func configureHeadless(
         apiKey: String,
         slskUser: String,
@@ -117,40 +106,141 @@ enum CLIBridge {
         downloadsDir: String,
         pollInterval: Int
     ) async throws -> CLIResult {
-        var payload: [String: Any] = [
-            "api_key": apiKey,
-            "slsk_user": slskUser,
-            "slsk_pass": slskPass,
-            "cloud_url": cloudURL,
-            "downloads_dir": downloadsDir,
-            "poll_interval": pollInterval,
-        ]
+        // 1. Store credentials in macOS Keychain
+        try setKeychainPassword(account: "agent-api-key", password: apiKey)
+        try setKeychainPassword(account: "soulseek-username", password: slskUser)
+        try setKeychainPassword(account: "soulseek-password", password: slskPass)
         if let acoustidKey, !acoustidKey.isEmpty {
-            payload["acoustid_key"] = acoustidKey
+            try setKeychainPassword(account: "acoustid-key", password: acoustidKey)
+        }
+
+        // 2. Write config file
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let configDir = home.appendingPathComponent(".djtoolkit")
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+
+        let configPath = configDir.appendingPathComponent("config.toml")
+
+        // Expand ~ in downloads dir for the response
+        let expandedDownloads: String
+        if downloadsDir.hasPrefix("~") {
+            expandedDownloads = home.path + downloadsDir.dropFirst()
         } else {
-            payload["acoustid_key"] = NSNull()
+            expandedDownloads = downloadsDir
         }
 
-        let jsonData = try JSONSerialization.data(withJSONObject: payload)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
+        // TOML config matching Python agent's format
+        let configContent = """
+        [agent]
+        cloud_url = "\(cloudURL)"
+        poll_interval_sec = \(pollInterval)
+        max_concurrent_jobs = 2
+        downloads_dir = "\(downloadsDir)"
 
-        let stdout = try await run(
-            ["agent", "configure-headless", "--stdin"],
-            stdin: jsonString
+        [soulseek]
+        search_timeout_sec = 15
+        download_timeout_sec = 300
+
+        [fingerprint]
+        enabled = true
+
+        [cover_art]
+        sources = "coverart itunes deezer"
+        """
+
+        try configContent.write(to: configPath, atomically: true, encoding: .utf8)
+
+        return CLIResult(
+            status: "ok",
+            message: nil,
+            config_path: configPath.path,
+            downloads_dir: expandedDownloads
         )
+    }
 
-        guard let data = stdout.data(using: .utf8),
-              let result = try? JSONDecoder().decode(CLIResult.self, from: data) else {
-            throw CLIBridgeError.invalidOutput(stdout)
+    // MARK: - Agent install (native)
+
+    private static let agentLabel = "com.djtoolkit.agent"
+
+    /// Install LaunchAgent plist and load it — no CLI binary needed.
+    static func installAgent() async throws {
+        guard hasKeychainPassword(account: "agent-api-key") else {
+            throw CLIBridgeError.executionFailed("Agent not configured. Missing API key in Keychain.")
         }
 
-        return result
+        guard let binary = findBinary() else {
+            throw CLIBridgeError.binaryNotFound
+        }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let plistDir = home
+            .appendingPathComponent("Library")
+            .appendingPathComponent("LaunchAgents")
+        let plistPath = plistDir.appendingPathComponent("\(agentLabel).plist")
+        let logDir = home
+            .appendingPathComponent("Library")
+            .appendingPathComponent("Logs")
+            .appendingPathComponent("djtoolkit")
+        let logPath = logDir.appendingPathComponent("agent.log")
+
+        // Create directories
+        try FileManager.default.createDirectory(at: plistDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
+
+        // Resolve symlinks for the binary path in the plist
+        let resolvedBinary = binary.resolvingSymlinksInPath().path
+
+        let plistContent = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>\(agentLabel)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>\(resolvedBinary)</string>
+                <string>agent</string>
+                <string>run</string>
+            </array>
+            <key>KeepAlive</key>
+            <true/>
+            <key>RunAtLoad</key>
+            <true/>
+            <key>StandardOutPath</key>
+            <string>\(logPath.path)</string>
+            <key>StandardErrorPath</key>
+            <string>\(logPath.path)</string>
+            <key>ThrottleInterval</key>
+            <integer>10</integer>
+            <key>EnvironmentVariables</key>
+            <dict>
+                <key>HOME</key>
+                <string>\(home.path)</string>
+            </dict>
+        </dict>
+        </plist>
+        """
+
+        try plistContent.write(to: plistPath, atomically: true, encoding: .utf8)
+
+        // Load via launchctl
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["load", plistPath.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let stderrData = (process.standardError as! Pipe).fileHandleForReading.readDataToEndOfFile()
+            let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+            throw CLIBridgeError.executionFailed("launchctl load failed: \(stderr)")
+        }
     }
 
-    /// Run agent install.
-    static func installAgent() async throws {
-        _ = try await run(["agent", "install"])
-    }
+    // MARK: - DMG install
 
     /// Install CLI binary from DMG to /usr/local/bin (prompts for admin password).
     /// Returns true if installed, false if already exists or user cancelled.
