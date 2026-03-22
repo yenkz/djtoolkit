@@ -73,9 +73,6 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Install Windows App SDK workload
-        run: dotnet workload install windowsdesktop
-
       - name: Build Setup Assistant
         run: dotnet build setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -c Release -r win-x64 -p:Platform=x64
 
