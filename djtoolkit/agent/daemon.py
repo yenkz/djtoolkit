@@ -87,7 +87,7 @@ async def run_daemon(
     api_key = creds.get("api_key")
     if not api_key:
         log.error("No API key found in keychain. Run 'djtoolkit agent configure' first.")
-        sys.exit(1)
+        return
 
     client = AgentClient(
         cloud_url=cfg.agent.cloud_url,
@@ -128,10 +128,10 @@ async def run_daemon(
         ok = await client.heartbeat(capabilities, __version__, 0)
         if not ok:
             log.error("Initial heartbeat failed. Check your API key and cloud URL.")
-            sys.exit(1)
+            return
     except AgentRevoked:
         log.error("API key has been revoked. Re-register the agent.")
-        sys.exit(1)
+        return
 
     log.info(
         "Agent started — cloud=%s, capabilities=%s, max_jobs=%d, poll=%ds",
