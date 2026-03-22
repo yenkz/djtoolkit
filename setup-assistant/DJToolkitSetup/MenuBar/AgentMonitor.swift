@@ -13,16 +13,23 @@ final class AgentMonitor {
     private var timer: Timer?
 
     private static let label = "com.djtoolkit.agent"
-    private static let plistPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/LaunchAgents/com.djtoolkit.agent.plist")
+    private static var plistPath: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/com.djtoolkit.agent.plist")
+    }
 
     init() {
-        checkStatus()
+        Task { await refreshStatus() }
+    }
+
+    deinit {
+        stopPolling()
     }
 
     func startPolling() {
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
-            self?.checkStatus()
+            guard let self else { return }
+            Task { await self.refreshStatus() }
         }
     }
 
@@ -31,16 +38,21 @@ final class AgentMonitor {
         timer = nil
     }
 
-    func checkStatus() {
-        guard FileManager.default.fileExists(atPath: Self.plistPath.path) else {
-            status = .notInstalled
-            return
+    @MainActor
+    func refreshStatus() {
+        let newStatus = Self.computeStatus()
+        status = newStatus
+    }
+
+    private static func computeStatus() -> AgentStatus {
+        guard FileManager.default.fileExists(atPath: plistPath.path) else {
+            return .notInstalled
         }
 
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["list", Self.label]
+        process.arguments = ["list", label]
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
@@ -48,23 +60,19 @@ final class AgentMonitor {
             try process.run()
             process.waitUntilExit()
         } catch {
-            status = .notInstalled
-            return
+            return .notInstalled
         }
 
         if process.terminationStatus != 0 {
-            status = .stopped
-            return
+            return .stopped
         }
 
-        // Parse output: launchctl list outputs PID, last exit status, label
-        // If PID column is "-", the service is loaded but not running
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8) ?? ""
-        if output.contains("\t-\t") || output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            status = .stopped
-        } else {
-            status = .running
+        // PID column is "-" when the service is loaded but not running
+        if output.contains("\t-\t") {
+            return .stopped
         }
+        return .running
     }
 }
