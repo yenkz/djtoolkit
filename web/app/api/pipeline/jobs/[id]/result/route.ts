@@ -104,7 +104,8 @@ export async function PUT(
           retry_count: retryCount + 1,
         });
       } else {
-        // Max retries exceeded — mark track as failed
+        // Max retries exceeded — mark track as failed, but only if a parallel
+        // download chain hasn't already promoted it to 'available'.
         await supabase
           .from("tracks")
           .update({
@@ -112,7 +113,8 @@ export async function PUT(
             updated_at: new Date().toISOString(),
           })
           .eq("id", job.track_id)
-          .eq("user_id", user.userId);
+          .eq("user_id", user.userId)
+          .in("acquisition_status", ["candidate", "downloading"]);
       }
     } else if (body.status === "failed" && job.job_type === "audio_analysis") {
       // Audio analysis failed — still queue metadata so pipeline doesn't stall
