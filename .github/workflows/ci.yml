@@ -68,14 +68,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
 
-      - name: Restore NuGet packages
-        run: dotnet restore setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -r win-x64
+      - name: Install Windows App SDK workload
+        run: dotnet workload install windowsdesktop
 
       - name: Build Setup Assistant
-        run: msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:minimal
+        run: dotnet build setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj -c Release -r win-x64 -p:Platform=x64
 
   build-agent-macos:
     runs-on: macos-latest
