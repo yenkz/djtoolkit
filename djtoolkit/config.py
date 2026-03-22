@@ -97,7 +97,7 @@ class AudioAnalysisConfig:
 
 @dataclass
 class AgentConfig:
-    cloud_url: str = "https://api.djtoolkit.com"
+    cloud_url: str = "https://app.djtoolkit.net"
     api_key: str = ""           # env: DJTOOLKIT_AGENT_KEY
     poll_interval_sec: float = 30.0
     max_concurrent_jobs: int = 2
