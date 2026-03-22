@@ -16,6 +16,10 @@ const TRACK_COLUMNS = [
   "duration_ms",
   "genres",
   "tempo",
+  "key_normalized",
+  "key",
+  "mode",
+  "energy",
   "artwork_url",
   "spotify_uri",
   "local_path",
@@ -26,8 +30,6 @@ const TRACK_COLUMNS = [
   "cover_art_written",
   "in_library",
   "metadata_source",
-  "key_normalized",
-  "energy",
   "created_at",
   "updated_at",
 ].join(", ");
@@ -72,7 +74,7 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get("status");
   const search = searchParams.get("search");
   const idParams = searchParams.getAll("id");
-  const ALLOWED_SORT = new Set(["created_at", "updated_at", "title", "artist", "album", "year", "tempo", "genres"]);
+  const ALLOWED_SORT = new Set(["created_at", "updated_at", "title", "artist", "album", "year", "tempo", "key_normalized", "energy", "genres"]);
   const sortBy = ALLOWED_SORT.has(searchParams.get("sort_by") ?? "") ? searchParams.get("sort_by")! : "created_at";
   const sortDir = searchParams.get("sort_dir") === "asc";
 
@@ -102,9 +104,15 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  query = query
-    .order(sortBy, { ascending: sortDir })
-    .range(from, to);
+  if (sortBy === "key_normalized") {
+    // Sort by chromatic pitch (0-11) then mode (minor/major) for musical order
+    query = query
+      .order("key", { ascending: sortDir, nullsFirst: false })
+      .order("mode", { ascending: sortDir, nullsFirst: false });
+  } else {
+    query = query.order(sortBy, { ascending: sortDir, nullsFirst: false });
+  }
+  query = query.range(from, to);
 
   const { data: tracks, count, error } = await query;
 

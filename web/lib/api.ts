@@ -71,6 +71,8 @@ export interface Track {
   spotify_uri?: string;
   already_owned?: boolean;
   key_normalized?: string;
+  key?: number;
+  mode?: number;
   energy?: number;
 }
 
