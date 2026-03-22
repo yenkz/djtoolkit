@@ -76,9 +76,8 @@
                   Impersonate="yes" />
 
     <InstallExecuteSequence>
-      <Custom Action="LaunchSetup" After="InstallFinalize">
-        NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE
-      </Custom>
+      <Custom Action="LaunchSetup" After="InstallFinalize"
+              Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE" />
     </InstallExecuteSequence>
 
   </Package>
