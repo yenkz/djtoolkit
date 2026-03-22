@@ -15,6 +15,7 @@ from typing import Any
 from djtoolkit.agent.client import AgentClient, AgentRevoked
 from djtoolkit.agent.executor import execute_job, execute_download_batch, shutdown_slsk_client
 from djtoolkit.agent.keychain import load_agent_credentials
+from djtoolkit.agent.paths import config_dir
 from djtoolkit.agent.state import (
     save_job_state, load_orphaned_jobs, cleanup_job,
     save_daemon_status, clear_daemon_status, record_recent_job,
@@ -336,6 +337,18 @@ async def run_daemon(
             pass
 
         while not shutdown_event.is_set():
+            # Check for pause flag file (managed by Tauri app)
+            pause_file = config_dir() / "agent_paused"
+            if pause_file.exists():
+                log.info("Agent is paused (flag file exists), skipping poll cycle")
+                try:
+                    await asyncio.wait_for(
+                        shutdown_event.wait(), timeout=poll_interval,
+                    )
+                    return
+                except asyncio.TimeoutError:
+                    continue
+
             # Clean up completed tasks
             done = {t for t in active_tasks if t.done()}
             active_tasks.difference_update(done)
