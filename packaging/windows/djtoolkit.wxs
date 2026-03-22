@@ -69,19 +69,42 @@
       <ComponentRef Id="PathEntry" />
       <ComponentRef Id="ProtocolHandler" />
       <ComponentRef Id="TrayAutoStart" />
+      <ComponentRef Id="StartMenuShortcuts" />
     </Feature>
 
-    <!-- Launch Setup Assistant after first install (not upgrades/uninstall) -->
+    <!-- Launch Setup Assistant after first install (not upgrades/uninstall).
+         Uses cmd /c start to detach from the MSI installer session so the
+         WinUI app runs in the user's desktop context, not SYSTEM. -->
     <CustomAction Id="LaunchSetup"
-                  Directory="SetupDir"
-                  ExeCommand="&quot;[SetupDir]DJToolkit Setup.exe&quot;"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c start "" "[SetupDir]DJToolkit Setup.exe"'
                   Return="asyncNoWait"
+                  Execute="commit"
                   Impersonate="yes" />
 
     <InstallExecuteSequence>
       <Custom Action="LaunchSetup" After="InstallFinalize"
               Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE" />
     </InstallExecuteSequence>
+
+    <!-- Start Menu shortcuts -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="DJToolkitMenuFolder" Name="djtoolkit">
+        <Component Id="StartMenuShortcuts" Guid="F1A2B3C4-D5E6-7890-ABCD-123456789ABC">
+          <Shortcut Id="SetupShortcut"
+                    Name="DJToolkit Setup"
+                    Target="[SetupDir]DJToolkit Setup.exe"
+                    WorkingDirectory="SetupDir" />
+          <Shortcut Id="TrayShortcut"
+                    Name="DJToolkit Agent (Tray)"
+                    Target="[SetupDir]DJToolkit Setup.exe"
+                    Arguments="--tray"
+                    WorkingDirectory="SetupDir" />
+          <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\djtoolkit" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
 
   </Package>
 </Wix>
