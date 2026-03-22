@@ -68,12 +68,13 @@ jobs:
       - name: Build Setup Assistant
         run: |
           msbuild setup-assistant-windows/DJToolkitSetup/DJToolkitSetup.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /v:normal
-          Write-Host "--- bin contents ---"
-          Get-ChildItem -Recurse -Path "setup-assistant-windows/DJToolkitSetup/bin" -File | ForEach-Object { Write-Host $_.FullName }
           $exe = Get-ChildItem -Recurse -Path "setup-assistant-windows/DJToolkitSetup/bin" -Filter "DJToolkit Setup.exe" | Select-Object -First 1
           if (-not $exe) { Write-Error "DJToolkit Setup.exe not found in bin/"; exit 1 }
-          Write-Host "Found: $($exe.FullName)"
-          Copy-Item $exe.FullName "dist/"
+          $binDir = $exe.DirectoryName
+          Write-Host "Publishing from: $binDir"
+          New-Item -ItemType Directory -Path "dist/setup" -Force | Out-Null
+          Copy-Item "$binDir/*" "dist/setup/" -Recurse
+          Write-Host "Setup assistant files: $((Get-ChildItem -Recurse 'dist/setup' -File).Count)"
         shell: pwsh
 
       - name: Install WiX 4
@@ -90,7 +91,7 @@ jobs:
             -d Version=$v `
             -d BinaryPath="dist/djtoolkit.exe" `
             -d FpcalcPath="dist/fpcalc.exe" `
-            -d SetupPath="dist/DJToolkit Setup.exe"
+            -d SetupDir="dist/setup"
         shell: pwsh
 
       - name: Upload release assets

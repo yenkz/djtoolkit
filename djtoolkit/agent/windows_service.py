@@ -174,7 +174,7 @@ class DJToolkitAgentService(_ServiceBase):
         import servicemanager
         from djtoolkit.agent.daemon import run_daemon
         from djtoolkit.agent.paths import config_dir, log_dir
-        from djtoolkit.config import load_config
+        from djtoolkit.config import load as load_config
 
         servicemanager.LogInfoMsg(f"{SERVICE_NAME} starting")
 

@@ -21,9 +21,9 @@
           <File Id="FpcalcExe" Source="$(var.FpcalcPath)" KeyPath="yes" />
         </Component>
 
-        <Component Id="SetupAssistant" Guid="E5F6A7B8-C9D0-1234-EF01-345678901234">
-          <File Id="SetupExe" Source="$(var.SetupPath)" KeyPath="yes" Name="DJToolkit Setup.exe" />
-        </Component>
+        <Directory Id="SetupDir" Name="setup">
+          <Files Include="$(var.SetupDir)\**" />
+        </Directory>
 
         <!-- Add install dir to PATH -->
         <Component Id="PathEntry" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
@@ -43,7 +43,7 @@
             <RegistryValue Name="URL Protocol" Type="string" Value="" />
           </RegistryKey>
           <RegistryKey Root="HKCU" Key="Software\Classes\djtoolkit\shell\open\command">
-            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]DJToolkit Setup.exe&quot; &quot;%1&quot;" />
+            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]setup\DJToolkit Setup.exe&quot; &quot;%1&quot;" />
           </RegistryKey>
         </Component>
 
@@ -53,7 +53,7 @@
                          Key="Software\Microsoft\Windows\CurrentVersion\Run"
                          Name="DJToolkit Agent"
                          Type="string"
-                         Value="&quot;[INSTALLFOLDER]DJToolkit Setup.exe&quot; --tray"
+                         Value="&quot;[INSTALLFOLDER]setup\DJToolkit Setup.exe&quot; --tray"
                          KeyPath="yes" />
         </Component>
 
@@ -63,7 +63,6 @@
     <Feature Id="MainFeature" Title="djtoolkit" Level="1">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="FpcalcExecutable" />
-      <ComponentRef Id="SetupAssistant" />
       <ComponentRef Id="PathEntry" />
       <ComponentRef Id="ProtocolHandler" />
       <ComponentRef Id="TrayAutoStart" />
