@@ -17,7 +17,7 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.*" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.22621.*" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.*" />
-    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.2" />
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="[2.3.2]" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.*" />
     <PackageReference Include="Tomlyn" Version="0.17.*" />
   </ItemGroup>
