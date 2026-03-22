@@ -20,6 +20,7 @@ interface Track {
   status?: string;
   artwork_url?: string;
   preview_url?: string;
+  spotify_uri?: string;
 }
 
 interface TrackCardProps {
@@ -39,7 +40,7 @@ function artistColor(name: string): string {
 
 export default function TrackCard({ track, onClick }: TrackCardProps) {
   const [hovered, setHovered] = useState(false);
-  const { currentTrackId, isPlaying, progress, play, pause } =
+  const { currentTrackId, isPlaying, play, pause } =
     usePreviewPlayer();
   const isThisPlaying =
     currentTrackId === track.id && isPlaying;
@@ -116,7 +117,7 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
         </div>
 
         {/* Play/Pause overlay */}
-        {track.preview_url && (hovered || isThisActive) && (
+        {track.spotify_uri && (hovered || isThisActive) && (
           <div
             role="button"
             tabIndex={0}
@@ -126,7 +127,7 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
               if (isThisPlaying) {
                 pause();
               } else {
-                play(track.id, track.preview_url!);
+                play(track.id, track.spotify_uri!);
               }
             }}
             onKeyDown={(e) => {
@@ -134,7 +135,7 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
                 e.preventDefault();
                 e.stopPropagation();
                 if (isThisPlaying) pause();
-                else play(track.id, track.preview_url!);
+                else play(track.id, track.spotify_uri!);
               }
             }}
             style={{
@@ -173,31 +174,6 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
                 </svg>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Progress bar */}
-        {isThisActive && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 3,
-              background: "var(--hw-groove, #0E0C0E)",
-              zIndex: 3,
-            }}
-          >
-            <div
-              style={{
-                width: `${progress * 100}%`,
-                height: "100%",
-                background: `linear-gradient(90deg, ${LED.on}, ${LED.mid})`,
-                borderRadius: "0 2px 2px 0",
-                transition: "width 0.25s linear",
-              }}
-            />
           </div>
         )}
 

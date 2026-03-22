@@ -19,6 +19,7 @@ interface Track {
   status?: string;
   artwork_url?: string;
   preview_url?: string;
+  spotify_uri?: string;
   created_at?: string;
 }
 
@@ -44,7 +45,7 @@ export default function TrackListRow({
   isLast = false,
 }: TrackListRowProps) {
   const [hovered, setHovered] = useState(false);
-  const { currentTrackId, isPlaying, progress, play, pause } =
+  const { currentTrackId, isPlaying, play, pause } =
     usePreviewPlayer();
   const isThisPlaying = currentTrackId === track.id && isPlaying;
   const isThisActive = currentTrackId === track.id;
@@ -108,7 +109,7 @@ export default function TrackListRow({
         </div>
 
         {/* Play/Pause overlay */}
-        {track.preview_url && (hovered || isThisActive) && (
+        {track.spotify_uri && (hovered || isThisActive) && (
           <div
             role="button"
             tabIndex={0}
@@ -118,7 +119,7 @@ export default function TrackListRow({
               if (isThisPlaying) {
                 pause();
               } else {
-                play(track.id, track.preview_url!);
+                play(track.id, track.spotify_uri!);
               }
             }}
             onKeyDown={(e) => {
@@ -126,7 +127,7 @@ export default function TrackListRow({
                 e.preventDefault();
                 e.stopPropagation();
                 if (isThisPlaying) pause();
-                else play(track.id, track.preview_url!);
+                else play(track.id, track.spotify_uri!);
               }
             }}
             style={{
@@ -167,30 +168,6 @@ export default function TrackListRow({
           </div>
         )}
 
-        {/* Progress bar under thumbnail */}
-        {isThisActive && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 2,
-              background: "var(--hw-groove, #0E0C0E)",
-              borderRadius: "0 0 4px 4px",
-            }}
-          >
-            <div
-              style={{
-                width: `${progress * 100}%`,
-                height: "100%",
-                background: LED.on,
-                borderRadius: "0 1px 1px 0",
-                transition: "width 0.25s linear",
-              }}
-            />
-          </div>
-        )}
       </div>
 
       {/* Track + album */}

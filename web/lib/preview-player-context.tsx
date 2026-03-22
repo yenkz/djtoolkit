@@ -3,22 +3,20 @@
 import {
   createContext,
   useContext,
-  useRef,
   useState,
   useCallback,
-  useEffect,
   type ReactNode,
 } from "react";
-import { toast } from "sonner";
+import { LED_COLORS, HARDWARE, FONTS } from "@/lib/design-system/tokens";
 
 interface PreviewPlayerState {
   currentTrackId: number | null;
+  spotifyEmbedUrl: string | null;
   isPlaying: boolean;
-  progress: number;
 }
 
 interface PreviewPlayerActions {
-  play(trackId: number, previewUrl: string): void;
+  play(trackId: number, spotifyUri: string): void;
   pause(): void;
   stop(): void;
 }
@@ -37,128 +35,108 @@ export function usePreviewPlayer() {
   return ctx;
 }
 
+/** Convert spotify:track:XXXXX to an embed URL */
+function toEmbedUrl(spotifyUri: string): string | null {
+  const parts = spotifyUri.split(":");
+  if (parts.length === 3 && parts[1] === "track") {
+    return `https://open.spotify.com/embed/track/${parts[2]}?utm_source=generator&theme=0`;
+  }
+  return null;
+}
+
 export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [currentTrackId, setCurrentTrackId] = useState<number | null>(null);
+  const [spotifyEmbedUrl, setSpotifyEmbedUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-  // Track whether we've already attempted a refresh for the current URL
-  const refreshAttemptedRef = useRef(false);
-  const currentTrackIdRef = useRef<number | null>(null);
 
-  // Keep ref in sync for use in event handlers
-  useEffect(() => {
-    currentTrackIdRef.current = currentTrackId;
-  }, [currentTrackId]);
-
-  // Create audio element once
-  useEffect(() => {
-    const audio = new Audio();
-    audio.preload = "none";
-    audioRef.current = audio;
-
-    const onTimeUpdate = () => {
-      if (audio.duration) {
-        setProgress(audio.currentTime / audio.duration);
-      }
-    };
-
-    const onEnded = () => {
-      setCurrentTrackId(null);
-      setIsPlaying(false);
-      setProgress(0);
-    };
-
-    const onError = async () => {
-      const trackId = currentTrackIdRef.current;
-      if (!trackId || refreshAttemptedRef.current) {
-        toast.error("Preview unavailable");
-        setCurrentTrackId(null);
-        setIsPlaying(false);
-        setProgress(0);
-        return;
-      }
-
-      // Attempt one refresh
-      refreshAttemptedRef.current = true;
-      try {
-        const resp = await fetch(`/api/catalog/tracks/${trackId}/preview-url`, {
-          method: "POST",
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data.preview_url) {
-            audio.src = data.preview_url;
-            audio.play().catch(() => {
-              toast.error("Preview unavailable");
-              setCurrentTrackId(null);
-              setIsPlaying(false);
-              setProgress(0);
-            });
-            return;
-          }
-        }
-      } catch {
-        // refresh failed
-      }
-
-      toast.error("Preview unavailable");
-      setCurrentTrackId(null);
-      setIsPlaying(false);
-      setProgress(0);
-    };
-
-    audio.addEventListener("timeupdate", onTimeUpdate);
-    audio.addEventListener("ended", onEnded);
-    audio.addEventListener("error", onError);
-
-    return () => {
-      audio.removeEventListener("timeupdate", onTimeUpdate);
-      audio.removeEventListener("ended", onEnded);
-      audio.removeEventListener("error", onError);
-      audio.pause();
-      audio.src = "";
-    };
-  }, []);
-
-  const play = useCallback((trackId: number, previewUrl: string) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    refreshAttemptedRef.current = false;
+  const play = useCallback((trackId: number, spotifyUri: string) => {
+    const url = toEmbedUrl(spotifyUri);
+    if (!url) return;
     setCurrentTrackId(trackId);
+    setSpotifyEmbedUrl(url);
     setIsPlaying(true);
-    setProgress(0);
-    audio.src = previewUrl;
-    audio.play().catch(() => {
-      toast.error("Preview unavailable");
-      setCurrentTrackId(null);
-      setIsPlaying(false);
-      setProgress(0);
-    });
   }, []);
 
   const pause = useCallback(() => {
-    audioRef.current?.pause();
     setIsPlaying(false);
+    setSpotifyEmbedUrl(null);
+    setCurrentTrackId(null);
   }, []);
 
   const stop = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.src = "";
-    }
     setCurrentTrackId(null);
+    setSpotifyEmbedUrl(null);
     setIsPlaying(false);
-    setProgress(0);
   }, []);
+
+  const LED = LED_COLORS.green;
 
   return (
     <PreviewPlayerContext.Provider
-      value={{ currentTrackId, isPlaying, progress, play, pause, stop }}
+      value={{ currentTrackId, spotifyEmbedUrl, isPlaying, play, pause, stop }}
     >
       {children}
+
+      {/* Floating Spotify embed player */}
+      {spotifyEmbedUrl && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            zIndex: 100,
+            borderRadius: 12,
+            overflow: "hidden",
+            border: `2px solid ${LED.on}`,
+            boxShadow: `${LED.glowHot}, 0 8px 32px rgba(0,0,0,0.5)`,
+            background: HARDWARE.surface,
+            animation: "embedSlideUp 0.25s ease",
+          }}
+        >
+          <style>{`
+            @keyframes embedSlideUp {
+              from { transform: translateY(20px); opacity: 0; }
+              to   { transform: translateY(0); opacity: 1; }
+            }
+          `}</style>
+
+          {/* Close button */}
+          <button
+            onClick={stop}
+            aria-label="Close player"
+            style={{
+              position: "absolute",
+              top: 6,
+              right: 6,
+              zIndex: 101,
+              width: 22,
+              height: 22,
+              borderRadius: "50%",
+              background: HARDWARE.groove,
+              border: `1px solid ${HARDWARE.border}`,
+              color: HARDWARE.textDim,
+              fontFamily: FONTS.sans,
+              fontSize: 12,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            &#10005;
+          </button>
+
+          <iframe
+            src={spotifyEmbedUrl}
+            width={300}
+            height={80}
+            frameBorder={0}
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            loading="lazy"
+            style={{ display: "block" }}
+          />
+        </div>
+      )}
     </PreviewPlayerContext.Provider>
   );
 }

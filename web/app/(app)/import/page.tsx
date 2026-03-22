@@ -357,9 +357,9 @@ function TrackReviewRow({
   isOwned: boolean;
   onToggle: () => void;
 }) {
-  const { currentTrackId, isPlaying, progress, play, pause } = usePreviewPlayer();
+  const { currentTrackId, isPlaying, play, pause } = usePreviewPlayer();
   const previewTrack = track as unknown as PreviewTrack;
-  const previewUrl = previewTrack.preview_url;
+  const spotifyUri = previewTrack.spotify_uri;
   const isThisPlaying = currentTrackId === track.id && isPlaying;
   const isThisActive = currentTrackId === track.id;
   // Preview tracks don't have a numeric id yet — derive a stable one from _key
@@ -392,17 +392,17 @@ function TrackReviewRow({
         aria-label={isThisPlaying ? "Pause preview" : "Play preview"}
         onClick={(e) => {
           e.stopPropagation();
-          if (!previewUrl) return;
+          if (!spotifyUri) return;
           if (isThisPlaying) pause();
-          else play(playId, previewUrl);
+          else play(playId, spotifyUri);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             e.stopPropagation();
-            if (!previewUrl) return;
+            if (!spotifyUri) return;
             if (isThisPlaying) pause();
-            else play(playId, previewUrl);
+            else play(playId, spotifyUri);
           }
         }}
         style={{
@@ -414,8 +414,8 @@ function TrackReviewRow({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: previewUrl ? "pointer" : "default",
-          opacity: previewUrl ? 1 : 0.25,
+          cursor: spotifyUri ? "pointer" : "default",
+          opacity: spotifyUri ? 1 : 0.25,
           boxShadow: isThisActive ? "0 0 8px var(--led-green-dim, rgba(68,255,68,0.3))" : "none",
           transition: "all 0.2s",
           position: "relative",
@@ -429,22 +429,8 @@ function TrackReviewRow({
           </svg>
         ) : (
           <svg width="10" height="10" viewBox="0 0 24 24">
-            <path d="M6 3l12 9-12 9V3z" fill={previewUrl ? "var(--led-green-dim, #6A8A6A)" : "var(--hw-text-muted)"} />
+            <path d="M6 3l12 9-12 9V3z" fill={spotifyUri ? "var(--led-green-dim, #6A8A6A)" : "var(--hw-text-muted)"} />
           </svg>
-        )}
-        {/* Circular progress */}
-        {isThisActive && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              width: `${progress * 100}%`,
-              height: 2,
-              background: "var(--led-green)",
-              transition: "width 0.25s linear",
-            }}
-          />
         )}
       </div>
       <span
