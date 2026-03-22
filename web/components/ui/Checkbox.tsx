@@ -25,7 +25,7 @@ export default function Checkbox({ checked, onChange, label }: CheckboxProps) {
       aria-checked={checked}
       aria-label={label || undefined}
       tabIndex={0}
-      onClick={() => onChange(!checked)}
+      onClick={(e) => { e.stopPropagation(); onChange(!checked); }}
       onKeyDown={handleKeyDown}
       className="flex items-center justify-center cursor-pointer transition-all duration-150"
       style={{

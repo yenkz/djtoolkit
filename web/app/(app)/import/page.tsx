@@ -5,19 +5,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   fetchSpotifyPlaylists,
-  importSpotifyPlaylistNoJobs,
-  importCsvNoJobs,
-  submitTrackIdJob,
+  previewImportCsv,
+  previewImportSpotify,
+  submitTrackIdPreview,
+  confirmImport,
   getTrackIdJobStatus,
-  fetchTracksByIds,
-  bulkCreateJobs,
-  bulkDeleteTracks,
   fetchAgents,
   fetchPipelineStatus,
   registerAgent,
   disconnectSpotify,
   parseCollection,
+  fetchTracksByIds,
   type Track,
+  type PreviewTrack,
   type TrackIdJobStatus,
   type ParseResult,
 } from "@/lib/api";
@@ -633,46 +633,75 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
     setLoading(true);
     setTrackIdStatus(null);
     try {
-      const parallelCalls: Promise<{ track_ids: number[] }>[] = [];
-      if (selectedPlaylistId) parallelCalls.push(importSpotifyPlaylistNoJobs(selectedPlaylistId));
-      if (csvFile) parallelCalls.push(importCsvNoJobs(csvFile));
-      if (djFile) parallelCalls.push(parseCollection(djFile));
-      const parallelResults = await Promise.all(parallelCalls);
+      // Parallel preview calls for CSV and Spotify
+      const previewCalls: Promise<{ tracks: PreviewTrack[] }>[] = [];
+      if (selectedPlaylistId) previewCalls.push(previewImportSpotify(selectedPlaylistId));
+      if (csvFile) previewCalls.push(previewImportCsv(csvFile));
+      const previewResults = await Promise.all(previewCalls);
 
-      let trackIdIds: number[] = [];
+      // TrackID: cache hit returns data directly, cache miss returns job_id for polling
+      let trackIdTracks: PreviewTrack[] = [];
       if (trackIdValid) {
-        const { job_id } = await submitTrackIdJob(trackIdUrl);
+        const trackIdResult = await submitTrackIdPreview(trackIdUrl);
 
-        // Poll until completed or failed (15s — API throttles TrackID.dev
-        // polls to every 90s due to their 10 req/15min rate limit)
-        while (true) {
-          await new Promise((r) => setTimeout(r, 15000));
-          const s = await getTrackIdJobStatus(job_id);
-          setTrackIdStatus(s);
-          if (s.status === "completed") {
-            if (s.result!.imported === 0) {
-              toast.warning("TrackID found no identifiable tracks in this mix.");
-              if (!selectedPlaylistId && !csvFile) {
-                setLoading(false);
-                setTrackIdStatus(null);
-                return;
+        if ("tracks" in trackIdResult) {
+          // Cache hit — data returned directly
+          trackIdTracks = trackIdResult.tracks;
+        } else {
+          // Cache miss — poll until completed or failed
+          const { job_id } = trackIdResult;
+          while (true) {
+            await new Promise((r) => setTimeout(r, 15000));
+            const s = await getTrackIdJobStatus(job_id);
+            setTrackIdStatus(s);
+            if (s.status === "completed") {
+              const result = s.result as unknown as { tracks: PreviewTrack[] } | null;
+              if (!result || result.tracks.length === 0) {
+                toast.warning("TrackID found no identifiable tracks in this mix.");
+                if (!selectedPlaylistId && !csvFile) {
+                  setLoading(false);
+                  setTrackIdStatus(null);
+                  return;
+                }
+              } else {
+                trackIdTracks = result.tracks;
               }
+              break;
             }
-            trackIdIds = s.result!.track_ids;
-            break;
+            if (s.status === "failed") {
+              throw new Error(s.error ?? "TrackID job failed");
+            }
           }
-          if (s.status === "failed") {
-            throw new Error(s.error ?? "TrackID job failed");
-          }
+        }
+
+        if (trackIdTracks.length === 0 && !selectedPlaylistId && !csvFile) {
+          toast.warning("TrackID found no identifiable tracks in this mix.");
+          setLoading(false);
+          setTrackIdStatus(null);
+          return;
         }
       }
 
-      const allImportedIds = [
-        ...parallelResults.flatMap((r) => r.track_ids),
-        ...trackIdIds,
+      // DJ file import stays as-is (parseCollection returns ParseResult with track_ids,
+      // not PreviewTrack[]) — these tracks are already in the DB, so fetch them separately
+      let djTracks: Track[] = [];
+      if (djFile) {
+        const djResult = await parseCollection(djFile);
+        if (djResult.track_ids.length > 0) {
+          djTracks = await fetchTracksByIds(djResult.track_ids);
+        }
+      }
+
+      const allPreviewTracks = [
+        ...previewResults.flatMap((r) => r.tracks),
+        ...trackIdTracks,
       ];
-      const tracks = await fetchTracksByIds(allImportedIds);
-      onComplete(tracks);
+
+      // Combine preview tracks (cast to Track[]) with DJ tracks (already Track[])
+      onComplete([
+        ...allPreviewTracks as unknown as Track[],
+        ...djTracks,
+      ]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Import failed";
       if (msg.includes("exportify.app") || msg.includes("403")) {
@@ -1215,16 +1244,21 @@ interface Step2Props {
 
 function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2Props) {
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Record<number, boolean>>(() => {
-    const initial: Record<number, boolean> = {};
+  const [selected, setSelected] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
     for (const t of candidates) {
-      initial[t.id] = !t.already_owned;
+      const key = (t as unknown as PreviewTrack)._key ?? String(t.id);
+      initial[key] = !t.already_owned;
     }
     return initial;
   });
   const [loading, setLoading] = useState(false);
 
-  const alreadyOwnedIds = new Set(candidates.filter((t) => t.already_owned).map((t) => t.id));
+  const alreadyOwnedKeys = new Set(
+    candidates.filter((t) => t.already_owned).map((t) =>
+      (t as unknown as PreviewTrack)._key ?? String(t.id)
+    )
+  );
 
   const filtered = candidates.filter((t) => {
     if (!search) return true;
@@ -1237,7 +1271,10 @@ function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2
 
   const selectedCount = Object.values(selected).filter(Boolean).length;
   const ownedCount = candidates.filter((t) => t.already_owned).length;
-  const allSelected = filtered.length > 0 && filtered.every((t) => selected[t.id]);
+  const allSelected = filtered.length > 0 && filtered.every((t) => {
+    const key = (t as unknown as PreviewTrack)._key ?? String(t.id);
+    return selected[key];
+  });
 
   // Notify parent of selection count
   useEffect(() => {
@@ -1248,24 +1285,24 @@ function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2
     const newVal = !allSelected;
     setSelected((prev) => {
       const next = { ...prev };
-      for (const t of filtered) next[t.id] = newVal;
+      for (const t of filtered) {
+        const key = (t as unknown as PreviewTrack)._key ?? String(t.id);
+        next[key] = newVal;
+      }
       return next;
     });
   }
 
   async function handleConfirm() {
-    const toDownload = candidates.filter((t) => selected[t.id]).map((t) => t.id);
-    const toDelete = candidates
-      .filter((t) => !selected[t.id] && !alreadyOwnedIds.has(t.id))
-      .map((t) => t.id);
+    const toDownload = candidates.filter((t) => {
+      const key = (t as unknown as PreviewTrack)._key ?? String(t.id);
+      return selected[key];
+    }) as unknown as PreviewTrack[];
 
     if (toDownload.length === 0) return;
     setLoading(true);
     try {
-      await Promise.all([
-        bulkCreateJobs(toDownload),
-        toDelete.length > 0 ? bulkDeleteTracks(toDelete) : Promise.resolve(),
-      ]);
+      await confirmImport(toDownload, true);
       onComplete();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to queue downloads");
@@ -1360,15 +1397,18 @@ function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2
           </span>
         </div>
 
-        {filtered.map((t) => (
-          <TrackReviewRow
-            key={t.id}
-            track={t}
-            isSelected={selected[t.id]}
-            isOwned={alreadyOwnedIds.has(t.id)}
-            onToggle={() => setSelected((p) => ({ ...p, [t.id]: !p[t.id] }))}
-          />
-        ))}
+        {filtered.map((t) => {
+          const tKey = (t as unknown as PreviewTrack)._key ?? String(t.id);
+          return (
+            <TrackReviewRow
+              key={tKey}
+              track={t}
+              isSelected={selected[tKey]}
+              isOwned={alreadyOwnedKeys.has(tKey)}
+              onToggle={() => setSelected((p) => ({ ...p, [tKey]: !p[tKey] }))}
+            />
+          );
+        })}
       </div>
 
       {loading && (
