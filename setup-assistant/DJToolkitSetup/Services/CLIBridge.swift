@@ -41,14 +41,23 @@ enum CLIBridge {
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
         ]
-        // Delete existing entry first
-        SecItemDelete(query as CFDictionary)
 
+        // Try adding first
         var addQuery = query
         addQuery[kSecValueData as String] = data
-        let status = SecItemAdd(addQuery as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw CLIBridgeError.keychainError(status)
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+
+        if addStatus == errSecDuplicateItem {
+            // Item exists (possibly from Python keyring) — update it instead
+            let updateStatus = SecItemUpdate(
+                query as CFDictionary,
+                [kSecValueData as String: data] as CFDictionary
+            )
+            guard updateStatus == errSecSuccess else {
+                throw CLIBridgeError.keychainError(updateStatus)
+            }
+        } else if addStatus != errSecSuccess {
+            throw CLIBridgeError.keychainError(addStatus)
         }
     }
 
