@@ -139,16 +139,72 @@ impl AuthState {
 }
 
 /// Open the web app's agent auth page in the system browser.
-/// If the user is already signed in on the web, it immediately redirects
-/// back to `djtoolkit://auth/callback#access_token=XXX`.
-/// If not signed in, the web app shows its login page first.
+/// Starts a localhost callback server as a fallback for when the
+/// `djtoolkit://` deep link scheme isn't registered on the system.
+/// The web page tries the deep link first, then falls back to localhost.
 #[tauri::command]
 pub fn start_browser_auth(auth: State<'_, AuthState>) -> Result<(), String> {
     *auth.jwt.lock().unwrap() = None;
 
-    let auth_url = format!("{}/auth/agent", CLOUD_URL);
+    // Start localhost callback server (fallback for deep link)
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to bind: {e}"))?;
+    let port = listener.local_addr().unwrap().port();
+
+    let jwt_ref = Arc::clone(&auth.jwt);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    use std::io::{Read, Write};
+                    let mut buf = [0u8; 8192];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    if n == 0 { continue; }
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let first = req.lines().next().unwrap_or("");
+
+                    if first.starts_with("GET /callback") {
+                        // Extract token from query params
+                        if let Some(qs) = first.find('?') {
+                            let end = first.rfind(' ').unwrap_or(first.len());
+                            let query = &first[qs + 1..end];
+                            for param in query.split('&') {
+                                if let Some(token) = param.strip_prefix("token=") {
+                                    if let Ok(mut jwt) = jwt_ref.lock() {
+                                        *jwt = Some(token.to_string());
+                                    }
+                                    write_log("INFO", "Auth: received token via localhost callback");
+                                    break;
+                                }
+                            }
+                        }
+                        let html = r#"<!DOCTYPE html><html><head><title>djtoolkit</title>
+<style>body{font-family:system-ui;background:#1a1a2e;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+h2{color:#4caf50}</style></head><body>
+<div style="text-align:center"><h2>&#10003; Authenticated!</h2><p>You can close this tab.</p></div>
+</body></html>"#;
+                        let resp = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                            html.len(), html
+                        );
+                        let _ = stream.write_all(resp.as_bytes());
+                        let _ = stream.flush();
+                        break;
+                    } else {
+                        let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+                        let _ = stream.write_all(resp.as_bytes());
+                        let _ = stream.flush();
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Open the web app with both callback options
+    let auth_url = format!("{}/auth/agent?port={}", CLOUD_URL, port);
     open::that(&auth_url).map_err(|e| format!("Failed to open browser: {e}"))?;
-    write_log("INFO", "Browser auth: opened web app sign-in");
+    write_log("INFO", &format!("Browser auth: opened web app (localhost port {port})"));
     Ok(())
 }
 

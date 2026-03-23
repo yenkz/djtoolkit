@@ -8,46 +8,50 @@ import LEDText from "@/components/ui/LEDText";
 /**
  * Agent authentication page.
  *
- * The desktop Tauri app opens this URL in the system browser.
- * If the user is already signed in, it immediately redirects to
- * `djtoolkit://auth/callback#access_token=XXX`.
- * If not signed in, it redirects to /login with a return URL.
+ * The desktop Tauri app opens this URL with ?port=XXXXX.
+ * If the user is signed in, sends the access token to the desktop app
+ * via localhost callback. If not signed in, redirects to /login first.
  */
 export default function AgentAuthPage() {
-  const [status, setStatus] = useState<"checking" | "redirecting" | "error">(
-    "checking"
-  );
+  const [status, setStatus] = useState<"checking" | "redirecting" | "done" | "error">("checking");
   const [error, setError] = useState("");
 
   useEffect(() => {
     (async () => {
       const supabase = createClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
 
       if (!session) {
-        // Not signed in — redirect to login, then come back here
-        window.location.href = `/login?redirect=${encodeURIComponent("/auth/agent")}`;
+        // Not signed in — go to login, come back here after
+        const currentUrl = window.location.href;
+        window.location.href = `/login?redirect=${encodeURIComponent(new URL(currentUrl).pathname + new URL(currentUrl).search)}`;
         return;
       }
 
-      // User is signed in — redirect to desktop app with the token
       setStatus("redirecting");
       const token = session.access_token;
 
-      // Small delay so the user sees the "Redirecting" message
-      setTimeout(() => {
-        window.location.href = `djtoolkit://auth/callback#access_token=${token}`;
-      }, 500);
+      // Get the localhost port from query params (passed by the Tauri app)
+      const params = new URLSearchParams(window.location.search);
+      const port = params.get("port");
 
-      // After redirect, show a fallback message in case the deep link doesn't work
-      setTimeout(() => {
-        setStatus("error");
-        setError(
-          "If the djtoolkit app didn't open, make sure it's running and try again."
-        );
-      }, 3000);
+      if (port) {
+        // Send token to the desktop app's localhost callback server
+        try {
+          window.location.href = `http://127.0.0.1:${port}/callback?token=${token}`;
+          setStatus("done");
+        } catch {
+          setError("Failed to connect to the desktop app. Make sure it's running.");
+          setStatus("error");
+        }
+      } else {
+        // No port — try deep link as fallback
+        window.location.href = `djtoolkit://auth/callback#access_token=${token}`;
+        setTimeout(() => {
+          setStatus("error");
+          setError("Could not open the desktop app. Make sure djtoolkit is installed and running.");
+        }, 3000);
+      }
     })();
   }, []);
 
@@ -81,31 +85,19 @@ export default function AgentAuthPage() {
 
         {status === "checking" && (
           <>
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                border: `3px solid ${LED_COLORS.green.dim}`,
-                borderTopColor: LED_COLORS.green.on,
-                borderRadius: "50%",
-                animation: "spin 0.8s linear infinite",
-                margin: "0 auto 16px",
-              }}
-            />
-            <p
-              style={{
-                fontFamily: FONTS.mono,
-                fontSize: 12,
-                color: HARDWARE.textDim,
-                letterSpacing: 1,
-              }}
-            >
-              Checking authentication...
-            </p>
+            <Spinner />
+            <StatusText>Checking authentication...</StatusText>
           </>
         )}
 
         {status === "redirecting" && (
+          <>
+            <Spinner />
+            <StatusText>Connecting to desktop app...</StatusText>
+          </>
+        )}
+
+        {status === "done" && (
           <>
             <div
               style={{
@@ -117,33 +109,15 @@ export default function AgentAuthPage() {
                 margin: "0 auto 16px",
               }}
             />
-            <p
-              style={{
-                fontFamily: FONTS.mono,
-                fontSize: 12,
-                color: LED_COLORS.green.on,
-                textShadow: LED_COLORS.green.glow,
-                letterSpacing: 1,
-              }}
-            >
-              Authenticated! Redirecting to app...
-            </p>
+            <StatusText color={LED_COLORS.green.on}>
+              Authenticated! You can close this tab.
+            </StatusText>
           </>
         )}
 
         {status === "error" && (
           <>
-            <p
-              style={{
-                fontFamily: FONTS.mono,
-                fontSize: 12,
-                color: LED_COLORS.orange.on,
-                letterSpacing: 0.5,
-                lineHeight: 1.6,
-              }}
-            >
-              {error}
-            </p>
+            <StatusText color={LED_COLORS.orange.on}>{error}</StatusText>
             <button
               onClick={() => window.location.reload()}
               style={{
@@ -164,8 +138,39 @@ export default function AgentAuthPage() {
           </>
         )}
       </div>
-
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div
+      style={{
+        width: 32,
+        height: 32,
+        border: `3px solid ${LED_COLORS.green.dim}`,
+        borderTopColor: LED_COLORS.green.on,
+        borderRadius: "50%",
+        animation: "spin 0.8s linear infinite",
+        margin: "0 auto 16px",
+      }}
+    />
+  );
+}
+
+function StatusText({ children, color }: { children: React.ReactNode; color?: string }) {
+  return (
+    <p
+      style={{
+        fontFamily: FONTS.mono,
+        fontSize: 12,
+        color: color || HARDWARE.textDim,
+        letterSpacing: 1,
+        lineHeight: 1.6,
+      }}
+    >
+      {children}
+    </p>
   );
 }
