@@ -30,7 +30,7 @@ pub struct AppConfig {
 }
 
 fn default_cloud_url() -> String {
-    "https://app.djtoolkit.net".into()
+    "https://www.djtoolkit.net".into()
 }
 
 fn default_poll_interval() -> f64 {

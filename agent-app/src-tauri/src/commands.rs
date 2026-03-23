@@ -21,7 +21,7 @@ const SUPABASE_ANON_KEY: &str = match option_env!("SUPABASE_ANON_KEY") {
 };
 
 /// The cloud API URL for agent registration.
-const CLOUD_URL: &str = "https://app.djtoolkit.net";
+const CLOUD_URL: &str = "https://www.djtoolkit.net";
 
 // ---------------------------------------------------------------------------
 // Local logging — writes to agent.log in the config directory
