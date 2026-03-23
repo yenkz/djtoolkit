@@ -126,13 +126,14 @@ pub fn has_config() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth authentication via localhost callback server
+// OAuth authentication via deep link (same flow as the macOS SwiftUI app)
 // ---------------------------------------------------------------------------
 
-/// Start a localhost HTTP server, open the Supabase OAuth URL in the system
-/// browser, and wait for the callback with the JWT token.
+/// Open the Supabase OAuth URL in the system browser.
+/// The callback URL is `djtoolkit://auth/callback` — same as the Swift app.
+/// The deep-link plugin catches the callback and stores the JWT.
 #[tauri::command]
-pub fn start_oauth(oauth: State<'_, OAuthState>) -> Result<u16, String> {
+pub fn start_oauth(oauth: State<'_, OAuthState>) -> Result<(), String> {
     if SUPABASE_URL.is_empty() {
         return Err("SUPABASE_URL not set at build time. Set the env var and rebuild.".into());
     }
@@ -140,153 +141,43 @@ pub fn start_oauth(oauth: State<'_, OAuthState>) -> Result<u16, String> {
     // Clear any previous result
     *oauth.jwt.lock().unwrap() = None;
 
-    // Bind to a random available port
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Failed to bind localhost server: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("Failed to get port: {e}"))?
-        .port();
-
-    let jwt_ref = Arc::clone(&oauth.jwt);
-
-    // Spawn a thread to handle the OAuth callback
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    use std::io::{Read, Write};
-                    let mut buf = [0u8; 8192];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    if n == 0 { continue; }
-                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let first_line = request.lines().next().unwrap_or("");
-
-                    if first_line.starts_with("GET /callback") {
-                        // Check if Supabase sent an access_token as a query param
-                        // (some flows put it here instead of the fragment)
-                        let mut got_token = false;
-                        if let Some(query_start) = first_line.find('?') {
-                            let query_end = first_line.rfind(' ').unwrap_or(first_line.len());
-                            let query = &first_line[query_start + 1..query_end];
-                            for param in query.split('&') {
-                                if let Some(token) = param.strip_prefix("access_token=") {
-                                    if let Ok(mut jwt) = jwt_ref.lock() {
-                                        *jwt = Some(token.to_string());
-                                    }
-                                    got_token = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        // Serve callback page — JS extracts token from hash fragment
-                        // (implicit flow) and POSTs it back
-                        let html = format!(r#"<!DOCTYPE html>
-<html><head><title>djtoolkit - Authenticated</title>
-<style>
-body {{ font-family: system-ui; background: #1a1a2e; color: #eee;
-       display: flex; align-items: center; justify-content: center;
-       min-height: 100vh; margin: 0; }}
-.card {{ text-align: center; padding: 40px; }}
-h2 {{ color: #4caf50; }}
-.error {{ color: #ff6b6b; }}
-</style></head><body>
-<div class="card" id="card">
-  <h2>Authenticating...</h2>
-  <p>Please wait...</p>
-</div>
-<script>
-(async function() {{
-  const card = document.getElementById('card');
-  try {{
-    // Try implicit flow (token in hash fragment)
-    let token = null;
-    const hash = window.location.hash.substring(1);
-    if (hash) {{
-      const params = new URLSearchParams(hash);
-      token = params.get('access_token');
-    }}
-    // Also check query params
-    if (!token) {{
-      const qp = new URLSearchParams(window.location.search);
-      token = qp.get('access_token');
-    }}
-    if (token) {{
-      await fetch('http://127.0.0.1:{port}/token', {{
-        method: 'POST',
-        body: token
-      }});
-      card.innerHTML = '<h2>&#10003; Authenticated!</h2><p>You can close this window and return to the app.</p>';
-    }} else {{
-      card.innerHTML = '<h2 class="error">No token received</h2><p>Hash: ' + window.location.hash + '</p><p>Search: ' + window.location.search + '</p>';
-    }}
-  }} catch(e) {{
-    card.innerHTML = '<h2 class="error">Error</h2><p>' + e.message + '</p>';
-  }}
-}})();
-</script></body></html>"#);
-                        let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-                            html.len(), html
-                        );
-                        let _ = stream.write_all(response.as_bytes());
-                        let _ = stream.flush();
-
-                        // If we already got the token from query params, we're done
-                        if got_token {
-                            write_log("INFO", "OAuth: got token from query params");
-                            break;
-                        }
-                    } else if first_line.starts_with("POST /token") {
-                        // Token posted from callback page JS (implicit flow)
-                        if let Some(body_start) = request.find("\r\n\r\n") {
-                            let token = request[body_start + 4..].trim().to_string();
-                            if !token.is_empty() {
-                                if let Ok(mut jwt) = jwt_ref.lock() {
-                                    *jwt = Some(token);
-                                }
-                                write_log("INFO", "OAuth: got token from hash fragment");
-                            }
-                        }
-                        let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nAccess-Control-Allow-Origin: *\r\n\r\nOK";
-                        let _ = stream.write_all(response.as_bytes());
-                        let _ = stream.flush();
-                        break;
-                    } else if first_line.starts_with("OPTIONS") {
-                        let response = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\n\r\n";
-                        let _ = stream.write_all(response.as_bytes());
-                        let _ = stream.flush();
-                    } else {
-                        // favicon.ico, etc — ignore
-                        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-                        let _ = stream.write_all(response.as_bytes());
-                        let _ = stream.flush();
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Build the auth URL — force implicit flow so token comes in hash fragment
-    let redirect = format!("http%3A%2F%2F127.0.0.1%3A{}%2Fcallback", port);
     let auth_url = format!(
-        "{}/auth/v1/authorize?provider=google&redirect_to={}&flow_type=implicit",
-        SUPABASE_URL, redirect
+        "{}/auth/v1/authorize?provider=google&redirect_to=djtoolkit%3A%2F%2Fauth%2Fcallback",
+        SUPABASE_URL
     );
 
     // Open in the system browser
-    let _ = open::that(&auth_url);
-    write_log("INFO", &format!("OAuth started on port {port}"));
+    open::that(&auth_url).map_err(|e| format!("Failed to open browser: {e}"))?;
+    write_log("INFO", "OAuth: opened browser for Google sign-in");
 
-    Ok(port)
+    Ok(())
 }
 
 /// Check if the OAuth callback has been received. Returns the JWT if available.
 #[tauri::command]
 pub fn check_oauth_result(oauth: State<'_, OAuthState>) -> Option<String> {
     oauth.jwt.lock().ok().and_then(|guard| guard.clone())
+}
+
+/// Called internally when a deep link URL is received.
+/// Extracts the access_token from the URL fragment.
+pub fn handle_deep_link(url: &str, oauth: &OAuthState) {
+    write_log("INFO", &format!("OAuth: deep link received: {}", &url[..url.len().min(80)]));
+
+    // The URL looks like: djtoolkit://auth/callback#access_token=XXX&token_type=bearer&...
+    if let Some(fragment_start) = url.find('#') {
+        let fragment = &url[fragment_start + 1..];
+        for param in fragment.split('&') {
+            if let Some(token) = param.strip_prefix("access_token=") {
+                if let Ok(mut jwt) = oauth.jwt.lock() {
+                    *jwt = Some(token.to_string());
+                    write_log("INFO", "OAuth: access token captured from deep link");
+                }
+                return;
+            }
+        }
+    }
+    write_log("WARN", "OAuth: deep link received but no access_token found");
 }
 
 // ---------------------------------------------------------------------------

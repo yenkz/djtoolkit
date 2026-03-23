@@ -30,6 +30,7 @@ tauri-plugin-dialog = "2"
 toml = "0.8"
 dirs = "6"
 open = "5"
+tauri-plugin-deep-link = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

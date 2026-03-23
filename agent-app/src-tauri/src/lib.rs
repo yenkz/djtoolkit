@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
+#[cfg(desktop)]
+use tauri_plugin_deep_link::DeepLinkExt;
 
 use daemon::DaemonManager;
 
@@ -23,6 +25,7 @@ pub fn run() {
             Some(vec![]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         // ---- Managed state ----
         .manage(DaemonManager::new())
         .manage(commands::OAuthState::new())
@@ -60,6 +63,24 @@ pub fn run() {
                     let _ = main_window.show();
                     let _ = main_window.set_focus();
                 }
+            }
+
+            // --- Deep link handler (OAuth callback) ---
+            #[cfg(desktop)]
+            {
+                let handle_for_deeplink = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let oauth: tauri::State<'_, commands::OAuthState> =
+                        handle_for_deeplink.state::<commands::OAuthState>();
+                    for url in event.urls() {
+                        commands::handle_deep_link(url.as_str(), &*oauth);
+                    }
+                    // Bring the main window to focus after OAuth
+                    if let Some(w) = handle_for_deeplink.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
             }
 
             // --- System tray ---

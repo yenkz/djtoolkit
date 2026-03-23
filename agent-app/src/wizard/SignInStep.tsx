@@ -33,7 +33,7 @@ export default function SignInStep({
     setError("");
     setLoading(true);
     try {
-      // Opens system browser with OAuth URL and starts localhost callback server
+      // Opens system browser for Google OAuth (deep-link catches callback)
       await invoke("start_oauth");
 
       // Poll for the JWT result

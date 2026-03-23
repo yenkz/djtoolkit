@@ -19,6 +19,7 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "dialog:default",
+    "deep-link:default",
     "core:window:allow-close",
     "core:window:allow-hide",
     "core:window:allow-show",

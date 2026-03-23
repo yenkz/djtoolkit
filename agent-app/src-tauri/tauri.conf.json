@@ -42,6 +42,13 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["djtoolkit"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
