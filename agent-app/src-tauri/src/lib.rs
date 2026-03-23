@@ -7,6 +7,8 @@ use std::time::Duration;
 
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
+#[cfg(desktop)]
+use tauri_plugin_deep_link::DeepLinkExt;
 
 use daemon::DaemonManager;
 
@@ -23,8 +25,10 @@ pub fn run() {
             Some(vec![]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         // ---- Managed state ----
         .manage(DaemonManager::new())
+        .manage(commands::AuthState::new())
         // ---- IPC commands ----
         .invoke_handler(tauri::generate_handler![
             commands::get_daemon_status,
@@ -39,6 +43,8 @@ pub fn run() {
             commands::get_log_content,
             commands::open_downloads_dir,
             commands::sign_in,
+            commands::start_browser_auth,
+            commands::check_auth_result,
         ])
         // ---- App setup ----
         .setup(|app| {
@@ -54,6 +60,23 @@ pub fn run() {
                     let _ = main_window.show();
                     let _ = main_window.set_focus();
                 }
+            }
+
+            // --- Deep link handler (djtoolkit://auth/callback) ---
+            #[cfg(desktop)]
+            {
+                let dl_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let auth = dl_handle.state::<commands::AuthState>();
+                    for url in event.urls() {
+                        commands::handle_auth_callback(url.as_str(), &*auth);
+                    }
+                    // Bring the app window to focus
+                    if let Some(w) = dl_handle.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                });
             }
 
             // --- System tray ---

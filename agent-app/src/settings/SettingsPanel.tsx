@@ -90,23 +90,33 @@ export default function SettingsPanel() {
     setSignOutConfirm(false);
   };
 
-  const [signInEmail, setSignInEmail] = useState("");
-  const [signInPassword, setSignInPassword] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const handleSignIn = async () => {
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  const handleBrowserSignIn = async () => {
     setOauthError("");
-    if (!signInEmail.trim() || !signInPassword.trim()) {
-      setOauthError("Email and password are required");
-      return;
-    }
     setOauthLoading(true);
     try {
-      const result = await invoke<{ api_key: string; email: string }>("sign_in", {
-        email: signInEmail.trim(),
-        password: signInPassword,
-      });
-      update("api_key", result.api_key);
-      setOauthLoading(false);
+      await invoke("start_browser_auth");
+      pollRef.current = setInterval(async () => {
+        try {
+          const apiKey = await invoke<string | null>("check_auth_result");
+          if (apiKey) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            update("api_key", apiKey);
+            setOauthLoading(false);
+          }
+        } catch (e) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setOauthError(String(e));
+          setOauthLoading(false);
+        }
+      }, 1000);
     } catch (e) {
       setOauthError(String(e));
       setOauthLoading(false);
@@ -216,23 +226,12 @@ export default function SettingsPanel() {
 
             {!config.api_key && (
               <>
-                <Input
-                  label="Email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={signInEmail}
-                  onChange={(e) => setSignInEmail(e.currentTarget.value)}
-                />
-                <Input
-                  label="Password"
-                  type="password"
-                  placeholder="Your password"
-                  value={signInPassword}
-                  onChange={(e) => setSignInPassword(e.currentTarget.value)}
-                />
-                <Button onClick={handleSignIn} loading={oauthLoading}>
-                  Sign In
+                <Button onClick={handleBrowserSignIn} loading={oauthLoading}>
+                  Sign in with Browser
                 </Button>
+                {oauthLoading && (
+                  <p className="form-hint">Complete sign-in in your browser...</p>
+                )}
 
                 <div className="auth-divider">
                   <span>or enter API key manually</span>
