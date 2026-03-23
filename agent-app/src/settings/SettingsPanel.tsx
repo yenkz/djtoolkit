@@ -6,7 +6,6 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import Toggle from "../components/Toggle";
 
-const CLOUD_URL = "https://app.djtoolkit.net";
 
 type Section = "general" | "credentials" | "agent" | "account";
 
@@ -37,7 +36,6 @@ export default function SettingsPanel() {
   const [oauthLoading, setOauthLoading] = useState(false);
   const [oauthError, setOauthError] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -92,44 +90,28 @@ export default function SettingsPanel() {
     setSignOutConfirm(false);
   };
 
-  const handleGoogleSignIn = async () => {
+  const [signInEmail, setSignInEmail] = useState("");
+  const [signInPassword, setSignInPassword] = useState("");
+
+  const handleSignIn = async () => {
     setOauthError("");
+    if (!signInEmail.trim() || !signInPassword.trim()) {
+      setOauthError("Email and password are required");
+      return;
+    }
     setOauthLoading(true);
     try {
-      await invoke("start_oauth");
-      pollRef.current = setInterval(async () => {
-        try {
-          const jwt = await invoke<string | null>("check_oauth_result");
-          if (jwt) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            pollRef.current = null;
-            const machineName = navigator.userAgent.includes("Mac") ? "My Mac" : "My PC";
-            const res = await fetch(`${CLOUD_URL}/api/agents/register`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ machine_name: machineName }),
-            });
-            if (!res.ok) throw new Error(`Registration failed (${res.status})`);
-            const data = await res.json();
-            update("api_key", data.api_key);
-            setOauthLoading(false);
-          }
-        } catch (e) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setOauthError(String(e));
-          setOauthLoading(false);
-        }
-      }, 1000);
+      const result = await invoke<{ api_key: string; email: string }>("sign_in", {
+        email: signInEmail.trim(),
+        password: signInPassword,
+      });
+      update("api_key", result.api_key);
+      setOauthLoading(false);
     } catch (e) {
       setOauthError(String(e));
       setOauthLoading(false);
     }
   };
-
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
 
   return (
     <div className="settings-panel">
@@ -234,8 +216,22 @@ export default function SettingsPanel() {
 
             {!config.api_key && (
               <>
-                <Button onClick={handleGoogleSignIn} loading={oauthLoading}>
-                  Sign in with Google
+                <Input
+                  label="Email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={signInEmail}
+                  onChange={(e) => setSignInEmail(e.currentTarget.value)}
+                />
+                <Input
+                  label="Password"
+                  type="password"
+                  placeholder="Your password"
+                  value={signInPassword}
+                  onChange={(e) => setSignInPassword(e.currentTarget.value)}
+                />
+                <Button onClick={handleSignIn} loading={oauthLoading}>
+                  Sign In
                 </Button>
 
                 <div className="auth-divider">

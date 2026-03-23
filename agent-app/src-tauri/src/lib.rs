@@ -7,8 +7,6 @@ use std::time::Duration;
 
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
-#[cfg(desktop)]
-use tauri_plugin_deep_link::DeepLinkExt;
 
 use daemon::DaemonManager;
 
@@ -25,10 +23,8 @@ pub fn run() {
             Some(vec![]),
         ))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_deep_link::init())
         // ---- Managed state ----
         .manage(DaemonManager::new())
-        .manage(commands::OAuthState::new())
         // ---- IPC commands ----
         .invoke_handler(tauri::generate_handler![
             commands::get_daemon_status,
@@ -42,45 +38,22 @@ pub fn run() {
             commands::configure_agent,
             commands::get_log_content,
             commands::open_downloads_dir,
-            commands::start_oauth,
-            commands::check_oauth_result,
+            commands::sign_in,
         ])
         // ---- App setup ----
         .setup(|app| {
             let handle = app.handle().clone();
 
             // --- Detect first-launch vs returning user ---
-            // If config exists, hide the main window (wizard) and just show the tray.
-            // If no config, show the wizard window.
             if config::config_exists() {
-                // Hide wizard — user has already configured.
                 if let Some(main_window) = app.get_webview_window("main") {
                     let _ = main_window.hide();
                 }
             } else {
-                // Show the setup wizard.
                 if let Some(main_window) = app.get_webview_window("main") {
                     let _ = main_window.show();
                     let _ = main_window.set_focus();
                 }
-            }
-
-            // --- Deep link handler (OAuth callback) ---
-            #[cfg(desktop)]
-            {
-                let handle_for_deeplink = app.handle().clone();
-                app.deep_link().on_open_url(move |event| {
-                    let oauth: tauri::State<'_, commands::OAuthState> =
-                        handle_for_deeplink.state::<commands::OAuthState>();
-                    for url in event.urls() {
-                        commands::handle_deep_link(url.as_str(), &*oauth);
-                    }
-                    // Bring the main window to focus after OAuth
-                    if let Some(w) = handle_for_deeplink.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                });
             }
 
             // --- System tray ---
@@ -108,7 +81,6 @@ pub fn run() {
                     let s = manager.state.lock().unwrap_or_else(|e| e.into_inner());
                     s.clone()
                 };
-                // Refresh menu only when state changed.
                 if prev != curr {
                     tray::refresh_menu(&health_handle);
                 }

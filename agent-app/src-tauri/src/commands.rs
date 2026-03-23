@@ -8,24 +8,20 @@ use tauri::{Manager, State};
 use crate::config::{self, AppConfig};
 use crate::daemon::{self, DaemonManager};
 
-/// Holds the OAuth JWT once the callback is intercepted.
-pub struct OAuthState {
-    pub jwt: Arc<Mutex<Option<String>>>,
-}
-
-impl OAuthState {
-    pub fn new() -> Self {
-        Self {
-            jwt: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
-/// The Supabase project URL for OAuth (set at build time via SUPABASE_URL env var).
+/// The Supabase project URL (set at build time via SUPABASE_URL env var).
 const SUPABASE_URL: &str = match option_env!("SUPABASE_URL") {
     Some(url) => url,
     None => "",
 };
+
+/// The Supabase anon key (set at build time via SUPABASE_ANON_KEY env var).
+const SUPABASE_ANON_KEY: &str = match option_env!("SUPABASE_ANON_KEY") {
+    Some(key) => key,
+    None => "",
+};
+
+/// The cloud API URL for agent registration.
+const CLOUD_URL: &str = "https://app.djtoolkit.net";
 
 // ---------------------------------------------------------------------------
 // Local logging — writes to agent.log in the config directory
@@ -126,58 +122,81 @@ pub fn has_config() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth authentication via deep link (same flow as the macOS SwiftUI app)
+// Authentication — email/password via Supabase REST API
 // ---------------------------------------------------------------------------
 
-/// Open the Supabase OAuth URL in the system browser.
-/// The callback URL is `djtoolkit://auth/callback` — same as the Swift app.
-/// The deep-link plugin catches the callback and stores the JWT.
+/// Sign in with email/password via Supabase, then register the agent.
+/// Returns the agent API key on success.
 #[tauri::command]
-pub fn start_oauth(oauth: State<'_, OAuthState>) -> Result<(), String> {
-    if SUPABASE_URL.is_empty() {
-        return Err("SUPABASE_URL not set at build time. Set the env var and rebuild.".into());
+pub fn sign_in(email: String, password: String) -> Result<SignInResult, String> {
+    if SUPABASE_URL.is_empty() || SUPABASE_ANON_KEY.is_empty() {
+        return Err("SUPABASE_URL or SUPABASE_ANON_KEY not set at build time".into());
     }
 
-    // Clear any previous result
-    *oauth.jwt.lock().unwrap() = None;
+    write_log("INFO", &format!("Signing in as {email}..."));
 
-    let auth_url = format!(
-        "{}/auth/v1/authorize?provider=google&redirect_to=djtoolkit%3A%2F%2Fauth%2Fcallback",
-        SUPABASE_URL
-    );
+    // Step 1: Authenticate with Supabase
+    let auth_url = format!("{}/auth/v1/token?grant_type=password", SUPABASE_URL);
+    let auth_body = serde_json::json!({
+        "email": email,
+        "password": password,
+    });
 
-    // Open in the system browser
-    open::that(&auth_url).map_err(|e| format!("Failed to open browser: {e}"))?;
-    write_log("INFO", "OAuth: opened browser for Google sign-in");
+    let auth_json: serde_json::Value = ureq::post(&auth_url)
+        .set("apikey", SUPABASE_ANON_KEY)
+        .set("Content-Type", "application/json")
+        .send_json(auth_body)
+        .map_err(|e| format!("Authentication failed: {e}"))?
+        .into_json()
+        .map_err(|e| format!("Failed to parse auth response: {e}"))?;
 
-    Ok(())
+    let access_token = auth_json["access_token"]
+        .as_str()
+        .ok_or("No access_token in auth response")?
+        .to_string();
+
+    let user_email = auth_json["user"]["email"]
+        .as_str()
+        .unwrap_or(&email)
+        .to_string();
+
+    write_log("INFO", &format!("Authenticated as {user_email}"));
+
+    // Step 2: Register agent with cloud API
+    let register_url = format!("{}/api/agents/register", CLOUD_URL);
+    let machine_name = hostname::get()
+        .map(|h| h.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "My Computer".into());
+
+    let reg_body = serde_json::json!({
+        "machine_name": machine_name,
+    });
+
+    let reg_json: serde_json::Value = ureq::post(&register_url)
+        .set("Authorization", &format!("Bearer {access_token}"))
+        .set("Content-Type", "application/json")
+        .send_json(reg_body)
+        .map_err(|e| format!("Agent registration failed: {e}"))?
+        .into_json()
+        .map_err(|e| format!("Failed to parse registration response: {e}"))?;
+
+    let api_key = reg_json["api_key"]
+        .as_str()
+        .ok_or("No api_key in registration response")?
+        .to_string();
+
+    write_log("INFO", "Agent registered successfully");
+
+    Ok(SignInResult {
+        api_key,
+        email: user_email,
+    })
 }
 
-/// Check if the OAuth callback has been received. Returns the JWT if available.
-#[tauri::command]
-pub fn check_oauth_result(oauth: State<'_, OAuthState>) -> Option<String> {
-    oauth.jwt.lock().ok().and_then(|guard| guard.clone())
-}
-
-/// Called internally when a deep link URL is received.
-/// Extracts the access_token from the URL fragment.
-pub fn handle_deep_link(url: &str, oauth: &OAuthState) {
-    write_log("INFO", &format!("OAuth: deep link received: {}", &url[..url.len().min(80)]));
-
-    // The URL looks like: djtoolkit://auth/callback#access_token=XXX&token_type=bearer&...
-    if let Some(fragment_start) = url.find('#') {
-        let fragment = &url[fragment_start + 1..];
-        for param in fragment.split('&') {
-            if let Some(token) = param.strip_prefix("access_token=") {
-                if let Ok(mut jwt) = oauth.jwt.lock() {
-                    *jwt = Some(token.to_string());
-                    write_log("INFO", "OAuth: access token captured from deep link");
-                }
-                return;
-            }
-        }
-    }
-    write_log("WARN", "OAuth: deep link received but no access_token found");
+#[derive(serde::Serialize)]
+pub struct SignInResult {
+    pub api_key: String,
+    pub email: String,
 }
 
 // ---------------------------------------------------------------------------

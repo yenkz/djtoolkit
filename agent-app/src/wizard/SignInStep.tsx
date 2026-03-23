@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import Button from "../components/Button";
 import Input from "../components/Input";
 
-const CLOUD_URL = "https://app.djtoolkit.net";
+interface SignInResult {
+  api_key: string;
+  email: string;
+}
 
 interface SignInStepProps {
   apiKey: string;
@@ -18,72 +21,28 @@ export default function SignInStep({
   onNext,
   onBack,
 }: SignInStepProps) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [signedInEmail, setSignedInEmail] = useState("");
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
-
-  const handleGoogleSignIn = async () => {
+  const handleSignIn = async () => {
     setError("");
+    if (!email.trim() || !password.trim()) {
+      setError("Email and password are required");
+      return;
+    }
     setLoading(true);
     try {
-      // Opens system browser for Google OAuth (deep-link catches callback)
-      await invoke("start_oauth");
-
-      // Poll for the JWT result
-      pollRef.current = setInterval(async () => {
-        try {
-          const jwt = await invoke<string | null>("check_oauth_result");
-          if (jwt) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            pollRef.current = null;
-
-            // Register the agent with the cloud API
-            const machineName = navigator.userAgent.includes("Mac")
-              ? "My Mac"
-              : "My PC";
-
-            const res = await fetch(`${CLOUD_URL}/api/agents/register`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${jwt}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ machine_name: machineName }),
-            });
-
-            if (!res.ok) {
-              const text = await res.text();
-              throw new Error(`Registration failed (${res.status}): ${text}`);
-            }
-
-            const data = await res.json();
-            onApiKeyChange(data.api_key);
-
-            // Decode email from JWT for display
-            try {
-              const payload = JSON.parse(atob(jwt.split(".")[1]));
-              setSignedInEmail(payload.email || "Authenticated");
-            } catch {
-              setSignedInEmail("Authenticated via Google");
-            }
-
-            setLoading(false);
-            onNext();
-          }
-        } catch (e) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setError(String(e));
-          setLoading(false);
-        }
-      }, 1000);
+      const result = await invoke<SignInResult>("sign_in", {
+        email: email.trim(),
+        password,
+      });
+      onApiKeyChange(result.api_key);
+      setSignedInEmail(result.email);
+      setLoading(false);
+      onNext();
     } catch (e) {
       setError(String(e));
       setLoading(false);
@@ -102,24 +61,37 @@ export default function SignInStep({
   return (
     <div className="wizard-step signin-step">
       <h2>Sign In</h2>
-      <p className="step-subtitle">Connect to your djtoolkit.net account</p>
+      <p className="step-subtitle">Sign in with your djtoolkit.net account</p>
 
       {signedInEmail ? (
         <div className="signed-in-banner">
           <span className="done-check">&#10003;</span>
-          <span>{signedInEmail}</span>
+          <span>Signed in as {signedInEmail}</span>
         </div>
       ) : (
         <>
           <div className="form-fields">
-            <Button onClick={handleGoogleSignIn} loading={loading}>
-              Sign in with Google
+            <Input
+              label="Email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.currentTarget.value)}
+            />
+            <Input
+              label="Password"
+              type="password"
+              placeholder="Your password"
+              value={password}
+              onChange={(e) => setPassword(e.currentTarget.value)}
+            />
+          </div>
+
+          <div className="wizard-actions" style={{ marginBottom: 16 }}>
+            <div />
+            <Button onClick={handleSignIn} loading={loading}>
+              Sign In
             </Button>
-            {loading && (
-              <p className="form-hint">
-                Complete sign-in in your browser, then return here.
-              </p>
-            )}
           </div>
 
           <div className="auth-divider">
@@ -134,16 +106,6 @@ export default function SignInStep({
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.currentTarget.value)}
             />
-            <p className="form-hint">
-              Find your API key at{" "}
-              <a
-                href="https://app.djtoolkit.net/settings"
-                target="_blank"
-                rel="noreferrer"
-              >
-                djtoolkit.net/settings
-              </a>
-            </p>
           </div>
         </>
       )}
