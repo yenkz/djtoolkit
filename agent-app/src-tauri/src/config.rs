@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::get_config_dir;
 
-/// Application configuration, persisted as TOML.
+/// Application configuration — combines config.toml + credentials.json
+/// for the frontend. Credential fields are excluded from TOML serialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Cloud API URL.
@@ -27,6 +28,16 @@ pub struct AppConfig {
     /// Whether the app should launch at system startup.
     #[serde(default = "default_launch_at_startup")]
     pub launch_at_startup: bool,
+
+    // --- Credentials (stored in credentials.json, not config.toml) ---
+    #[serde(default, skip_serializing)]
+    pub slsk_username: String,
+    #[serde(default, skip_serializing)]
+    pub slsk_password: String,
+    #[serde(default, skip_serializing)]
+    pub acoustid_api_key: String,
+    #[serde(default, skip_serializing)]
+    pub api_key: String,
 }
 
 fn default_cloud_url() -> String {
@@ -64,6 +75,10 @@ impl Default for AppConfig {
             max_concurrent_jobs: default_max_concurrent(),
             downloads_dir: default_downloads_dir(),
             launch_at_startup: default_launch_at_startup(),
+            slsk_username: String::new(),
+            slsk_password: String::new(),
+            acoustid_api_key: String::new(),
+            api_key: String::new(),
         }
     }
 }
@@ -78,26 +93,53 @@ pub fn config_exists() -> bool {
     config_path().exists()
 }
 
-/// Load config from disk. Returns defaults if the file doesn't exist.
+/// Load config from disk + credentials from credentials.json.
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path();
-    if !path.exists() {
-        return Ok(AppConfig::default());
+    let mut cfg = if path.exists() {
+        let contents =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {e}"))?;
+        toml::from_str::<AppConfig>(&contents).map_err(|e| format!("Failed to parse config: {e}"))?
+    } else {
+        AppConfig::default()
+    };
+
+    // Merge credentials from credentials.json
+    let creds_path = get_config_dir().join("credentials.json");
+    if creds_path.exists() {
+        if let Ok(contents) = fs::read_to_string(&creds_path) {
+            if let Ok(creds) = serde_json::from_str::<serde_json::Value>(&contents) {
+                cfg.api_key = creds["agent-api-key"].as_str().unwrap_or("").to_string();
+                cfg.slsk_username = creds["soulseek-username"].as_str().unwrap_or("").to_string();
+                cfg.slsk_password = creds["soulseek-password"].as_str().unwrap_or("").to_string();
+                cfg.acoustid_api_key = creds["acoustid-key"].as_str().unwrap_or("").to_string();
+            }
+        }
     }
 
-    let contents =
-        fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {e}"))?;
-
-    toml::from_str::<AppConfig>(&contents).map_err(|e| format!("Failed to parse config: {e}"))
+    Ok(cfg)
 }
 
-/// Save config to disk (creates the config directory if needed).
+/// Save config to disk + credentials to credentials.json.
 pub fn save_config(config: &AppConfig) -> Result<(), String> {
     let dir = get_config_dir();
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
 
+    // Save TOML (excludes credential fields via skip_serializing)
     let contents =
         toml::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {e}"))?;
+    fs::write(config_path(), contents).map_err(|e| format!("Failed to write config: {e}"))?;
 
-    fs::write(config_path(), contents).map_err(|e| format!("Failed to write config: {e}"))
+    // Save credentials separately
+    let creds_path = dir.join("credentials.json");
+    let creds = serde_json::json!({
+        "agent-api-key": config.api_key,
+        "soulseek-username": config.slsk_username,
+        "soulseek-password": config.slsk_password,
+        "acoustid-key": config.acoustid_api_key,
+    });
+    fs::write(&creds_path, serde_json::to_string_pretty(&creds).unwrap())
+        .map_err(|e| format!("Failed to write credentials: {e}"))?;
+
+    Ok(())
 }

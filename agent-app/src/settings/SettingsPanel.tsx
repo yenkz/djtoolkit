@@ -17,13 +17,14 @@ const SECTIONS: { key: Section; label: string }[] = [
 ];
 
 const DEFAULT_CONFIG: AppConfig = {
+  cloud_url: "https://www.djtoolkit.net",
+  poll_interval_sec: 30,
+  max_concurrent_jobs: 2,
   downloads_dir: "",
   launch_at_startup: true,
   slsk_username: "",
   slsk_password: "",
   acoustid_api_key: "",
-  poll_interval_secs: 30,
-  max_concurrent_jobs: 2,
   api_key: "",
 };
 
@@ -204,8 +205,8 @@ export default function SettingsPanel() {
             <Input
               label="Poll interval (seconds)"
               type="number"
-              value={config.poll_interval_secs}
-              onChange={(e) => update("poll_interval_secs", Number(e.currentTarget.value))}
+              value={config.poll_interval_sec}
+              onChange={(e) => update("poll_interval_sec", Number(e.currentTarget.value))}
             />
             <Input
               label="Max concurrent jobs"

@@ -189,8 +189,9 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    // CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
-    const DETACH_FLAGS: u32 = 0x00000008 | 0x00000200;
+    // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    // (DETACHED_PROCESS alone still shows a console for console apps)
+    const DETACH_FLAGS: u32 = 0x00000008 | 0x08000000;
 
     let mut child = Command::new(program)
         .args(args)
