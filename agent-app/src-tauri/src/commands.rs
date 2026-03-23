@@ -233,13 +233,36 @@ pub fn configure_agent(
     Ok(())
 }
 
-/// Store a secret in the OS keychain under service "djtoolkit".
+/// Store a secret in both the OS keychain AND a credentials file.
+/// The file fallback ensures the Python daemon can always read credentials,
+/// even if the Rust keychain backend stores them differently.
 fn store_keychain(account: &str, value: &str) -> Result<(), String> {
-    let entry = keyring::Entry::new("djtoolkit", account)
-        .map_err(|e| format!("Keychain error for {account}: {e}"))?;
-    entry
-        .set_password(value)
-        .map_err(|e| format!("Failed to store {account} in keychain: {e}"))?;
+    // Try OS keychain (best effort)
+    match keyring::Entry::new("djtoolkit", account) {
+        Ok(entry) => {
+            let _ = entry.set_password(value);
+        }
+        Err(_) => {} // Keychain unavailable, file fallback below
+    }
+
+    // Also write to credentials file (Python daemon reads this as fallback)
+    let config_dir = daemon::get_config_dir();
+    let creds_path = config_dir.join("credentials.json");
+
+    // Read existing credentials or start fresh
+    let mut creds: serde_json::Value = if creds_path.exists() {
+        fs::read_to_string(&creds_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    creds[account] = serde_json::Value::String(value.to_string());
+    fs::write(&creds_path, serde_json::to_string_pretty(&creds).unwrap())
+        .map_err(|e| format!("Failed to write credentials file: {e}"))?;
+
     Ok(())
 }
 

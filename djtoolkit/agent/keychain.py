@@ -58,13 +58,34 @@ def store_agent_credentials(
 
 
 def load_agent_credentials() -> dict[str, str | None]:
-    """Load all agent credentials from the keychain."""
-    return {
+    """Load agent credentials from the keychain, falling back to credentials.json."""
+    creds = {
         "api_key": get_secret(API_KEY),
         "slsk_username": get_secret(SLSK_USERNAME),
         "slsk_password": get_secret(SLSK_PASSWORD),
         "acoustid_key": get_secret(ACOUSTID_KEY),
     }
+
+    # Fall back to credentials.json (written by the Tauri desktop app)
+    if not creds["api_key"]:
+        from djtoolkit.agent.paths import config_dir
+        import json
+        creds_file = config_dir() / "credentials.json"
+        if creds_file.exists():
+            try:
+                file_creds = json.loads(creds_file.read_text())
+                for py_key, file_key in [
+                    ("api_key", "agent-api-key"),
+                    ("slsk_username", "soulseek-username"),
+                    ("slsk_password", "soulseek-password"),
+                    ("acoustid_key", "acoustid-key"),
+                ]:
+                    if not creds[py_key] and file_key in file_creds:
+                        creds[py_key] = file_creds[file_key]
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    return creds
 
 
 def clear_agent_credentials() -> None:
