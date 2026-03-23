@@ -500,6 +500,43 @@ a:hover {
   border: 1px solid rgba(255, 107, 107, 0.2);
 }
 
+/* Auth Divider */
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth-divider span {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* Signed-in Banner */
+
+.signed-in-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: #4caf50;
+}
+
 /* Done Step */
 
 .done-checklist {

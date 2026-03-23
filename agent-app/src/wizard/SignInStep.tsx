@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import Button from "../components/Button";
 import Input from "../components/Input";
+
+const CLOUD_URL = "https://app.djtoolkit.net";
 
 interface SignInStepProps {
   apiKey: string;
@@ -15,33 +18,97 @@ export default function SignInStep({
   onNext,
   onBack,
 }: SignInStepProps) {
-  const [useApiKey, setUseApiKey] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [signedInEmail, setSignedInEmail] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const handleContinue = async () => {
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const handleGoogleSignIn = async () => {
     setError("");
+    setLoading(true);
+    try {
+      // Open OAuth window (Rust side handles navigation interception)
+      await invoke("start_oauth");
 
-    if (useApiKey) {
-      if (!apiKey.trim()) {
-        setError("API key is required");
-        return;
-      }
-      onNext();
-    } else {
-      if (!email.trim() || !password.trim()) {
-        setError("Email and password are required");
-        return;
-      }
-      // OAuth flow placeholder -- for now just show a message
-      setLoading(true);
-      setTimeout(() => {
-        setLoading(false);
-        setError("Email/password sign-in is not yet available. Please use an API key.");
+      // Poll for the JWT result
+      pollRef.current = setInterval(async () => {
+        try {
+          const jwt = await invoke<string | null>("check_oauth_result");
+          if (jwt) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+
+            // Register the agent with the cloud API
+            const machineName = navigator.userAgent.includes("Mac")
+              ? "My Mac"
+              : "My PC";
+
+            const res = await fetch(`${CLOUD_URL}/api/agents/register`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${jwt}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ machine_name: machineName }),
+            });
+
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(`Registration failed (${res.status}): ${text}`);
+            }
+
+            const data = await res.json();
+            onApiKeyChange(data.api_key);
+
+            // Decode email from JWT for display
+            try {
+              const payload = JSON.parse(atob(jwt.split(".")[1]));
+              setSignedInEmail(payload.email || "Authenticated");
+            } catch {
+              setSignedInEmail("Authenticated via Google");
+            }
+
+            // Close the OAuth window
+            try {
+              const { WebviewWindow } = await import(
+                "@tauri-apps/api/webviewWindow"
+              );
+              const w = await WebviewWindow.getByLabel("oauth");
+              if (w) await w.close();
+            } catch {
+              // window may already be closed
+            }
+
+            setLoading(false);
+            onNext();
+          }
+        } catch (e) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setError(String(e));
+          setLoading(false);
+        }
       }, 1000);
+    } catch (e) {
+      setError(String(e));
+      setLoading(false);
     }
+  };
+
+  const handleApiKeyContinue = () => {
+    setError("");
+    if (!apiKey.trim()) {
+      setError("API key is required");
+      return;
+    }
+    onNext();
   };
 
   return (
@@ -49,56 +116,43 @@ export default function SignInStep({
       <h2>Sign In</h2>
       <p className="step-subtitle">Connect to your djtoolkit.net account</p>
 
-      <div className="auth-toggle">
-        <button
-          type="button"
-          className={`auth-toggle-btn ${!useApiKey ? "active" : ""}`}
-          onClick={() => setUseApiKey(false)}
-        >
-          Email & Password
-        </button>
-        <button
-          type="button"
-          className={`auth-toggle-btn ${useApiKey ? "active" : ""}`}
-          onClick={() => setUseApiKey(true)}
-        >
-          API Key
-        </button>
-      </div>
-
-      {useApiKey ? (
-        <div className="form-fields">
-          <Input
-            label="API Key"
-            type="password"
-            placeholder="dtk_..."
-            value={apiKey}
-            onChange={(e) => onApiKeyChange(e.currentTarget.value)}
-          />
-          <p className="form-hint">
-            Find your API key at{" "}
-            <a href="https://app.djtoolkit.net/settings" target="_blank" rel="noreferrer">
-              djtoolkit.net/settings
-            </a>
-          </p>
+      {signedInEmail ? (
+        <div className="signed-in-banner">
+          <span className="done-check">&#10003;</span>
+          <span>{signedInEmail}</span>
         </div>
       ) : (
-        <div className="form-fields">
-          <Input
-            label="Email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.currentTarget.value)}
-          />
-          <Input
-            label="Password"
-            type="password"
-            placeholder="Your password"
-            value={password}
-            onChange={(e) => setPassword(e.currentTarget.value)}
-          />
-        </div>
+        <>
+          <div className="form-fields">
+            <Button onClick={handleGoogleSignIn} loading={loading}>
+              Sign in with Google
+            </Button>
+          </div>
+
+          <div className="auth-divider">
+            <span>or use an API key</span>
+          </div>
+
+          <div className="form-fields">
+            <Input
+              label="API Key"
+              type="password"
+              placeholder="djt_..."
+              value={apiKey}
+              onChange={(e) => onApiKeyChange(e.currentTarget.value)}
+            />
+            <p className="form-hint">
+              Find your API key at{" "}
+              <a
+                href="https://app.djtoolkit.net/settings"
+                target="_blank"
+                rel="noreferrer"
+              >
+                djtoolkit.net/settings
+              </a>
+            </p>
+          </div>
+        </>
       )}
 
       {error && <p className="form-error">{error}</p>}
@@ -107,9 +161,9 @@ export default function SignInStep({
         <Button variant="secondary" onClick={onBack}>
           Back
         </Button>
-        <Button onClick={handleContinue} loading={loading}>
-          Continue
-        </Button>
+        {!signedInEmail && (
+          <Button onClick={handleApiKeyContinue}>Continue with API Key</Button>
+        )}
       </div>
     </div>
   );

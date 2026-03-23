@@ -25,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // ---- Managed state ----
         .manage(DaemonManager::new())
+        .manage(commands::OAuthState::new())
         // ---- IPC commands ----
         .invoke_handler(tauri::generate_handler![
             commands::get_daemon_status,
@@ -38,6 +39,8 @@ pub fn run() {
             commands::configure_agent,
             commands::get_log_content,
             commands::open_downloads_dir,
+            commands::start_oauth,
+            commands::check_oauth_result,
         ])
         // ---- App setup ----
         .setup(|app| {

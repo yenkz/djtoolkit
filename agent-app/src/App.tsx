@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Routes, Route, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import Wizard from "./wizard/Wizard";
 import LogViewer from "./logs/LogViewer";
@@ -8,8 +8,17 @@ import "./App.css";
 
 function App() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    // Only redirect to wizard from the main window (root path)
+    // Logs and settings windows open at their own paths
+    if (location.pathname !== "/") {
+      setReady(true);
+      return;
+    }
+
     (async () => {
       try {
         const configured = await invoke<boolean>("has_config");
@@ -17,18 +26,20 @@ function App() {
           navigate("/wizard", { replace: true });
         }
       } catch {
-        // If the command fails, default to wizard
         navigate("/wizard", { replace: true });
       }
+      setReady(true);
     })();
-  }, [navigate]);
+  }, [navigate, location.pathname]);
+
+  if (!ready) return null;
 
   return (
     <Routes>
       <Route path="/wizard" element={<Wizard />} />
       <Route path="/logs" element={<LogViewer />} />
       <Route path="/settings" element={<SettingsPanel />} />
-      <Route path="*" element={<Wizard />} />
+      <Route path="/" element={<Wizard />} />
     </Routes>
   );
 }

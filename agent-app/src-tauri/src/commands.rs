@@ -1,11 +1,31 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::config::{self, AppConfig};
 use crate::daemon::{self, DaemonManager};
+
+/// Holds the OAuth JWT once the callback is intercepted.
+pub struct OAuthState {
+    pub jwt: Arc<Mutex<Option<String>>>,
+}
+
+impl OAuthState {
+    pub fn new() -> Self {
+        Self {
+            jwt: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
+/// The Supabase project URL for OAuth (set at build time via SUPABASE_URL env var).
+const SUPABASE_URL: &str = match option_env!("SUPABASE_URL") {
+    Some(url) => url,
+    None => "",
+};
 
 // ---------------------------------------------------------------------------
 // Daemon lifecycle
@@ -57,6 +77,66 @@ pub fn save_config(config: AppConfig) -> Result<(), String> {
 #[tauri::command]
 pub fn has_config() -> bool {
     config::config_exists()
+}
+
+// ---------------------------------------------------------------------------
+// OAuth authentication
+// ---------------------------------------------------------------------------
+
+/// Open a Supabase OAuth window. The `on_navigation` callback intercepts
+/// the `djtoolkit://` callback URL and extracts the JWT access token.
+#[tauri::command]
+pub fn start_oauth(app: tauri::AppHandle, oauth: State<'_, OAuthState>) -> Result<(), String> {
+    if SUPABASE_URL.is_empty() {
+        return Err("SUPABASE_URL not set at build time. Set the env var and rebuild.".into());
+    }
+
+    // Clear any previous result
+    *oauth.jwt.lock().unwrap() = None;
+
+    let auth_url = format!(
+        "{}/auth/v1/authorize?provider=google&redirect_to={}",
+        SUPABASE_URL,
+        "djtoolkit%3A%2F%2Fauth%2Fcallback"
+    );
+
+    let jwt_ref = Arc::clone(&oauth.jwt);
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "oauth",
+        tauri::WebviewUrl::External(auth_url.parse().map_err(|e| format!("Bad URL: {e}"))?),
+    )
+    .title("Sign in to djtoolkit")
+    .inner_size(500.0, 700.0)
+    .center()
+    .on_navigation(move |url| {
+        if url.scheme() == "djtoolkit" {
+            // Extract access_token from the URL fragment
+            if let Some(fragment) = url.fragment() {
+                for param in fragment.split('&') {
+                    if let Some(token) = param.strip_prefix("access_token=") {
+                        if let Ok(mut jwt) = jwt_ref.lock() {
+                            *jwt = Some(token.to_string());
+                        }
+                        break;
+                    }
+                }
+            }
+            return false; // prevent navigation to custom scheme
+        }
+        true
+    })
+    .build()
+    .map_err(|e| format!("Failed to create OAuth window: {e}"))?;
+
+    Ok(())
+}
+
+/// Check if the OAuth callback has been received. Returns the JWT if available.
+#[tauri::command]
+pub fn check_oauth_result(oauth: State<'_, OAuthState>) -> Option<String> {
+    oauth.jwt.lock().ok().and_then(|guard| guard.clone())
 }
 
 // ---------------------------------------------------------------------------
