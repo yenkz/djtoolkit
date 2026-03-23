@@ -147,14 +147,13 @@ pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(
 fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     use std::process::{Command, Stdio};
 
-    let child = unsafe {
+    let mut child = unsafe {
         Command::new(program)
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .pre_exec(|| {
-                // Create a new session so the child is fully detached.
                 libc::setsid();
                 Ok(())
             })
@@ -162,7 +161,14 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
             .map_err(|e| format!("Failed to spawn daemon: {e}"))?
     };
 
-    Ok(child.id())
+    let pid = child.id();
+
+    // Spawn a reaper thread so the child doesn't become a zombie
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok(pid)
 }
 
 #[cfg(target_os = "windows")]
@@ -307,11 +313,22 @@ pub fn check_daemon_health(manager: &DaemonManager) {
     }
 }
 
-/// Check if a process with the given PID is alive.
+/// Check if a process with the given PID is alive (not a zombie).
 #[cfg(unix)]
 fn is_process_alive(pid: u32) -> bool {
-    // kill(pid, 0) checks existence without sending a signal.
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+    // kill(pid, 0) returns 0 even for zombies, so also check process state
+    if unsafe { libc::kill(pid as i32, 0) } != 0 {
+        return false;
+    }
+    // On macOS/BSD, check if the process is a zombie via ps
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "state="])
+        .output()
+        .map(|o| {
+            let state = String::from_utf8_lossy(&o.stdout);
+            !state.trim().starts_with('Z')
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(target_os = "windows")]
