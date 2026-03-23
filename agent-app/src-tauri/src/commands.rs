@@ -63,48 +63,32 @@ pub fn has_config() -> bool {
 // Agent headless configuration (setup wizard)
 // ---------------------------------------------------------------------------
 
-/// Run `djtoolkit agent configure-headless` with a JSON payload on stdin.
-/// This sets up the agent's credentials and connection details.
+/// Save agent credentials collected by the setup wizard.
+/// Writes config.toml and a credentials file in the config directory.
+/// The Python daemon reads these on startup.
 #[tauri::command]
 pub fn configure_agent(
     api_key: String,
     slsk_user: String,
     slsk_pass: String,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let sidecar = daemon::get_sidecar_path(&app)?;
+    let config_dir = daemon::get_config_dir();
+    fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create config dir: {e}"))?;
 
-    let payload = serde_json::json!({
+    // Save the main config file
+    let cfg = AppConfig::default();
+    config::save_config(&cfg)?;
+
+    // Save credentials to a separate file that the Python daemon reads
+    let creds = serde_json::json!({
         "api_key": api_key,
         "slsk_user": slsk_user,
         "slsk_pass": slsk_pass,
     });
-
-    let mut child = Command::new(&sidecar)
-        .args(["agent", "configure-headless"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn configure command: {e}"))?;
-
-    // Write JSON to stdin and close it.
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        stdin
-            .write_all(payload.to_string().as_bytes())
-            .map_err(|e| format!("Failed to write to stdin: {e}"))?;
-        // stdin is closed when dropped
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for configure command: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Configure command failed: {stderr}"));
-    }
+    let creds_path = config_dir.join("credentials.json");
+    fs::write(&creds_path, serde_json::to_string_pretty(&creds).unwrap())
+        .map_err(|e| format!("Failed to write credentials: {e}"))?;
 
     Ok(())
 }

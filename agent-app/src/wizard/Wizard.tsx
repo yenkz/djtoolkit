@@ -20,14 +20,20 @@ export default function Wizard() {
   const goNext = () => setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
   const goBack = () => setStep((s) => Math.max(s - 1, 0));
 
+  const [configError, setConfigError] = useState("");
+
   const handleSoulseekDone = async () => {
-    // Save all collected data via the configure_agent command
-    await invoke("configure_agent", {
-      apiKey: data.apiKey,
-      slskUser: data.slskUsername,
-      slskPass: data.slskPassword,
-    });
-    goNext();
+    try {
+      setConfigError("");
+      await invoke("configure_agent", {
+        apiKey: data.apiKey,
+        slskUser: data.slskUsername,
+        slskPass: data.slskPassword,
+      });
+      goNext();
+    } catch (err) {
+      setConfigError(String(err));
+    }
   };
 
   return (
@@ -69,6 +75,7 @@ export default function Wizard() {
               onPasswordChange={(v) => setData((d) => ({ ...d, slskPassword: v }))}
               onNext={handleSoulseekDone}
               onBack={goBack}
+              error={configError}
             />
           )}
           {step === 3 && (

@@ -9,6 +9,7 @@ interface SoulseekStepProps {
   onPasswordChange: (val: string) => void;
   onNext: () => void;
   onBack: () => void;
+  error?: string;
 }
 
 export default function SoulseekStep({
@@ -18,6 +19,7 @@ export default function SoulseekStep({
   onPasswordChange,
   onNext,
   onBack,
+  error,
 }: SoulseekStepProps) {
   const [errors, setErrors] = useState<{ username?: string; password?: string }>({});
 
@@ -74,6 +76,8 @@ export default function SoulseekStep({
           Create one at slsknet.org
         </a>
       </p>
+
+      {error && <p className="form-error">{error}</p>}
 
       <div className="wizard-actions">
         <Button variant="secondary" onClick={onBack}>
