@@ -67,18 +67,10 @@ fn pause_file() -> PathBuf {
     get_config_dir().join("agent_paused")
 }
 
-/// How to launch the daemon: either a direct binary or poetry run.
-pub enum DaemonBinary {
-    /// Direct binary (bundled sidecar or standalone install)
-    Direct(PathBuf),
-    /// Use `poetry run djtoolkit` (dev mode — editable install)
-    PoetryRun,
-}
-
-/// Resolve how to run the djtoolkit daemon.
-/// 1. Bundled sidecar in the app's resource directory (release builds)
-/// 2. `poetry run djtoolkit` (dev mode)
-pub fn get_daemon_binary(app: &tauri::AppHandle) -> Result<DaemonBinary, String> {
+/// Resolve the djtoolkit binary. Returns (python_path, args_prefix).
+/// - Release: bundled sidecar binary, args = ["agent", "run"]
+/// - Dev: venv python with PYTHONPATH, args = ["-c", "from djtoolkit.__main__ import app; ...", "agent", "run"]
+pub fn get_daemon_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String>), String> {
     // Try bundled sidecar first
     if let Ok(resource_dir) = app.path().resource_dir() {
         #[cfg(target_os = "windows")]
@@ -88,17 +80,20 @@ pub fn get_daemon_binary(app: &tauri::AppHandle) -> Result<DaemonBinary, String>
 
         let sidecar = resource_dir.join(binary_name);
         if sidecar.exists() {
-            return Ok(DaemonBinary::Direct(sidecar));
+            return Ok((sidecar, vec!["agent".into(), "run".into()]));
         }
     }
 
-    // Dev mode: check if `poetry run djtoolkit` works
+    // Dev mode: find the poetry venv python and run djtoolkit directly
     if let Ok(output) = std::process::Command::new("poetry")
-        .args(["run", "djtoolkit", "agent", "status"])
+        .args(["env", "info", "-e"])
         .output()
     {
-        if output.status.success() || !output.stdout.is_empty() {
-            return Ok(DaemonBinary::PoetryRun);
+        let python = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !python.is_empty() && PathBuf::from(&python).exists() {
+            // Use -c to import and run the app, bypassing the broken shim
+            let bootstrap = "import sys; from importlib import import_module; sys.exit(import_module('djtoolkit.__main__').app())".to_string();
+            return Ok((PathBuf::from(python), vec!["-c".into(), bootstrap, "agent".into(), "run".into()]));
         }
     }
 
@@ -127,17 +122,15 @@ pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(
 
     *state = DaemonState::Starting;
 
-    let binary = get_daemon_binary(app)?;
+    let (program, args) = get_daemon_command(app)?;
     let config_dir = get_config_dir();
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
 
     // Remove stale pause file so the daemon starts in active mode.
     let _ = fs::remove_file(pause_file());
 
-    let child = match &binary {
-        DaemonBinary::Direct(path) => spawn_detached(path, &["agent", "run"])?,
-        DaemonBinary::PoetryRun => spawn_detached_poetry(&["run", "djtoolkit", "agent", "run"])?,
-    };
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let child = spawn_detached(&program, &args_ref)?;
     let pid = child;
 
     // Write PID file.
@@ -190,61 +183,6 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
         .map_err(|e| format!("Failed to spawn daemon: {e}"))?;
 
     Ok(child.id())
-}
-
-/// Spawn `poetry <args>` as a detached process. Used in dev mode.
-#[cfg(unix)]
-fn spawn_detached_poetry(args: &[&str]) -> Result<u32, String> {
-    use std::process::{Command, Stdio};
-
-    let poetry = which_poetry().ok_or("poetry not found on PATH")?;
-    let child = unsafe {
-        Command::new(&poetry)
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            })
-            .spawn()
-            .map_err(|e| format!("Failed to spawn poetry: {e}"))?
-    };
-    Ok(child.id())
-}
-
-#[cfg(target_os = "windows")]
-fn spawn_detached_poetry(args: &[&str]) -> Result<u32, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::{Command, Stdio};
-    const DETACH_FLAGS: u32 = 0x00000008 | 0x00000200;
-
-    let poetry = which_poetry().ok_or("poetry not found on PATH")?;
-    let child = Command::new(&poetry)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .creation_flags(DETACH_FLAGS)
-        .spawn()
-        .map_err(|e| format!("Failed to spawn poetry: {e}"))?;
-    Ok(child.id())
-}
-
-fn which_poetry() -> Option<PathBuf> {
-    // Common locations
-    for name in &["poetry", "/opt/homebrew/bin/poetry", "/usr/local/bin/poetry"] {
-        let p = PathBuf::from(name);
-        if p.exists() { return Some(p); }
-    }
-    // PATH search
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let full = dir.join("poetry");
-            if full.exists() { Some(full) } else { None }
-        })
-    })
 }
 
 /// Stop the daemon by reading the PID file and sending a signal.
