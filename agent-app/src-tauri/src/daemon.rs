@@ -71,13 +71,23 @@ fn pause_file() -> PathBuf {
 /// - Release: bundled sidecar binary, args = ["agent", "run"]
 /// - Dev: venv python with PYTHONPATH, args = ["-c", "from djtoolkit.__main__ import app; ...", "agent", "run"]
 pub fn get_daemon_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String>), String> {
-    // Try bundled sidecar first
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        #[cfg(target_os = "windows")]
-        let binary_name = "djtoolkit.exe";
-        #[cfg(not(target_os = "windows"))]
-        let binary_name = "djtoolkit";
+    #[cfg(target_os = "windows")]
+    let binary_name = "djtoolkit.exe";
+    #[cfg(not(target_os = "windows"))]
+    let binary_name = "djtoolkit";
 
+    // Try bundled sidecar — Tauri puts externalBin in the same dir as the main binary
+    // macOS: .app/Contents/MacOS/djtoolkit
+    // Windows: install_dir/djtoolkit.exe
+    if let Ok(exe_dir) = std::env::current_exe().and_then(|p| Ok(p.parent().unwrap().to_path_buf())) {
+        let sidecar = exe_dir.join(binary_name);
+        if sidecar.exists() {
+            return Ok((sidecar, vec!["agent".into(), "run".into()]));
+        }
+    }
+
+    // Also check resource_dir (fallback)
+    if let Ok(resource_dir) = app.path().resource_dir() {
         let sidecar = resource_dir.join(binary_name);
         if sidecar.exists() {
             return Ok((sidecar, vec!["agent".into(), "run".into()]));
