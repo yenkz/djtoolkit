@@ -28,6 +28,28 @@ const SUPABASE_URL: &str = match option_env!("SUPABASE_URL") {
 };
 
 // ---------------------------------------------------------------------------
+// Local logging — writes to agent.log in the config directory
+// ---------------------------------------------------------------------------
+
+fn write_log(level: &str, msg: &str) {
+    let log_path = daemon::get_config_dir().join("agent.log");
+    let _ = fs::create_dir_all(daemon::get_config_dir());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let line = format!("[{now}] {level}: {msg}\n");
+    let _ = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(line.as_bytes())
+        });
+}
+
+// ---------------------------------------------------------------------------
 // Daemon lifecycle
 // ---------------------------------------------------------------------------
 
@@ -42,22 +64,46 @@ pub fn start_agent(
     app: tauri::AppHandle,
     manager: State<'_, DaemonManager>,
 ) -> Result<(), String> {
-    daemon::start_daemon(&app, &manager)
+    write_log("INFO", "Starting agent daemon...");
+    let result = daemon::start_daemon(&app, &manager);
+    match &result {
+        Ok(()) => write_log("INFO", "Agent daemon started"),
+        Err(e) => write_log("ERROR", &format!("Failed to start daemon: {e}")),
+    }
+    result
 }
 
 #[tauri::command]
 pub fn stop_agent(manager: State<'_, DaemonManager>) -> Result<(), String> {
-    daemon::stop_daemon(&manager)
+    write_log("INFO", "Stopping agent daemon...");
+    let result = daemon::stop_daemon(&manager);
+    match &result {
+        Ok(()) => write_log("INFO", "Agent daemon stopped"),
+        Err(e) => write_log("WARN", &format!("Stop daemon: {e}")),
+    }
+    result
 }
 
 #[tauri::command]
 pub fn pause_agent(manager: State<'_, DaemonManager>) -> Result<(), String> {
-    daemon::pause_daemon(&manager)
+    write_log("INFO", "Pausing agent daemon...");
+    let result = daemon::pause_daemon(&manager);
+    match &result {
+        Ok(()) => write_log("INFO", "Agent daemon paused"),
+        Err(e) => write_log("WARN", &format!("Pause daemon: {e}")),
+    }
+    result
 }
 
 #[tauri::command]
 pub fn resume_agent(manager: State<'_, DaemonManager>) -> Result<(), String> {
-    daemon::resume_daemon(&manager)
+    write_log("INFO", "Resuming agent daemon...");
+    let result = daemon::resume_daemon(&manager);
+    match &result {
+        Ok(()) => write_log("INFO", "Agent daemon resumed"),
+        Err(e) => write_log("WARN", &format!("Resume daemon: {e}")),
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +216,7 @@ pub fn configure_agent(
     fs::write(&creds_path, serde_json::to_string_pretty(&creds).unwrap())
         .map_err(|e| format!("Failed to write credentials: {e}"))?;
 
+    write_log("INFO", "Agent configured successfully (credentials saved)");
     Ok(())
 }
 

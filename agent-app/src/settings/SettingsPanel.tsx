@@ -6,6 +6,8 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import Toggle from "../components/Toggle";
 
+const CLOUD_URL = "https://app.djtoolkit.net";
+
 type Section = "general" | "credentials" | "agent" | "account";
 
 const SECTIONS: { key: Section; label: string }[] = [
@@ -32,7 +34,10 @@ export default function SettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [signOutConfirm, setSignOutConfirm] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [oauthError, setOauthError] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -86,6 +91,50 @@ export default function SettingsPanel() {
     update("api_key", "");
     setSignOutConfirm(false);
   };
+
+  const handleGoogleSignIn = async () => {
+    setOauthError("");
+    setOauthLoading(true);
+    try {
+      await invoke("start_oauth");
+      pollRef.current = setInterval(async () => {
+        try {
+          const jwt = await invoke<string | null>("check_oauth_result");
+          if (jwt) {
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = null;
+            const machineName = navigator.userAgent.includes("Mac") ? "My Mac" : "My PC";
+            const res = await fetch(`${CLOUD_URL}/api/agents/register`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ machine_name: machineName }),
+            });
+            if (!res.ok) throw new Error(`Registration failed (${res.status})`);
+            const data = await res.json();
+            update("api_key", data.api_key);
+            try {
+              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+              const w = await WebviewWindow.getByLabel("oauth");
+              if (w) await w.close();
+            } catch { /* already closed */ }
+            setOauthLoading(false);
+          }
+        } catch (e) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setOauthError(String(e));
+          setOauthLoading(false);
+        }
+      }, 1000);
+    } catch (e) {
+      setOauthError(String(e));
+      setOauthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   return (
     <div className="settings-panel">
@@ -187,11 +236,31 @@ export default function SettingsPanel() {
                 {config.api_key ? "Signed in" : "Not signed in"}
               </p>
             </div>
+
+            {!config.api_key && (
+              <>
+                <Button onClick={handleGoogleSignIn} loading={oauthLoading}>
+                  Sign in with Google
+                </Button>
+
+                <div className="auth-divider">
+                  <span>or enter API key manually</span>
+                </div>
+
+                <Input
+                  label="API Key"
+                  type="password"
+                  placeholder="djt_..."
+                  value={config.api_key}
+                  onChange={(e) => update("api_key", e.currentTarget.value)}
+                />
+
+                {oauthError && <p className="form-error">{oauthError}</p>}
+              </>
+            )}
+
             {config.api_key && (
-              <Button
-                variant="danger"
-                onClick={handleSignOut}
-              >
+              <Button variant="danger" onClick={handleSignOut}>
                 {signOutConfirm ? "Confirm sign out?" : "Sign Out"}
               </Button>
             )}
