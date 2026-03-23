@@ -108,6 +108,7 @@ export default function SettingsPanel() {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             update("api_key", apiKey);
+            try { await invoke("start_agent"); } catch { /* may already be running */ }
             setOauthLoading(false);
           }
         } catch (e) {

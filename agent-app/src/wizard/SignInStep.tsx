@@ -41,6 +41,8 @@ export default function SignInStep({
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
             onApiKeyChange(apiKey);
+            // Auto-start the daemon
+            try { await invoke("start_agent"); } catch { /* may already be running */ }
             setLoading(false);
             onNext();
           }
