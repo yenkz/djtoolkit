@@ -164,16 +164,38 @@ pub fn start_browser_auth(auth: State<'_, AuthState>) -> Result<(), String> {
                     let first = req.lines().next().unwrap_or("");
 
                     if first.starts_with("GET /callback") {
-                        // Extract token from query params
+                        // Extract JWT from query params and register the agent
                         if let Some(qs) = first.find('?') {
                             let end = first.rfind(' ').unwrap_or(first.len());
                             let query = &first[qs + 1..end];
                             for param in query.split('&') {
-                                if let Some(token) = param.strip_prefix("token=") {
-                                    if let Ok(mut jwt) = jwt_ref.lock() {
-                                        *jwt = Some(token.to_string());
+                                if let Some(jwt) = param.strip_prefix("token=") {
+                                    write_log("INFO", "Auth: received JWT, registering agent...");
+                                    // Register agent with cloud API
+                                    let register_url = format!("{}/api/agents/register", CLOUD_URL);
+                                    let machine_name = hostname::get()
+                                        .map(|h| h.to_string_lossy().to_string())
+                                        .unwrap_or_else(|_| "My Computer".into());
+                                    match ureq::post(&register_url)
+                                        .set("Authorization", &format!("Bearer {jwt}"))
+                                        .set("Content-Type", "application/json")
+                                        .send_json(serde_json::json!({ "machine_name": machine_name }))
+                                    {
+                                        Ok(resp) => {
+                                            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                                                if let Some(api_key) = json["api_key"].as_str() {
+                                                    let _ = store_keychain("agent-api-key", api_key);
+                                                    if let Ok(mut r) = jwt_ref.lock() {
+                                                        *r = Some(api_key.to_string());
+                                                    }
+                                                    write_log("INFO", "Auth: agent registered + API key stored");
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            write_log("ERROR", &format!("Auth: agent registration failed: {e}"));
+                                        }
                                     }
-                                    write_log("INFO", "Auth: received token via localhost callback");
                                     break;
                                 }
                             }
