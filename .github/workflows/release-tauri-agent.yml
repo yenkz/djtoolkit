@@ -166,6 +166,7 @@ jobs:
         run: chmod +x agent-app/src-tauri/binaries/*
 
       - name: List sidecar binaries
+        shell: bash
         run: ls -la agent-app/src-tauri/binaries/
 
       # Build the Tauri app with tauri-action (handles signing + packaging)
