@@ -138,131 +138,17 @@ impl AuthState {
     }
 }
 
-/// Open a browser-based sign-in page. Starts a localhost server that serves
-/// a branded login form. After authentication, redirects to
-/// `djtoolkit://auth/callback#access_token=XXX` which the deep-link plugin catches.
+/// Open the web app's agent auth page in the system browser.
+/// If the user is already signed in on the web, it immediately redirects
+/// back to `djtoolkit://auth/callback#access_token=XXX`.
+/// If not signed in, the web app shows its login page first.
 #[tauri::command]
 pub fn start_browser_auth(auth: State<'_, AuthState>) -> Result<(), String> {
-    if SUPABASE_URL.is_empty() || SUPABASE_ANON_KEY.is_empty() {
-        return Err("SUPABASE_URL or SUPABASE_ANON_KEY not set at build time".into());
-    }
-
     *auth.jwt.lock().unwrap() = None;
 
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Failed to bind: {e}"))?;
-    let port = listener.local_addr().unwrap().port();
-
-    let supabase_url = SUPABASE_URL.to_string();
-    let anon_key = SUPABASE_ANON_KEY.to_string();
-
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    use std::io::{Read, Write};
-                    let mut buf = [0u8; 4096];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    if n == 0 { continue; }
-                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let first_line = request.lines().next().unwrap_or("");
-
-                    if first_line.starts_with("GET /login") || first_line.starts_with("GET / ") {
-                        let html = format!(r#"<!DOCTYPE html>
-<html><head>
-<title>Sign in to djtoolkit</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ font-family: -apple-system, system-ui, sans-serif; background: #1a1a2e; color: #eee;
-       display: flex; align-items: center; justify-content: center; min-height: 100vh; }}
-.card {{ background: #16213e; border-radius: 16px; padding: 40px; width: 380px;
-         box-shadow: 0 8px 32px rgba(0,0,0,0.3); }}
-h1 {{ font-size: 24px; margin-bottom: 8px; text-align: center; }}
-.subtitle {{ color: #999; text-align: center; margin-bottom: 28px; font-size: 14px; }}
-label {{ display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
-         color: #999; margin-bottom: 6px; margin-top: 16px; }}
-input {{ width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #2a3a5c;
-         background: #1a1a2e; color: #eee; font-size: 15px; outline: none; }}
-input:focus {{ border-color: #e94560; }}
-button {{ width: 100%; padding: 14px; border-radius: 8px; border: none; cursor: pointer;
-          font-size: 15px; font-weight: 600; margin-top: 24px;
-          background: #e94560; color: white; transition: background 0.2s; }}
-button:hover {{ background: #d63850; }}
-button:disabled {{ background: #555; cursor: not-allowed; }}
-.error {{ color: #ff6b6b; font-size: 13px; margin-top: 12px; padding: 10px;
-          background: rgba(255,107,107,0.1); border-radius: 8px; display: none; }}
-.spinner {{ display: inline-block; width: 16px; height: 16px; border: 2px solid #fff;
-            border-top-color: transparent; border-radius: 50%;
-            animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 8px; }}
-@keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-</style>
-</head><body>
-<div class="card">
-  <h1>djtoolkit</h1>
-  <p class="subtitle">Sign in to connect your agent</p>
-  <form id="form" onsubmit="return handleSubmit(event)">
-    <label>Email</label>
-    <input type="email" id="email" placeholder="you@example.com" required autofocus>
-    <label>Password</label>
-    <input type="password" id="password" placeholder="Your password" required>
-    <button type="submit" id="btn">Sign In</button>
-  </form>
-  <div class="error" id="error"></div>
-</div>
-<script>
-async function handleSubmit(e) {{
-  e.preventDefault();
-  const btn = document.getElementById('btn');
-  const err = document.getElementById('error');
-  err.style.display = 'none';
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Signing in...';
-  try {{
-    const resp = await fetch('{supabase_url}/auth/v1/token?grant_type=password', {{
-      method: 'POST',
-      headers: {{ 'apikey': '{anon_key}', 'Content-Type': 'application/json' }},
-      body: JSON.stringify({{
-        email: document.getElementById('email').value,
-        password: document.getElementById('password').value
-      }})
-    }});
-    if (!resp.ok) {{
-      const data = await resp.json().catch(() => ({{}}));
-      throw new Error(data.error_description || data.msg || 'Invalid email or password');
-    }}
-    const data = await resp.json();
-    // Redirect to deep link with the access token
-    window.location.href = 'djtoolkit://auth/callback#access_token=' + data.access_token;
-  }} catch(e) {{
-    err.textContent = e.message;
-    err.style.display = 'block';
-    btn.disabled = false;
-    btn.innerHTML = 'Sign In';
-  }}
-}}
-</script>
-</body></html>"#);
-                        let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-                            html.len(), html
-                        );
-                        let _ = stream.write_all(response.as_bytes());
-                        let _ = stream.flush();
-                    } else {
-                        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-                        let _ = stream.write_all(response.as_bytes());
-                        let _ = stream.flush();
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    let login_url = format!("http://127.0.0.1:{port}/login");
-    open::that(&login_url).map_err(|e| format!("Failed to open browser: {e}"))?;
-    write_log("INFO", &format!("Browser auth started on port {port}"));
+    let auth_url = format!("{}/auth/agent", CLOUD_URL);
+    open::that(&auth_url).map_err(|e| format!("Failed to open browser: {e}"))?;
+    write_log("INFO", "Browser auth: opened web app sign-in");
     Ok(())
 }
 

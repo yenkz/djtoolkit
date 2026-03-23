@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { LED_COLORS, HARDWARE, FONTS, STEEL } from "@/lib/design-system/tokens";
 import type { LEDColor } from "@/lib/design-system/tokens";
@@ -366,6 +366,8 @@ function GoogleIcon() {
 /* ═══ MAIN AUTH PAGE ═══ */
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect");
   const [mounted, setMounted] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -410,7 +412,7 @@ export default function LoginPage() {
         setLoading(false);
         return;
       }
-      router.push("/catalog");
+      router.push(redirectTo || "/catalog");
       router.refresh();
     } catch (err: unknown) {
       toast.error(
