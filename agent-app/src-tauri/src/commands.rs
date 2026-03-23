@@ -126,13 +126,13 @@ pub fn has_config() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// OAuth authentication
+// OAuth authentication via localhost callback server
 // ---------------------------------------------------------------------------
 
-/// Open a Supabase OAuth window. The `on_navigation` callback intercepts
-/// the `djtoolkit://` callback URL and extracts the JWT access token.
+/// Start a localhost HTTP server, open the Supabase OAuth URL in the system
+/// browser, and wait for the callback with the JWT token.
 #[tauri::command]
-pub fn start_oauth(app: tauri::AppHandle, oauth: State<'_, OAuthState>) -> Result<(), String> {
+pub fn start_oauth(oauth: State<'_, OAuthState>) -> Result<u16, String> {
     if SUPABASE_URL.is_empty() {
         return Err("SUPABASE_URL not set at build time. Set the env var and rebuild.".into());
     }
@@ -140,43 +140,109 @@ pub fn start_oauth(app: tauri::AppHandle, oauth: State<'_, OAuthState>) -> Resul
     // Clear any previous result
     *oauth.jwt.lock().unwrap() = None;
 
-    let auth_url = format!(
-        "{}/auth/v1/authorize?provider=google&redirect_to={}",
-        SUPABASE_URL,
-        "djtoolkit%3A%2F%2Fauth%2Fcallback"
-    );
+    // Bind to a random available port
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("Failed to bind localhost server: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get port: {e}"))?
+        .port();
 
     let jwt_ref = Arc::clone(&oauth.jwt);
 
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "oauth",
-        tauri::WebviewUrl::External(auth_url.parse().map_err(|e| format!("Bad URL: {e}"))?),
-    )
-    .title("Sign in to djtoolkit")
-    .inner_size(500.0, 700.0)
-    .center()
-    .on_navigation(move |url| {
-        if url.scheme() == "djtoolkit" {
-            // Extract access_token from the URL fragment
-            if let Some(fragment) = url.fragment() {
-                for param in fragment.split('&') {
-                    if let Some(token) = param.strip_prefix("access_token=") {
-                        if let Ok(mut jwt) = jwt_ref.lock() {
-                            *jwt = Some(token.to_string());
+    // Spawn a thread to handle the callback
+    std::thread::spawn(move || {
+        // Set a timeout so we don't hang forever
+        let _ = listener.set_nonblocking(false);
+        // Accept one connection (the OAuth callback)
+        // Wait up to 5 minutes for the user to complete auth
+        let _ = listener
+            .set_nonblocking(false);
+
+        // Serve the callback page, then wait for the token POST
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    use std::io::{Read, Write};
+                    let mut buf = [0u8; 4096];
+                    let n = stream.read(&mut buf).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+
+                    if request.starts_with("GET /callback") {
+                        // Serve an HTML page that reads the hash fragment
+                        // and posts the token back to us
+                        let html = format!(r#"<!DOCTYPE html>
+<html><head><title>djtoolkit</title>
+<style>
+body {{ font-family: system-ui; background: #1a1a2e; color: #eee;
+       display: flex; align-items: center; justify-content: center;
+       min-height: 100vh; margin: 0; }}
+.card {{ text-align: center; padding: 40px; }}
+h2 {{ color: #4caf50; }}
+</style></head><body>
+<div class="card">
+  <h2>Authenticated!</h2>
+  <p>You can close this window and return to the app.</p>
+</div>
+<script>
+  const hash = window.location.hash.substring(1);
+  const params = new URLSearchParams(hash);
+  const token = params.get('access_token');
+  if (token) {{
+    fetch('http://127.0.0.1:{port}/token', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'text/plain' }},
+      body: token
+    }});
+  }}
+</script></body></html>"#);
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
+                            html.len(),
+                            html
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
+                    } else if request.starts_with("POST /token") {
+                        // Extract the token from the POST body
+                        if let Some(body_start) = request.find("\r\n\r\n") {
+                            let token = request[body_start + 4..].trim().to_string();
+                            if !token.is_empty() {
+                                if let Ok(mut jwt) = jwt_ref.lock() {
+                                    *jwt = Some(token);
+                                }
+                            }
                         }
+                        let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nAccess-Control-Allow-Origin: *\r\n\r\nOK";
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
+                        // We got the token, stop the server
                         break;
+                    } else if request.starts_with("OPTIONS /token") {
+                        // CORS preflight
+                        let response = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\n\r\n";
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
                     }
                 }
+                Err(_) => break,
             }
-            return false; // prevent navigation to custom scheme
         }
-        true
-    })
-    .build()
-    .map_err(|e| format!("Failed to create OAuth window: {e}"))?;
+        write_log("INFO", "OAuth callback received");
+    });
 
-    Ok(())
+    // Build the auth URL with localhost callback
+    let redirect = format!("http%3A%2F%2F127.0.0.1%3A{}%2Fcallback", port);
+    let auth_url = format!(
+        "{}/auth/v1/authorize?provider=google&redirect_to={}",
+        SUPABASE_URL, redirect
+    );
+
+    // Open in the system browser
+    let _ = open::that(&auth_url);
+    write_log("INFO", &format!("OAuth started on port {port}"));
+
+    Ok(port)
 }
 
 /// Check if the OAuth callback has been received. Returns the JWT if available.

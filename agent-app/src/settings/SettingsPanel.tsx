@@ -112,11 +112,6 @@ export default function SettingsPanel() {
             if (!res.ok) throw new Error(`Registration failed (${res.status})`);
             const data = await res.json();
             update("api_key", data.api_key);
-            try {
-              const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-              const w = await WebviewWindow.getByLabel("oauth");
-              if (w) await w.close();
-            } catch { /* already closed */ }
             setOauthLoading(false);
           }
         } catch (e) {

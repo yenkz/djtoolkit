@@ -23,7 +23,6 @@ export default function SignInStep({
   const [signedInEmail, setSignedInEmail] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Clean up polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -34,7 +33,7 @@ export default function SignInStep({
     setError("");
     setLoading(true);
     try {
-      // Open OAuth window (Rust side handles navigation interception)
+      // Opens system browser with OAuth URL and starts localhost callback server
       await invoke("start_oauth");
 
       // Poll for the JWT result
@@ -73,17 +72,6 @@ export default function SignInStep({
               setSignedInEmail(payload.email || "Authenticated");
             } catch {
               setSignedInEmail("Authenticated via Google");
-            }
-
-            // Close the OAuth window
-            try {
-              const { WebviewWindow } = await import(
-                "@tauri-apps/api/webviewWindow"
-              );
-              const w = await WebviewWindow.getByLabel("oauth");
-              if (w) await w.close();
-            } catch {
-              // window may already be closed
             }
 
             setLoading(false);
@@ -127,6 +115,11 @@ export default function SignInStep({
             <Button onClick={handleGoogleSignIn} loading={loading}>
               Sign in with Google
             </Button>
+            {loading && (
+              <p className="form-hint">
+                Complete sign-in in your browser, then return here.
+              </p>
+            )}
           </div>
 
           <div className="auth-divider">
