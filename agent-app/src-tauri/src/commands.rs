@@ -150,77 +150,116 @@ pub fn start_oauth(oauth: State<'_, OAuthState>) -> Result<u16, String> {
 
     let jwt_ref = Arc::clone(&oauth.jwt);
 
-    // Spawn a thread to handle the callback
+    // Spawn a thread to handle the OAuth callback
     std::thread::spawn(move || {
-        // Set a timeout so we don't hang forever
-        let _ = listener.set_nonblocking(false);
-        // Accept one connection (the OAuth callback)
-        // Wait up to 5 minutes for the user to complete auth
-        let _ = listener
-            .set_nonblocking(false);
-
-        // Serve the callback page, then wait for the token POST
         for stream in listener.incoming() {
             match stream {
                 Ok(mut stream) => {
                     use std::io::{Read, Write};
-                    let mut buf = [0u8; 4096];
+                    let mut buf = [0u8; 8192];
                     let n = stream.read(&mut buf).unwrap_or(0);
-                    let request = String::from_utf8_lossy(&buf[..n]);
+                    if n == 0 { continue; }
+                    let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let first_line = request.lines().next().unwrap_or("");
 
-                    if request.starts_with("GET /callback") {
-                        // Serve an HTML page that reads the hash fragment
-                        // and posts the token back to us
+                    if first_line.starts_with("GET /callback") {
+                        // Check if Supabase sent an access_token as a query param
+                        // (some flows put it here instead of the fragment)
+                        let mut got_token = false;
+                        if let Some(query_start) = first_line.find('?') {
+                            let query_end = first_line.rfind(' ').unwrap_or(first_line.len());
+                            let query = &first_line[query_start + 1..query_end];
+                            for param in query.split('&') {
+                                if let Some(token) = param.strip_prefix("access_token=") {
+                                    if let Ok(mut jwt) = jwt_ref.lock() {
+                                        *jwt = Some(token.to_string());
+                                    }
+                                    got_token = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Serve callback page — JS extracts token from hash fragment
+                        // (implicit flow) and POSTs it back
                         let html = format!(r#"<!DOCTYPE html>
-<html><head><title>djtoolkit</title>
+<html><head><title>djtoolkit - Authenticated</title>
 <style>
 body {{ font-family: system-ui; background: #1a1a2e; color: #eee;
        display: flex; align-items: center; justify-content: center;
        min-height: 100vh; margin: 0; }}
 .card {{ text-align: center; padding: 40px; }}
 h2 {{ color: #4caf50; }}
+.error {{ color: #ff6b6b; }}
 </style></head><body>
-<div class="card">
-  <h2>Authenticated!</h2>
-  <p>You can close this window and return to the app.</p>
+<div class="card" id="card">
+  <h2>Authenticating...</h2>
+  <p>Please wait...</p>
 </div>
 <script>
-  const hash = window.location.hash.substring(1);
-  const params = new URLSearchParams(hash);
-  const token = params.get('access_token');
-  if (token) {{
-    fetch('http://127.0.0.1:{port}/token', {{
-      method: 'POST',
-      headers: {{ 'Content-Type': 'text/plain' }},
-      body: token
-    }});
+(async function() {{
+  const card = document.getElementById('card');
+  try {{
+    // Try implicit flow (token in hash fragment)
+    let token = null;
+    const hash = window.location.hash.substring(1);
+    if (hash) {{
+      const params = new URLSearchParams(hash);
+      token = params.get('access_token');
+    }}
+    // Also check query params
+    if (!token) {{
+      const qp = new URLSearchParams(window.location.search);
+      token = qp.get('access_token');
+    }}
+    if (token) {{
+      await fetch('http://127.0.0.1:{port}/token', {{
+        method: 'POST',
+        body: token
+      }});
+      card.innerHTML = '<h2>&#10003; Authenticated!</h2><p>You can close this window and return to the app.</p>';
+    }} else {{
+      card.innerHTML = '<h2 class="error">No token received</h2><p>Hash: ' + window.location.hash + '</p><p>Search: ' + window.location.search + '</p>';
+    }}
+  }} catch(e) {{
+    card.innerHTML = '<h2 class="error">Error</h2><p>' + e.message + '</p>';
   }}
+}})();
 </script></body></html>"#);
                         let response = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n{}",
-                            html.len(),
-                            html
+                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
+                            html.len(), html
                         );
                         let _ = stream.write_all(response.as_bytes());
                         let _ = stream.flush();
-                    } else if request.starts_with("POST /token") {
-                        // Extract the token from the POST body
+
+                        // If we already got the token from query params, we're done
+                        if got_token {
+                            write_log("INFO", "OAuth: got token from query params");
+                            break;
+                        }
+                    } else if first_line.starts_with("POST /token") {
+                        // Token posted from callback page JS (implicit flow)
                         if let Some(body_start) = request.find("\r\n\r\n") {
                             let token = request[body_start + 4..].trim().to_string();
                             if !token.is_empty() {
                                 if let Ok(mut jwt) = jwt_ref.lock() {
                                     *jwt = Some(token);
                                 }
+                                write_log("INFO", "OAuth: got token from hash fragment");
                             }
                         }
                         let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nAccess-Control-Allow-Origin: *\r\n\r\nOK";
                         let _ = stream.write_all(response.as_bytes());
                         let _ = stream.flush();
-                        // We got the token, stop the server
                         break;
-                    } else if request.starts_with("OPTIONS /token") {
-                        // CORS preflight
+                    } else if first_line.starts_with("OPTIONS") {
                         let response = "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\n\r\n";
+                        let _ = stream.write_all(response.as_bytes());
+                        let _ = stream.flush();
+                    } else {
+                        // favicon.ico, etc — ignore
+                        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
                         let _ = stream.write_all(response.as_bytes());
                         let _ = stream.flush();
                     }
@@ -228,13 +267,12 @@ h2 {{ color: #4caf50; }}
                 Err(_) => break,
             }
         }
-        write_log("INFO", "OAuth callback received");
     });
 
-    // Build the auth URL with localhost callback
+    // Build the auth URL — force implicit flow so token comes in hash fragment
     let redirect = format!("http%3A%2F%2F127.0.0.1%3A{}%2Fcallback", port);
     let auth_url = format!(
-        "{}/auth/v1/authorize?provider=google&redirect_to={}",
+        "{}/auth/v1/authorize?provider=google&redirect_to={}&flow_type=implicit",
         SUPABASE_URL, redirect
     );
 
