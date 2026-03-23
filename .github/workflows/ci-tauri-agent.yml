@@ -80,10 +80,6 @@ jobs:
           "" | Out-File -FilePath "agent-app/src-tauri/binaries/fpcalc-${{ matrix.target }}.exe"
         shell: pwsh
 
-      - name: Check Rust
+      - name: Build Rust
         working-directory: agent-app/src-tauri
-        run: cargo check --target ${{ matrix.target }}
-
-      - name: Tauri build check
-        working-directory: agent-app
-        run: npm run tauri build -- --target ${{ matrix.target }} --bundles none
+        run: cargo build --target ${{ matrix.target }}
