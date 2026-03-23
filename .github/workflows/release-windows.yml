@@ -68,9 +68,18 @@ jobs:
             /t:Publish /p:Configuration=Release /p:Platform=x64 `
             /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
             /p:PublishDir="$((Get-Location).Path)\dist\setup\" /v:normal
-          $exe = Get-Item "dist/setup/DJToolkit Setup.exe" -ErrorAction SilentlyContinue
-          if (-not $exe) { Write-Error "DJToolkit Setup.exe not found in dist/setup/"; exit 1 }
+          # Validate critical WinUI runtime files are present
+          $required = @(
+            "DJToolkit Setup.exe", "DJToolkit Setup.dll",
+            "Microsoft.UI.Xaml.dll", "Microsoft.WindowsAppRuntime.Bootstrap.dll"
+          )
+          $missing = $required | Where-Object { -not (Test-Path "dist/setup/$_") }
+          if ($missing) {
+            Write-Error "Missing critical files in publish output: $($missing -join ', ')"
+            exit 1
+          }
           Write-Host "Setup assistant files: $((Get-ChildItem -Recurse 'dist/setup' -File).Count)"
+          Write-Host "All critical WinUI files verified."
         shell: pwsh
 
       - name: Install WiX 4
