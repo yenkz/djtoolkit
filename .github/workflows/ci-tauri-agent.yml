@@ -63,21 +63,27 @@ jobs:
         working-directory: agent-app
         run: npx vite build
 
+      # Create placeholder sidecar binaries (real ones are built in the release workflow)
+      - name: Create sidecar placeholders (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p agent-app/src-tauri/binaries
+          echo '#!/bin/sh' > agent-app/src-tauri/binaries/djtoolkit-${{ matrix.target }}
+          echo '#!/bin/sh' > agent-app/src-tauri/binaries/fpcalc-${{ matrix.target }}
+          chmod +x agent-app/src-tauri/binaries/*
+
+      - name: Create sidecar placeholders (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Path "agent-app/src-tauri/binaries" -Force | Out-Null
+          "" | Out-File -FilePath "agent-app/src-tauri/binaries/djtoolkit-${{ matrix.target }}.exe"
+          "" | Out-File -FilePath "agent-app/src-tauri/binaries/fpcalc-${{ matrix.target }}.exe"
+        shell: pwsh
+
       - name: Check Rust
         working-directory: agent-app/src-tauri
         run: cargo check --target ${{ matrix.target }}
 
-      # Full Tauri build (validates bundling config without producing installers)
-      - name: Install Tauri CLI
-        working-directory: agent-app
-        run: npm run tauri -- --version
-
-      - name: Tauri build check (macOS)
-        if: runner.os == 'macOS'
-        working-directory: agent-app
-        run: npm run tauri build -- --target ${{ matrix.target }} --bundles none
-
-      - name: Tauri build check (Windows)
-        if: runner.os == 'Windows'
+      - name: Tauri build check
         working-directory: agent-app
         run: npm run tauri build -- --target ${{ matrix.target }} --bundles none
