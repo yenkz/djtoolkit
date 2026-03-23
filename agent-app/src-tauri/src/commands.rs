@@ -185,7 +185,9 @@ pub fn sign_in(email: String, password: String) -> Result<SignInResult, String> 
         .ok_or("No api_key in registration response")?
         .to_string();
 
-    write_log("INFO", "Agent registered successfully");
+    // Store the API key in the keychain so the Python daemon can read it
+    store_keychain("agent-api-key", &api_key)?;
+    write_log("INFO", "Agent registered successfully (API key stored in keychain)");
 
     Ok(SignInResult {
         api_key,
@@ -204,8 +206,8 @@ pub struct SignInResult {
 // ---------------------------------------------------------------------------
 
 /// Save agent credentials collected by the setup wizard.
-/// Writes config.toml and a credentials file in the config directory.
-/// The Python daemon reads these on startup.
+/// Writes config.toml and stores secrets in the OS keychain
+/// (same format as the Python daemon's keychain.py).
 #[tauri::command]
 pub fn configure_agent(
     api_key: String,
@@ -220,17 +222,24 @@ pub fn configure_agent(
     let cfg = AppConfig::default();
     config::save_config(&cfg)?;
 
-    // Save credentials to a separate file that the Python daemon reads
-    let creds = serde_json::json!({
-        "api_key": api_key,
-        "slsk_user": slsk_user,
-        "slsk_pass": slsk_pass,
-    });
-    let creds_path = config_dir.join("credentials.json");
-    fs::write(&creds_path, serde_json::to_string_pretty(&creds).unwrap())
-        .map_err(|e| format!("Failed to write credentials: {e}"))?;
+    // Store credentials in the OS keychain using the `keyring` CLI convention
+    // Service: "djtoolkit", Account: "agent-api-key" / "soulseek-username" / etc.
+    // This matches djtoolkit/agent/keychain.py exactly.
+    store_keychain("agent-api-key", &api_key)?;
+    store_keychain("soulseek-username", &slsk_user)?;
+    store_keychain("soulseek-password", &slsk_pass)?;
 
-    write_log("INFO", "Agent configured successfully (credentials saved)");
+    write_log("INFO", "Agent configured (credentials saved to keychain)");
+    Ok(())
+}
+
+/// Store a secret in the OS keychain under service "djtoolkit".
+fn store_keychain(account: &str, value: &str) -> Result<(), String> {
+    let entry = keyring::Entry::new("djtoolkit", account)
+        .map_err(|e| format!("Keychain error for {account}: {e}"))?;
+    entry
+        .set_password(value)
+        .map_err(|e| format!("Failed to store {account} in keychain: {e}"))?;
     Ok(())
 }
 

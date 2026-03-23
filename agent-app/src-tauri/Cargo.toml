@@ -33,6 +33,7 @@ open = "5"
 tauri-plugin-deep-link = "2"
 ureq = { version = "2", features = ["json"] }
 hostname = "0.4"
+keyring = "3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

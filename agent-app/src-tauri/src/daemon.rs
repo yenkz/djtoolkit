@@ -67,21 +67,36 @@ fn pause_file() -> PathBuf {
     get_config_dir().join("agent_paused")
 }
 
-/// Resolve the bundled sidecar binary path.
-/// For now we look in the app's resource directory for `djtoolkit` (or `djtoolkit.exe` on Windows).
+/// Resolve the djtoolkit binary path.
+/// 1. Check for bundled sidecar in the app's resource directory
+/// 2. Fall back to `djtoolkit` on PATH (dev mode / Homebrew install)
 pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+    // Try bundled sidecar first
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        #[cfg(target_os = "windows")]
+        let binary_name = "djtoolkit.exe";
+        #[cfg(not(target_os = "windows"))]
+        let binary_name = "djtoolkit";
 
-    #[cfg(target_os = "windows")]
-    let binary_name = "djtoolkit.exe";
-    #[cfg(not(target_os = "windows"))]
-    let binary_name = "djtoolkit";
+        let sidecar = resource_dir.join(binary_name);
+        if sidecar.exists() {
+            return Ok(sidecar);
+        }
+    }
 
-    let path = resource_dir.join(binary_name);
-    Ok(path)
+    // Fall back to PATH lookup (dev mode, Homebrew, pip install)
+    which_binary("djtoolkit")
+        .ok_or_else(|| "djtoolkit binary not found. Install via Homebrew or pip.".into())
+}
+
+/// Look up a binary on PATH.
+fn which_binary(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let full = dir.join(name);
+            if full.exists() { Some(full) } else { None }
+        })
+    })
 }
 
 /// Start the daemon as a detached child process.
@@ -112,13 +127,6 @@ pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(
 
     // Remove stale pause file so the daemon starts in active mode.
     let _ = fs::remove_file(pause_file());
-
-    // If the sidecar binary doesn't exist yet (dev mode / no PyInstaller build),
-    // just mark as running and skip the actual spawn.
-    if !sidecar.exists() {
-        *state = DaemonState::Running;
-        return Ok(());
-    }
 
     let child = spawn_detached(&sidecar, &["agent", "run"])?;
     let pid = child;
