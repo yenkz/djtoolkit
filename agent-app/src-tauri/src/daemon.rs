@@ -84,8 +84,11 @@ pub fn get_daemon_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String
         }
     }
 
-    // Dev mode: find the poetry venv python and run djtoolkit directly
-    if let Ok(output) = std::process::Command::new("poetry")
+    // Dev mode: find the poetry venv python and run djtoolkit directly.
+    // On macOS: poetry is at /opt/homebrew/bin/poetry or ~/.local/bin/poetry
+    // On Windows: poetry is at %APPDATA%\Python\Scripts\poetry.exe or on PATH
+    let poetry_cmd = if cfg!(target_os = "windows") { "poetry.exe" } else { "poetry" };
+    if let Ok(output) = std::process::Command::new(poetry_cmd)
         .args(["env", "info", "-e"])
         .output()
     {
@@ -179,7 +182,7 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     // CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
     const DETACH_FLAGS: u32 = 0x00000008 | 0x00000200;
 
-    let child = Command::new(program)
+    let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -188,7 +191,14 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
         .spawn()
         .map_err(|e| format!("Failed to spawn daemon: {e}"))?;
 
-    Ok(child.id())
+    let pid = child.id();
+
+    // Reaper thread to clean up the process handle
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+
+    Ok(pid)
 }
 
 /// Stop the daemon by reading the PID file and sending a signal.
