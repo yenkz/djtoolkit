@@ -89,8 +89,19 @@ pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// The PID is written to `{config_dir}/agent.pid`.
 pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(), String> {
     let mut state = manager.state.lock().map_err(|e| format!("Lock error: {e}"))?;
+
+    // If we think it's running, verify the PID is actually alive
     if *state == DaemonState::Running || *state == DaemonState::Starting {
-        return Err("Daemon is already running or starting".into());
+        if let Ok(pid_str) = fs::read_to_string(pid_file()) {
+            if let Ok(pid) = pid_str.trim().parse::<u32>() {
+                if is_process_alive(pid) {
+                    return Err("Daemon is already running".into());
+                }
+            }
+        }
+        // PID is stale — clean up and proceed
+        let _ = fs::remove_file(pid_file());
+        *state = DaemonState::Stopped;
     }
 
     *state = DaemonState::Starting;
@@ -101,6 +112,13 @@ pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(
 
     // Remove stale pause file so the daemon starts in active mode.
     let _ = fs::remove_file(pause_file());
+
+    // If the sidecar binary doesn't exist yet (dev mode / no PyInstaller build),
+    // just mark as running and skip the actual spawn.
+    if !sidecar.exists() {
+        *state = DaemonState::Running;
+        return Ok(());
+    }
 
     let child = spawn_detached(&sidecar, &["agent", "run"])?;
     let pid = child;
