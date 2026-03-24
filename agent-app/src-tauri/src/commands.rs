@@ -425,9 +425,57 @@ fn store_keychain(account: &str, value: &str) -> Result<(), String> {
 // Log viewer
 // ---------------------------------------------------------------------------
 
-/// Read the last N lines from `agent.log` in the config directory.
+/// Read the last N lines from the daemon's agent.log AND the Tauri app log.
+/// Merges both log sources so the user sees everything.
 #[tauri::command]
 pub fn get_log_content(lines: Option<usize>) -> Result<String, String> {
+    let config_dir = daemon::get_config_dir();
+
+    // Daemon log location (where Python writes)
+    #[cfg(target_os = "macos")]
+    let daemon_log = dirs::home_dir()
+        .unwrap_or_default()
+        .join("Library/Logs/djtoolkit/agent.log");
+    #[cfg(target_os = "windows")]
+    let daemon_log = config_dir.join("logs").join("agent.log");
+    #[cfg(target_os = "linux")]
+    let daemon_log = config_dir.join("logs").join("agent.log");
+
+    // Tauri app log (start/stop/auth actions)
+    let app_log = config_dir.join("agent.log");
+
+    // Read both and merge
+    let mut all_lines: Vec<String> = Vec::new();
+
+    for log_path in &[&daemon_log, &app_log] {
+        if log_path.exists() {
+            if let Ok(file) = fs::File::open(log_path) {
+                let reader = BufReader::new(file);
+                for line in reader.lines() {
+                    if let Ok(l) = line {
+                        all_lines.push(l);
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by timestamp (both formats start with a timestamp)
+    all_lines.sort();
+
+    let max_lines = lines.unwrap_or(500);
+    let start = if all_lines.len() > max_lines {
+        all_lines.len() - max_lines
+    } else {
+        0
+    };
+
+    Ok(all_lines[start..].join("\n"))
+}
+
+/// Old single-file log reader — kept for backward compatibility
+#[allow(dead_code)]
+fn read_single_log(lines: Option<usize>) -> Result<String, String> {
     let log_path = daemon::get_config_dir().join("agent.log");
     if !log_path.exists() {
         return Ok(String::new());

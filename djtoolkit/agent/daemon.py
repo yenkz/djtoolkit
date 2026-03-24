@@ -362,6 +362,10 @@ async def run_daemon(
                     limit=cfg.agent.max_download_batch,
                 )
                 if download_jobs:
+                    log.info(
+                        "Claimed %d download job(s), starting batch",
+                        len(download_jobs),
+                    )
                     task = asyncio.create_task(
                         _run_download_batch(download_jobs),
                         name="download-batch",
@@ -378,11 +382,23 @@ async def run_daemon(
                     shutdown_event.set()
                     return
 
+                if jobs:
+                    log.info(
+                        "Polled %d job(s): %s",
+                        len(jobs),
+                        ", ".join(f"{j['job_type']}({j['id'][:8]})" for j in jobs),
+                    )
+
                 for job in jobs:
                     if job.get("job_type") == "download":
                         continue  # handled by batch path
                     claimed = await client.claim_job(job["id"])
                     if claimed:
+                        log.info(
+                            "Claimed job %s (type=%s)",
+                            claimed["id"][:8],
+                            claimed.get("job_type", "?"),
+                        )
                         task = asyncio.create_task(_run_job(claimed))
                         active_tasks.add(task)
 

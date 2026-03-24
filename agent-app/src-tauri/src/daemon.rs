@@ -252,9 +252,12 @@ fn kill_process(pid: u32) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn kill_process(pid: u32) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let status = Command::new("taskkill")
         .args(["/F", "/PID", &pid.to_string()])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| format!("Failed to run taskkill: {e}"))?;
     if !status.success() {
@@ -354,9 +357,12 @@ fn is_process_alive(pid: u32) -> bool {
 
 #[cfg(target_os = "windows")]
 fn is_process_alive(pid: u32) -> bool {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map(|o| {
             let out = String::from_utf8_lossy(&o.stdout);

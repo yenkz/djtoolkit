@@ -58,8 +58,14 @@ async def _slsk_session(cfg: Config, credentials: dict):
     from djtoolkit.downloader.aioslsk_client import _make_settings
     from aioslsk.client import SoulSeekClient
 
-    cfg.soulseek.username = credentials["slsk_username"]
-    cfg.soulseek.password = credentials["slsk_password"]
+    slsk_user = credentials.get("slsk_username") or ""
+    slsk_pass = credentials.get("slsk_password") or ""
+    if not slsk_user or not slsk_pass:
+        log.error("Soulseek credentials not configured — cannot download. Set them in Settings → Credentials.")
+        raise RuntimeError("Soulseek credentials not configured")
+    cfg.soulseek.username = slsk_user
+    cfg.soulseek.password = slsk_pass
+    log.info("Connecting to Soulseek as '%s'...", slsk_user)
     settings = _make_settings(cfg)
 
     if not _noisy_loggers_suppressed:
