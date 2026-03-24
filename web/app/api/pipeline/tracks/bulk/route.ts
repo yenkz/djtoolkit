@@ -27,17 +27,25 @@ export async function POST(request: NextRequest) {
   const user = await getAuthUser(request);
   if (isAuthError(user)) return user;
 
-  let body: { action?: string };
+  let body: { action?: string; track_ids?: number[] };
   try {
     body = await request.json();
   } catch {
     return jsonError("Invalid JSON body", 400);
   }
 
-  const { action } = body;
+  const { action, track_ids } = body;
+
+  // Validate track_ids if provided
+  if (track_ids !== undefined) {
+    if (!Array.isArray(track_ids) || track_ids.length === 0 || !track_ids.every((id) => typeof id === "number")) {
+      return jsonError("track_ids must be a non-empty array of numbers", 400);
+    }
+  }
   const VALID_ACTIONS = [
     "retry_failed", "delete_failed", "delete_candidates",
     "pause_candidates", "resume_paused", "queue_candidates",
+    "delete_selected",
   ];
   if (!action || !VALID_ACTIONS.includes(action)) {
     return jsonError(
@@ -49,15 +57,16 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient();
 
   if (action === "retry_failed") {
-    const { data, error } = await supabase
+    let query = supabase
       .from("tracks")
       .update({
         acquisition_status: "candidate",
         search_results_count: null,
       })
       .eq("user_id", user.userId)
-      .in("acquisition_status", ["failed", "not_found"])
-      .select("id");
+      .in("acquisition_status", ["failed", "not_found"]);
+    if (track_ids) query = query.in("id", track_ids);
+    const { data, error } = await query.select("id");
 
     if (error) return jsonError(error.message, 500);
 
@@ -65,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     await auditLog(user.userId, "track.bulk_retry_failed", {
       resourceType: "track",
-      details: { updated },
+      details: { updated, scoped: !!track_ids },
       ipAddress: getClientIp(request),
     });
 
@@ -74,37 +83,39 @@ export async function POST(request: NextRequest) {
 
   if (action === "delete_failed") {
     // Delete associated pipeline_jobs first, then tracks
-    const { data: tracks, error: fetchErr } = await supabase
+    let fetchQuery = supabase
       .from("tracks")
       .select("id")
       .eq("user_id", user.userId)
       .in("acquisition_status", ["failed", "not_found"]);
+    if (track_ids) fetchQuery = fetchQuery.in("id", track_ids);
+    const { data: tracks, error: fetchErr } = await fetchQuery;
 
     if (fetchErr) return jsonError(fetchErr.message, 500);
 
-    const trackIds = (tracks ?? []).map((t) => t.id);
+    const matchedIds = (tracks ?? []).map((t) => t.id);
 
-    if (trackIds.length > 0) {
+    if (matchedIds.length > 0) {
       // Clean up pipeline_jobs for these tracks
       await supabase
         .from("pipeline_jobs")
         .delete()
-        .in("track_id", trackIds);
+        .in("track_id", matchedIds);
 
       const { error: delErr } = await supabase
         .from("tracks")
         .delete()
         .eq("user_id", user.userId)
-        .in("acquisition_status", ["failed", "not_found"]);
+        .in("id", matchedIds);
 
       if (delErr) return jsonError(delErr.message, 500);
     }
 
-    const deleted = trackIds.length;
+    const deleted = matchedIds.length;
 
     await auditLog(user.userId, "track.bulk_delete_failed", {
       resourceType: "track",
-      details: { deleted },
+      details: { deleted, scoped: !!track_ids },
       ipAddress: getClientIp(request),
     });
 
@@ -113,36 +124,38 @@ export async function POST(request: NextRequest) {
 
   if (action === "delete_candidates") {
     // Candidates shouldn't have pipeline_jobs, but clean up just in case
-    const { data: tracks, error: fetchErr } = await supabase
+    let fetchQuery = supabase
       .from("tracks")
       .select("id")
       .eq("user_id", user.userId)
       .eq("acquisition_status", "candidate");
+    if (track_ids) fetchQuery = fetchQuery.in("id", track_ids);
+    const { data: tracks, error: fetchErr } = await fetchQuery;
 
     if (fetchErr) return jsonError(fetchErr.message, 500);
 
-    const trackIds = (tracks ?? []).map((t) => t.id);
+    const matchedIds = (tracks ?? []).map((t) => t.id);
 
-    if (trackIds.length > 0) {
+    if (matchedIds.length > 0) {
       await supabase
         .from("pipeline_jobs")
         .delete()
-        .in("track_id", trackIds);
+        .in("track_id", matchedIds);
 
       const { error: delErr } = await supabase
         .from("tracks")
         .delete()
         .eq("user_id", user.userId)
-        .eq("acquisition_status", "candidate");
+        .in("id", matchedIds);
 
       if (delErr) return jsonError(delErr.message, 500);
     }
 
-    const deleted = trackIds.length;
+    const deleted = matchedIds.length;
 
     await auditLog(user.userId, "track.bulk_delete_candidates", {
       resourceType: "track",
-      details: { deleted },
+      details: { deleted, scoped: !!track_ids },
       ipAddress: getClientIp(request),
     });
 
@@ -150,12 +163,13 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "pause_candidates") {
-    const { data, error } = await supabase
+    let query = supabase
       .from("tracks")
       .update({ acquisition_status: "paused" })
       .eq("user_id", user.userId)
-      .eq("acquisition_status", "candidate")
-      .select("id");
+      .eq("acquisition_status", "candidate");
+    if (track_ids) query = query.in("id", track_ids);
+    const { data, error } = await query.select("id");
 
     if (error) return jsonError(error.message, 500);
 
@@ -163,7 +177,7 @@ export async function POST(request: NextRequest) {
 
     await auditLog(user.userId, "track.bulk_pause_candidates", {
       resourceType: "track",
-      details: { updated },
+      details: { updated, scoped: !!track_ids },
       ipAddress: getClientIp(request),
     });
 
@@ -171,12 +185,13 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "resume_paused") {
-    const { data, error } = await supabase
+    let query = supabase
       .from("tracks")
       .update({ acquisition_status: "candidate" })
       .eq("user_id", user.userId)
-      .eq("acquisition_status", "paused")
-      .select("id");
+      .eq("acquisition_status", "paused");
+    if (track_ids) query = query.in("id", track_ids);
+    const { data, error } = await query.select("id");
 
     if (error) return jsonError(error.message, 500);
 
@@ -184,7 +199,7 @@ export async function POST(request: NextRequest) {
 
     await auditLog(user.userId, "track.bulk_resume_paused", {
       resourceType: "track",
-      details: { updated },
+      details: { updated, scoped: !!track_ids },
       ipAddress: getClientIp(request),
     });
 
@@ -193,23 +208,25 @@ export async function POST(request: NextRequest) {
 
   if (action === "queue_candidates") {
     // Find all candidate tracks for this user
-    const { data: candidates, error: fetchErr } = await supabase
+    let fetchQuery = supabase
       .from("tracks")
       .select("id, title, artist, search_string, duration_ms")
       .eq("user_id", user.userId)
       .eq("acquisition_status", "candidate");
+    if (track_ids) fetchQuery = fetchQuery.in("id", track_ids);
+    const { data: candidates, error: fetchErr } = await fetchQuery;
 
     if (fetchErr) return jsonError(fetchErr.message, 500);
 
-    const trackIds = (candidates ?? []).map((t) => t.id);
-    if (trackIds.length === 0) {
+    const candidateIds = (candidates ?? []).map((t) => t.id);
+    if (candidateIds.length === 0) {
       return NextResponse.json({ created: 0 });
     }
 
     // Find which already have an active job
     const activeJobTrackIds = new Set<number>();
-    for (let i = 0; i < trackIds.length; i += 100) {
-      const batch = trackIds.slice(i, i + 100);
+    for (let i = 0; i < candidateIds.length; i += 100) {
+      const batch = candidateIds.slice(i, i + 100);
       const { data: activeJobs } = await supabase
         .from("pipeline_jobs")
         .select("track_id")
@@ -251,11 +268,56 @@ export async function POST(request: NextRequest) {
 
     await auditLog(user.userId, "track.bulk_queue_candidates", {
       resourceType: "pipeline_job",
-      details: { created, idle_count: idle.length },
+      details: { created, idle_count: idle.length, scoped: !!track_ids },
       ipAddress: getClientIp(request),
     });
 
     return NextResponse.json({ created });
+  }
+
+  if (action === "delete_selected") {
+    // Delete specific selected tracks (requires track_ids)
+    if (!track_ids) {
+      return jsonError("delete_selected requires track_ids", 400);
+    }
+
+    // Only allow deleting tracks in non-active statuses
+    const deletableStatuses = ["candidate", "paused", "failed", "not_found"];
+    const { data: tracks, error: fetchErr } = await supabase
+      .from("tracks")
+      .select("id")
+      .eq("user_id", user.userId)
+      .in("id", track_ids)
+      .in("acquisition_status", deletableStatuses);
+
+    if (fetchErr) return jsonError(fetchErr.message, 500);
+
+    const matchedIds = (tracks ?? []).map((t) => t.id);
+
+    if (matchedIds.length > 0) {
+      await supabase
+        .from("pipeline_jobs")
+        .delete()
+        .in("track_id", matchedIds);
+
+      const { error: delErr } = await supabase
+        .from("tracks")
+        .delete()
+        .eq("user_id", user.userId)
+        .in("id", matchedIds);
+
+      if (delErr) return jsonError(delErr.message, 500);
+    }
+
+    const deleted = matchedIds.length;
+
+    await auditLog(user.userId, "track.bulk_delete_selected", {
+      resourceType: "track",
+      details: { deleted, requested: track_ids.length },
+      ipAddress: getClientIp(request),
+    });
+
+    return NextResponse.json({ deleted });
   }
 
   return jsonError("Unknown action", 400);

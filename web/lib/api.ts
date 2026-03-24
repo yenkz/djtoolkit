@@ -356,11 +356,14 @@ export async function fetchPipelineTracks(params: {
 }
 
 export async function bulkPipelineAction(
-  action: "retry_failed" | "delete_failed" | "delete_candidates" | "pause_candidates" | "resume_paused" | "queue_candidates",
+  action: "retry_failed" | "delete_failed" | "delete_candidates" | "pause_candidates" | "resume_paused" | "queue_candidates" | "delete_selected",
+  trackIds?: number[],
 ): Promise<{ updated?: number; deleted?: number; created?: number }> {
+  const payload: { action: string; track_ids?: number[] } = { action };
+  if (trackIds) payload.track_ids = trackIds;
   const res = await apiClient("/pipeline/tracks/bulk", {
     method: "POST",
-    body: JSON.stringify({ action }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(await extractError(res));
   return res.json();
