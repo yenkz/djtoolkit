@@ -874,6 +874,213 @@ export default function PipelineMonitorPage() {
         </div>
       )}
 
+      {/* ── Selection action bar ─────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-3 sticky top-0 z-10"
+          style={{
+            background: "color-mix(in srgb, var(--led-blue) 6%, var(--hw-surface))",
+            border: "1px solid color-mix(in srgb, var(--led-blue) 25%, transparent)",
+            borderRadius: 6,
+            padding: "8px 14px",
+          }}
+        >
+          <span
+            className="font-mono"
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--led-blue)",
+            }}
+          >
+            {selected.size} selected
+          </span>
+          {selectedCandidateCount > 0 && (
+            <BulkBtn
+              label={`Queue ${selectedCandidateCount} Candidate${selectedCandidateCount !== 1 ? "s" : ""}`}
+              color="var(--led-blue)"
+              onClick={() => setConfirmSelectedAction("queue")}
+            />
+          )}
+          {selectedCandidateCount > 0 && (
+            <BulkBtn
+              label={`Pause ${selectedCandidateCount} Candidate${selectedCandidateCount !== 1 ? "s" : ""}`}
+              color="var(--led-orange)"
+              onClick={() => setConfirmSelectedAction("pause")}
+            />
+          )}
+          {selectedPausedCount > 0 && (
+            <BulkBtn
+              label={`Resume ${selectedPausedCount} Paused`}
+              color="var(--led-green)"
+              onClick={() => setConfirmSelectedAction("resume")}
+            />
+          )}
+          {selectedFailedCount > 0 && (
+            <BulkBtn
+              label={`Retry ${selectedFailedCount} Failed`}
+              color="var(--led-orange)"
+              onClick={() => setConfirmSelectedAction("retry")}
+            />
+          )}
+          {selectedDeletableCount > 0 && (
+            <BulkBtn
+              label={`Cancel ${selectedDeletableCount} Track${selectedDeletableCount !== 1 ? "s" : ""}`}
+              color="var(--led-red)"
+              onClick={() => setConfirmSelectedAction("cancel")}
+            />
+          )}
+          <button
+            onClick={() => setSelected(new Set())}
+            className="font-mono"
+            style={{
+              fontSize: 10,
+              color: "var(--hw-text-dim)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              marginLeft: "auto",
+            }}
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
+      {/* ── Confirm selected action dialog ─────────────────────── */}
+      {confirmSelectedAction && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0,0,0,0.6)",
+          }}
+          onClick={() => !bulkActing && setConfirmSelectedAction(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--hw-surface)",
+              border: "1px solid var(--hw-border)",
+              borderRadius: 8,
+              padding: "24px 28px",
+              maxWidth: 400,
+              width: "90vw",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3
+              className="font-mono"
+              style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: "var(--hw-text)",
+                marginBottom: 8,
+              }}
+            >
+              {{
+                queue: "Queue Selected Candidates",
+                pause: "Pause Selected Candidates",
+                cancel: "Cancel Selected Tracks",
+                resume: "Resume Selected Paused",
+                retry: "Retry Selected Failed",
+              }[confirmSelectedAction]}
+            </h3>
+            <p
+              style={{
+                fontSize: 13,
+                color: "var(--hw-text-dim)",
+                marginBottom: 20,
+                lineHeight: 1.5,
+              }}
+            >
+              {{
+                queue: `Create download jobs for ${selectedCandidateCount} selected candidate${selectedCandidateCount !== 1 ? "s" : ""}?`,
+                pause: `Pause ${selectedCandidateCount} selected candidate${selectedCandidateCount !== 1 ? "s" : ""}? They won\u2019t be picked up by the agent until resumed.`,
+                cancel: `Permanently delete ${selectedDeletableCount} selected track${selectedDeletableCount !== 1 ? "s" : ""}?`,
+                resume: `Resume ${selectedPausedCount} selected paused track${selectedPausedCount !== 1 ? "s" : ""}?`,
+                retry: `Retry ${selectedFailedCount} selected failed track${selectedFailedCount !== 1 ? "s" : ""}? They\u2019ll be reset to candidate.`,
+              }[confirmSelectedAction]}
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setConfirmSelectedAction(null)}
+                disabled={bulkActing}
+                className="font-mono"
+                style={{
+                  fontSize: 12,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  border: "1px solid var(--hw-border)",
+                  background: "transparent",
+                  color: "var(--hw-text-dim)",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const handlers = {
+                    queue: handleQueueSelected,
+                    pause: handlePauseSelected,
+                    cancel: handleCancelSelected,
+                    resume: handleResumeSelected,
+                    retry: handleRetrySelected,
+                  };
+                  handlers[confirmSelectedAction]();
+                }}
+                disabled={bulkActing}
+                className="font-mono"
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  border: `1px solid ${{
+                    queue: "var(--led-blue)",
+                    pause: "var(--led-orange)",
+                    cancel: "var(--led-red)",
+                    resume: "var(--led-green)",
+                    retry: "var(--led-orange)",
+                  }[confirmSelectedAction]}`,
+                  background: `color-mix(in srgb, ${{
+                    queue: "var(--led-blue)",
+                    pause: "var(--led-orange)",
+                    cancel: "var(--led-red)",
+                    resume: "var(--led-green)",
+                    retry: "var(--led-orange)",
+                  }[confirmSelectedAction]} 15%, transparent)`,
+                  color: {
+                    queue: "var(--led-blue)",
+                    pause: "var(--led-orange)",
+                    cancel: "var(--led-red)",
+                    resume: "var(--led-green)",
+                    retry: "var(--led-orange)",
+                  }[confirmSelectedAction],
+                  cursor: bulkActing ? "not-allowed" : "pointer",
+                  opacity: bulkActing ? 0.6 : 1,
+                }}
+              >
+                {bulkActing
+                  ? "..."
+                  : {
+                      queue: "Queue",
+                      pause: "Pause",
+                      cancel: "Delete",
+                      resume: "Resume",
+                      retry: "Retry",
+                    }[confirmSelectedAction]}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Track table ─────────────────────────────────────────── */}
       <div
         className="rounded-md overflow-hidden"
@@ -1098,213 +1305,6 @@ export default function PipelineMonitorPage() {
           ))
         )}
       </div>
-
-      {/* ── Selection action bar ─────────────────────────────────── */}
-      {selected.size > 0 && (
-        <div
-          className="flex flex-wrap items-center gap-3"
-          style={{
-            background: "color-mix(in srgb, var(--led-blue) 6%, transparent)",
-            border: "1px solid color-mix(in srgb, var(--led-blue) 25%, transparent)",
-            borderRadius: 6,
-            padding: "8px 14px",
-          }}
-        >
-          <span
-            className="font-mono"
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--led-blue)",
-            }}
-          >
-            {selected.size} selected
-          </span>
-          {selectedCandidateCount > 0 && (
-            <BulkBtn
-              label={`Queue ${selectedCandidateCount} Candidate${selectedCandidateCount !== 1 ? "s" : ""}`}
-              color="var(--led-blue)"
-              onClick={() => setConfirmSelectedAction("queue")}
-            />
-          )}
-          {selectedCandidateCount > 0 && (
-            <BulkBtn
-              label={`Pause ${selectedCandidateCount} Candidate${selectedCandidateCount !== 1 ? "s" : ""}`}
-              color="var(--led-orange)"
-              onClick={() => setConfirmSelectedAction("pause")}
-            />
-          )}
-          {selectedPausedCount > 0 && (
-            <BulkBtn
-              label={`Resume ${selectedPausedCount} Paused`}
-              color="var(--led-green)"
-              onClick={() => setConfirmSelectedAction("resume")}
-            />
-          )}
-          {selectedFailedCount > 0 && (
-            <BulkBtn
-              label={`Retry ${selectedFailedCount} Failed`}
-              color="var(--led-orange)"
-              onClick={() => setConfirmSelectedAction("retry")}
-            />
-          )}
-          {selectedDeletableCount > 0 && (
-            <BulkBtn
-              label={`Cancel ${selectedDeletableCount} Track${selectedDeletableCount !== 1 ? "s" : ""}`}
-              color="var(--led-red)"
-              onClick={() => setConfirmSelectedAction("cancel")}
-            />
-          )}
-          <button
-            onClick={() => setSelected(new Set())}
-            className="font-mono"
-            style={{
-              fontSize: 10,
-              color: "var(--hw-text-dim)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              marginLeft: "auto",
-            }}
-          >
-            Clear selection
-          </button>
-        </div>
-      )}
-
-      {/* ── Confirm selected action dialog ─────────────────────── */}
-      {confirmSelectedAction && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 50,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.6)",
-          }}
-          onClick={() => !bulkActing && setConfirmSelectedAction(null)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "var(--hw-surface)",
-              border: "1px solid var(--hw-border)",
-              borderRadius: 8,
-              padding: "24px 28px",
-              maxWidth: 400,
-              width: "90vw",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-            }}
-          >
-            <h3
-              className="font-mono"
-              style={{
-                fontSize: 14,
-                fontWeight: 700,
-                color: "var(--hw-text)",
-                marginBottom: 8,
-              }}
-            >
-              {{
-                queue: "Queue Selected Candidates",
-                pause: "Pause Selected Candidates",
-                cancel: "Cancel Selected Tracks",
-                resume: "Resume Selected Paused",
-                retry: "Retry Selected Failed",
-              }[confirmSelectedAction]}
-            </h3>
-            <p
-              style={{
-                fontSize: 13,
-                color: "var(--hw-text-dim)",
-                marginBottom: 20,
-                lineHeight: 1.5,
-              }}
-            >
-              {{
-                queue: `Create download jobs for ${selectedCandidateCount} selected candidate${selectedCandidateCount !== 1 ? "s" : ""}?`,
-                pause: `Pause ${selectedCandidateCount} selected candidate${selectedCandidateCount !== 1 ? "s" : ""}? They won\u2019t be picked up by the agent until resumed.`,
-                cancel: `Permanently delete ${selectedDeletableCount} selected track${selectedDeletableCount !== 1 ? "s" : ""}?`,
-                resume: `Resume ${selectedPausedCount} selected paused track${selectedPausedCount !== 1 ? "s" : ""}?`,
-                retry: `Retry ${selectedFailedCount} selected failed track${selectedFailedCount !== 1 ? "s" : ""}? They\u2019ll be reset to candidate.`,
-              }[confirmSelectedAction]}
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setConfirmSelectedAction(null)}
-                disabled={bulkActing}
-                className="font-mono"
-                style={{
-                  fontSize: 12,
-                  padding: "6px 16px",
-                  borderRadius: 4,
-                  border: "1px solid var(--hw-border)",
-                  background: "transparent",
-                  color: "var(--hw-text-dim)",
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const handlers = {
-                    queue: handleQueueSelected,
-                    pause: handlePauseSelected,
-                    cancel: handleCancelSelected,
-                    resume: handleResumeSelected,
-                    retry: handleRetrySelected,
-                  };
-                  handlers[confirmSelectedAction]();
-                }}
-                disabled={bulkActing}
-                className="font-mono"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  padding: "6px 16px",
-                  borderRadius: 4,
-                  border: `1px solid ${{
-                    queue: "var(--led-blue)",
-                    pause: "var(--led-orange)",
-                    cancel: "var(--led-red)",
-                    resume: "var(--led-green)",
-                    retry: "var(--led-orange)",
-                  }[confirmSelectedAction]}`,
-                  background: `color-mix(in srgb, ${{
-                    queue: "var(--led-blue)",
-                    pause: "var(--led-orange)",
-                    cancel: "var(--led-red)",
-                    resume: "var(--led-green)",
-                    retry: "var(--led-orange)",
-                  }[confirmSelectedAction]} 15%, transparent)`,
-                  color: {
-                    queue: "var(--led-blue)",
-                    pause: "var(--led-orange)",
-                    cancel: "var(--led-red)",
-                    resume: "var(--led-green)",
-                    retry: "var(--led-orange)",
-                  }[confirmSelectedAction],
-                  cursor: bulkActing ? "not-allowed" : "pointer",
-                  opacity: bulkActing ? 0.6 : 1,
-                }}
-              >
-                {bulkActing
-                  ? "..."
-                  : {
-                      queue: "Queue",
-                      pause: "Pause",
-                      cancel: "Delete",
-                      resume: "Resume",
-                      retry: "Retry",
-                    }[confirmSelectedAction]}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Pagination ──────────────────────────────────────────── */}
       {trackData && totalPages > 0 && (
