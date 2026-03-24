@@ -165,6 +165,8 @@ def _rank_candidates(track: dict, results: list, cfg: Config, query: str = "") -
     """
     track_dur_ms = track.get("duration_ms") or 0
     candidates = []
+    rejected_duration = 0
+    rejected_score = 0
 
     for result in results:
         username = result.username
@@ -181,20 +183,32 @@ def _rank_candidates(track: dict, results: list, cfg: Config, query: str = "") -
                 except Exception:
                     dur_sec = 0
                 if dur_sec and abs(track_dur_ms - dur_sec * 1000) > cfg.matching.duration_tolerance_ms:
+                    rejected_duration += 1
                     continue
 
             rel = _relevance(track, file.filename, query)
             if rel < cfg.matching.min_score_title:
+                rejected_score += 1
                 continue
 
             candidates.append((_quality_score(file), rel, username, file.filename))
 
     candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
     total_files = sum(len(r.shared_items) for r in results)
-    log.debug(
-        "[%d] %d/%d files passed filter (from %d peers)",
+    log.info(
+        "[%d] %d/%d files passed filters (from %d peers) — rejected: %d duration, %d score<%s",
         track["id"], len(candidates), total_files, len(results),
+        rejected_duration, rejected_score, f"{cfg.matching.min_score_title:.2f}",
     )
+
+    # Log the best match details when we have candidates
+    if candidates:
+        best_quality, best_rel, best_user, best_fn = candidates[0]
+        log.info(
+            "[%d] Best match: score=%.2f peer=%s file=%s",
+            track["id"], best_rel, best_user, best_fn.split("\\")[-1],
+        )
+
     return [(user, fn) for _, _, user, fn in candidates]
 
 
@@ -304,9 +318,14 @@ async def _search_all(client, query_by_track_id: dict[int, str], timeout_sec: fl
     for track_id, query in query_by_track_id.items():
         requests[track_id] = await client.searches.search(query)
 
+    log.info("Broadcast %d searches, waiting %.0fs for results...", len(requests), timeout_sec)
     await asyncio.sleep(timeout_sec)
 
-    return {tid: list(req.results) for tid, req in requests.items()}
+    results = {tid: list(req.results) for tid, req in requests.items()}
+    for tid, res in results.items():
+        n_files = sum(len(r.shared_items) for r in res)
+        log.info("[%d] Search returned %d peers, %d files", tid, len(res), n_files)
+    return results
 
 
 # ─── Pipelined search + download ─────────────────────────────────────────────
@@ -441,12 +460,26 @@ async def _collect_viable(
         if remaining <= 0:
             break
         if request.results and _rank_candidates(track, request.results, cfg, query):
+            elapsed = timeout - remaining
+            log.info(
+                "[%d] Viable results found after %.1fs (%d peers so far)",
+                track["id"], elapsed, len(request.results),
+            )
             return list(request.results)
         await asyncio.sleep(min(remaining, POLL_INTERVAL))
 
     # Final check after timeout
     if request.results and _rank_candidates(track, request.results, cfg, query):
+        log.info(
+            "[%d] Viable results found at timeout (%d peers)",
+            track["id"], len(request.results),
+        )
         return list(request.results)
+    total_files = sum(len(r.shared_items) for r in request.results) if request.results else 0
+    log.info(
+        "[%d] No viable results after %.0fs timeout (%d peers, %d files, all filtered)",
+        track["id"], timeout, len(request.results) if request.results else 0, total_files,
+    )
     return []
 
 
@@ -570,8 +603,14 @@ async def _download_track(
         if success:
             local_path = getattr(transfer, "local_path", None)
             if local_path:
+                size_mb = f"{transfer.filesize / 1_048_576:.1f} MB" if transfer.filesize else "unknown size"
+                log.info("[%d] Download complete: %s (%s) from %s", track_id, fname, size_mb, username)
                 return str(local_path)
+            log.info("[%d] Transfer completed but no local_path returned", track_id)
+        else:
+            log.info("[%d] Download failed from peer %s (attempt %d/%d)", track_id, username, attempt + 1, _MAX_DOWNLOAD_RETRIES)
 
+    log.info("[%d] All %d download attempts exhausted", track_id, min(len(ranked), _MAX_DOWNLOAD_RETRIES))
     return None
 
 

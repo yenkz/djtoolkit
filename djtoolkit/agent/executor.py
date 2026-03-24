@@ -251,7 +251,8 @@ async def execute_download_batch(
         tracks_by_job[job_id] = track
         queries_by_id[track_id] = _build_search_queries(track)
 
-    log.info("Batch download: %d tracks", len(tracks_by_job))
+    track_titles = [f"  {t.get('artist', '?')} - {t.get('title', '?')}" for t in tracks_by_job.values()]
+    log.info("Batch download: %d tracks\n%s", len(tracks_by_job), "\n".join(track_titles))
 
     outcomes: dict[str, dict] = {}
 
