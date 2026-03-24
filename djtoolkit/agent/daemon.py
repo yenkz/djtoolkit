@@ -274,8 +274,8 @@ async def run_daemon(
                 report_fn=_tracking_report,
                 status_fn=_update_phase,
             )
-        except Exception:
-            log.exception("Download batch failed entirely")
+        except Exception as exc:
+            log.error("Download batch failed entirely: %s", exc, exc_info=True)
             for job in jobs:
                 jid = job["id"]
                 if jid in reported_ids:
