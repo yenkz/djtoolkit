@@ -661,6 +661,10 @@ def agent_configure_headless(
         slsk_username=data["slsk_user"],
         slsk_password=data["slsk_pass"],
         acoustid_key=data.get("acoustid_key"),
+        supabase_url=data.get("supabase_url"),
+        supabase_anon_key=data.get("supabase_anon_key"),
+        agent_email=data.get("agent_email"),
+        agent_password=data.get("agent_password"),
     )
 
     # Write config file

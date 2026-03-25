@@ -20,6 +20,19 @@ export async function DELETE(
 
     const supabase = createServiceClient();
 
+    // Look up the machine auth user before deleting the agent row
+    const { data: agentRow } = await supabase
+      .from("agents")
+      .select("supabase_uid")
+      .eq("id", id)
+      .eq("user_id", user.userId)
+      .maybeSingle();
+
+    // Delete the Supabase Auth machine user (if one was created)
+    if (agentRow?.supabase_uid) {
+      await supabase.auth.admin.deleteUser(agentRow.supabase_uid);
+    }
+
     // Detach agent from pipeline jobs before deleting (belt-and-suspenders
     // alongside the ON DELETE SET NULL FK constraint).
     await supabase

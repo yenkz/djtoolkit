@@ -50,6 +50,10 @@ def test_configure_headless_valid_json(mock_store, tmp_path, monkeypatch):
         slsk_username="testuser",
         slsk_password="testpass",
         acoustid_key=None,
+        supabase_url=None,
+        supabase_anon_key=None,
+        agent_email=None,
+        agent_password=None,
     )
 
     config_path = tmp_path / ".djtoolkit" / "config.toml"

@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient();
 
+  // Insert agent row
   const { error } = await supabase.from("agents").insert({
     id: agentId,
     user_id: user.userId,
@@ -47,6 +48,35 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to register agent", 500);
   }
 
+  // Create a Supabase Auth machine user for Realtime subscriptions.
+  // The machine user's app_metadata.owner_user_id links it to the real user
+  // so the RLS policy can grant SELECT access to the owner's pipeline_jobs.
+  const agentEmail = `agent-${agentId}@agents.djtoolkit.net`;
+  const agentPassword = crypto.randomBytes(32).toString("hex");
+
+  let supabaseUid: string | null = null;
+  const { data: authUser, error: authErr } =
+    await supabase.auth.admin.createUser({
+      email: agentEmail,
+      password: agentPassword,
+      email_confirm: true,
+      app_metadata: { owner_user_id: user.userId, is_agent: true },
+    });
+
+  if (!authErr && authUser?.user) {
+    supabaseUid = authUser.user.id;
+    await supabase
+      .from("agents")
+      .update({ supabase_uid: supabaseUid })
+      .eq("id", agentId);
+  } else {
+    // Non-fatal: agent works without Realtime (falls back to polling)
+    console.warn(
+      `Failed to create machine auth user for agent ${agentId}:`,
+      authErr
+    );
+  }
+
   await auditLog(user.userId, "agent.register", {
     resourceType: "agent",
     resourceId: agentId,
@@ -58,8 +88,13 @@ export async function POST(request: NextRequest) {
     {
       agent_id: agentId,
       api_key: plain,
+      // Realtime credentials (public values + machine user creds)
+      supabase_url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? null,
+      supabase_anon_key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null,
+      agent_email: supabaseUid ? agentEmail : null,
+      agent_password: supabaseUid ? agentPassword : null,
       message: "Store this key securely — it will not be shown again.",
     },
-    { status: 201 },
+    { status: 201 }
   );
 }

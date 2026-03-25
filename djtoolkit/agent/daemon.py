@@ -303,6 +303,85 @@ async def run_daemon(
         # to accept a new connection after the previous one was closed.
         await asyncio.sleep(10)
 
+    # ── Realtime subscription ────────────────────────────────────────────
+    realtime_wake = asyncio.Event()
+    realtime_connected = False
+
+    async def _realtime_loop() -> None:
+        """Subscribe to Supabase Realtime for instant job notifications.
+
+        When a new pending pipeline_job is inserted (by the DB trigger),
+        Realtime pushes an event and we immediately wake the poll loop.
+        Falls back to polling-only if credentials are missing or on error.
+        """
+        nonlocal realtime_connected
+
+        sb_url = creds.get("supabase_url")
+        sb_anon_key = creds.get("supabase_anon_key")
+        agent_email = creds.get("agent_email")
+        agent_pw = creds.get("agent_password")
+
+        if not all([sb_url, sb_anon_key, agent_email, agent_pw]):
+            log.info("Realtime credentials not configured — using polling only")
+            return
+
+        from supabase import acreate_client
+        from realtime import RealtimePostgresChangesListenEvent
+
+        def _on_job_event(payload: Any) -> None:
+            log.debug("Realtime: new pipeline_job event")
+            realtime_wake.set()
+
+        retry_delay = 5.0
+        max_retry_delay = 60.0
+
+        while not shutdown_event.is_set():
+            sb_client = None
+            try:
+                sb_client = await acreate_client(sb_url, sb_anon_key)
+                await sb_client.auth.sign_in_with_password({
+                    "email": agent_email,
+                    "password": agent_pw,
+                })
+
+                channel = sb_client.channel("agent-jobs")
+                channel.on_postgres_changes(
+                    RealtimePostgresChangesListenEvent.Insert,
+                    _on_job_event,
+                    table="pipeline_jobs",
+                    schema="public",
+                    filter="status=eq.pending",
+                )
+                await channel.subscribe()
+
+                realtime_connected = True
+                retry_delay = 5.0
+                log.info("Realtime subscription active")
+
+                # Stay connected until shutdown
+                await shutdown_event.wait()
+
+            except Exception as exc:
+                realtime_connected = False
+                log.warning(
+                    "Realtime connection failed: %s — retrying in %.0fs",
+                    exc, retry_delay,
+                )
+                try:
+                    await asyncio.wait_for(
+                        shutdown_event.wait(), timeout=retry_delay,
+                    )
+                    return  # shutdown requested
+                except asyncio.TimeoutError:
+                    retry_delay = min(retry_delay * 2, max_retry_delay)
+            finally:
+                realtime_connected = False
+                if sb_client:
+                    try:
+                        await sb_client.remove_all_channels()
+                    except Exception:
+                        pass
+
     # ── Heartbeat loop ───────────────────────────────────────────────────
     async def _heartbeat_loop() -> None:
         while not shutdown_event.is_set():
@@ -402,19 +481,36 @@ async def run_daemon(
                         task = asyncio.create_task(_run_job(claimed))
                         active_tasks.add(task)
 
+            # Wait for shutdown, Realtime wake, or fallback timeout.
+            # When Realtime is connected, use a longer fallback (120s)
+            # since events are delivered instantly. Otherwise use the
+            # configured poll interval.
+            effective_interval = 120.0 if realtime_connected else poll_interval
+            wake_task = asyncio.create_task(realtime_wake.wait())
+            shutdown_task = asyncio.create_task(shutdown_event.wait())
             try:
-                await asyncio.wait_for(
-                    shutdown_event.wait(), timeout=poll_interval,
+                done_tasks, pending_tasks = await asyncio.wait(
+                    {wake_task, shutdown_task},
+                    timeout=effective_interval,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
+            finally:
+                for t in (wake_task, shutdown_task):
+                    if not t.done():
+                        t.cancel()
+
+            if shutdown_event.is_set():
                 return
-            except asyncio.TimeoutError:
-                pass
+            if realtime_wake.is_set():
+                log.debug("Poll loop woken by Realtime event")
+                realtime_wake.clear()
 
     # ── Run loops ────────────────────────────────────────────────────────
     try:
         async with asyncio.TaskGroup() as tg:
             tg.create_task(_heartbeat_loop())
             tg.create_task(_poll_loop())
+            tg.create_task(_realtime_loop())
     except* AgentRevoked:
         log.error("API key revoked. Agent stopping.")
     finally:

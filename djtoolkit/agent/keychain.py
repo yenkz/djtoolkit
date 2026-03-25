@@ -18,6 +18,10 @@ API_KEY = "agent-api-key"
 SLSK_USERNAME = "soulseek-username"
 SLSK_PASSWORD = "soulseek-password"
 ACOUSTID_KEY = "acoustid-key"
+SUPABASE_URL = "supabase-url"
+SUPABASE_ANON_KEY = "supabase-anon-key"
+AGENT_EMAIL = "agent-email"
+AGENT_PASSWORD = "agent-password"
 
 
 def store_secret(account: str, value: str) -> None:
@@ -48,6 +52,10 @@ def store_agent_credentials(
     slsk_username: str,
     slsk_password: str,
     acoustid_key: str | None = None,
+    supabase_url: str | None = None,
+    supabase_anon_key: str | None = None,
+    agent_email: str | None = None,
+    agent_password: str | None = None,
 ) -> None:
     """Store all agent credentials in the keychain at once."""
     store_secret(API_KEY, api_key)
@@ -55,6 +63,14 @@ def store_agent_credentials(
     store_secret(SLSK_PASSWORD, slsk_password)
     if acoustid_key:
         store_secret(ACOUSTID_KEY, acoustid_key)
+    if supabase_url:
+        store_secret(SUPABASE_URL, supabase_url)
+    if supabase_anon_key:
+        store_secret(SUPABASE_ANON_KEY, supabase_anon_key)
+    if agent_email:
+        store_secret(AGENT_EMAIL, agent_email)
+    if agent_password:
+        store_secret(AGENT_PASSWORD, agent_password)
 
 
 def load_agent_credentials() -> dict[str, str | None]:
@@ -64,6 +80,10 @@ def load_agent_credentials() -> dict[str, str | None]:
         "slsk_username": get_secret(SLSK_USERNAME),
         "slsk_password": get_secret(SLSK_PASSWORD),
         "acoustid_key": get_secret(ACOUSTID_KEY),
+        "supabase_url": get_secret(SUPABASE_URL),
+        "supabase_anon_key": get_secret(SUPABASE_ANON_KEY),
+        "agent_email": get_secret(AGENT_EMAIL),
+        "agent_password": get_secret(AGENT_PASSWORD),
     }
 
     # Fall back to credentials.json (written by the Tauri desktop app)
@@ -79,6 +99,10 @@ def load_agent_credentials() -> dict[str, str | None]:
                     ("slsk_username", "soulseek-username"),
                     ("slsk_password", "soulseek-password"),
                     ("acoustid_key", "acoustid-key"),
+                    ("supabase_url", "supabase-url"),
+                    ("supabase_anon_key", "supabase-anon-key"),
+                    ("agent_email", "agent-email"),
+                    ("agent_password", "agent-password"),
                 ]:
                     if not creds[py_key] and file_key in file_creds:
                         creds[py_key] = file_creds[file_key]
@@ -90,5 +114,8 @@ def load_agent_credentials() -> dict[str, str | None]:
 
 def clear_agent_credentials() -> None:
     """Remove all agent credentials from the keychain."""
-    for account in (API_KEY, SLSK_USERNAME, SLSK_PASSWORD, ACOUSTID_KEY):
+    for account in (
+        API_KEY, SLSK_USERNAME, SLSK_PASSWORD, ACOUSTID_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, AGENT_EMAIL, AGENT_PASSWORD,
+    ):
         delete_secret(account)

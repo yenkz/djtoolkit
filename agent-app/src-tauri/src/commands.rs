@@ -188,6 +188,19 @@ pub fn start_browser_auth(auth: State<'_, AuthState>) -> Result<(), String> {
                                                     if let Ok(mut r) = jwt_ref.lock() {
                                                         *r = Some(api_key.to_string());
                                                     }
+                                                    // Store Realtime credentials if present
+                                                    if let Some(v) = json["supabase_url"].as_str() {
+                                                        let _ = store_keychain("supabase-url", v);
+                                                    }
+                                                    if let Some(v) = json["supabase_anon_key"].as_str() {
+                                                        let _ = store_keychain("supabase-anon-key", v);
+                                                    }
+                                                    if let Some(v) = json["agent_email"].as_str() {
+                                                        let _ = store_keychain("agent-email", v);
+                                                    }
+                                                    if let Some(v) = json["agent_password"].as_str() {
+                                                        let _ = store_keychain("agent-password", v);
+                                                    }
                                                     write_log("INFO", "Auth: agent registered + API key stored");
                                                 }
                                             }
@@ -254,6 +267,19 @@ pub fn handle_auth_callback(url: &str, auth: &AuthState) {
                         if let Ok(json) = resp.into_json::<serde_json::Value>() {
                             if let Some(api_key) = json["api_key"].as_str() {
                                 let _ = store_keychain("agent-api-key", api_key);
+                                // Store Realtime credentials if present
+                                if let Some(v) = json["supabase_url"].as_str() {
+                                    let _ = store_keychain("supabase-url", v);
+                                }
+                                if let Some(v) = json["supabase_anon_key"].as_str() {
+                                    let _ = store_keychain("supabase-anon-key", v);
+                                }
+                                if let Some(v) = json["agent_email"].as_str() {
+                                    let _ = store_keychain("agent-email", v);
+                                }
+                                if let Some(v) = json["agent_password"].as_str() {
+                                    let _ = store_keychain("agent-password", v);
+                                }
                                 if let Ok(mut jwt) = auth.jwt.lock() {
                                     *jwt = Some(api_key.to_string());
                                 }
@@ -342,6 +368,21 @@ pub fn sign_in(email: String, password: String) -> Result<SignInResult, String> 
 
     // Store the API key in the keychain so the Python daemon can read it
     store_keychain("agent-api-key", &api_key)?;
+
+    // Store Realtime credentials if present
+    if let Some(v) = reg_json["supabase_url"].as_str() {
+        let _ = store_keychain("supabase-url", v);
+    }
+    if let Some(v) = reg_json["supabase_anon_key"].as_str() {
+        let _ = store_keychain("supabase-anon-key", v);
+    }
+    if let Some(v) = reg_json["agent_email"].as_str() {
+        let _ = store_keychain("agent-email", v);
+    }
+    if let Some(v) = reg_json["agent_password"].as_str() {
+        let _ = store_keychain("agent-password", v);
+    }
+
     write_log("INFO", "Agent registered successfully (API key stored in keychain)");
 
     Ok(SignInResult {
@@ -368,6 +409,10 @@ pub fn configure_agent(
     api_key: String,
     slsk_user: String,
     slsk_pass: String,
+    supabase_url: Option<String>,
+    supabase_anon_key: Option<String>,
+    agent_email: Option<String>,
+    agent_password: Option<String>,
 ) -> Result<(), String> {
     let config_dir = daemon::get_config_dir();
     fs::create_dir_all(&config_dir)
@@ -383,6 +428,20 @@ pub fn configure_agent(
     store_keychain("agent-api-key", &api_key)?;
     store_keychain("soulseek-username", &slsk_user)?;
     store_keychain("soulseek-password", &slsk_pass)?;
+
+    // Realtime credentials (optional — agent falls back to polling without them)
+    if let Some(v) = supabase_url {
+        store_keychain("supabase-url", &v)?;
+    }
+    if let Some(v) = supabase_anon_key {
+        store_keychain("supabase-anon-key", &v)?;
+    }
+    if let Some(v) = agent_email {
+        store_keychain("agent-email", &v)?;
+    }
+    if let Some(v) = agent_password {
+        store_keychain("agent-password", &v)?;
+    }
 
     write_log("INFO", "Agent configured (credentials saved to keychain)");
     Ok(())
