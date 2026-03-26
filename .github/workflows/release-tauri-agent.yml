@@ -166,7 +166,7 @@ jobs:
         run: chmod +x agent-app/src-tauri/binaries/*
 
       - name: List sidecar binaries
-        run: python -c "import os; [print(f'{os.path.getsize(os.path.join(\"agent-app/src-tauri/binaries\",f)):>10} {f}') for f in os.listdir('agent-app/src-tauri/binaries')]"
+        run: python -c "import os,pathlib;[print(p.stat().st_size,p.name) for p in pathlib.Path('agent-app/src-tauri/binaries').iterdir()]"
 
       # Build the Tauri app (unsigned — add APPLE_CERTIFICATE secret to enable signing)
       - name: Build Tauri app
