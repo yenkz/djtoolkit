@@ -8,18 +8,12 @@ import { jsonError } from "@/lib/api-server/errors";
 /**
  * POST /api/pipeline/jobs/batch/claim?type=download&limit=50
  *
- * Claim pending jobs of a given type for the authenticated user's agent.
+ * Atomically claim pending jobs of a given type using FOR UPDATE SKIP LOCKED.
  * Returns the claimed jobs as an array.
  *
  * Query params:
  *   - type  (required): job type to claim (e.g. "download")
  *   - limit (optional): max jobs to claim, default 50, max 100
- *
- * NOTE: The Python version uses FOR UPDATE SKIP LOCKED for atomic claim.
- * The Supabase JS client doesn't support row-level locking, so we use a
- * two-step SELECT + UPDATE approach. This has a theoretical race condition
- * if multiple agents claim simultaneously — a Postgres function with
- * FOR UPDATE SKIP LOCKED would be ideal for production use.
  */
 export async function POST(request: NextRequest) {
   const rateLimitResponse = await rateLimit(request, limiters.batch);
@@ -45,54 +39,28 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient();
 
-  // Step 1: Select pending jobs for this user + type
-  const { data: pendingJobs, error: selectErr } = await supabase
-    .from("pipeline_jobs")
-    .select("id")
-    .eq("user_id", user.userId)
-    .eq("status", "pending")
-    .eq("job_type", type)
-    .order("priority", { ascending: false })
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  const { data: claimedJobs, error } = await supabase.rpc("claim_jobs_batch", {
+    p_user_id: user.userId,
+    p_job_type: type,
+    p_agent_id: user.agentId ?? null,
+    p_limit: limit,
+  });
 
-  if (selectErr) {
-    return jsonError("Failed to fetch pending jobs", 500);
-  }
-
-  if (!pendingJobs || pendingJobs.length === 0) {
-    return NextResponse.json([]);
-  }
-
-  const jobIds = pendingJobs.map((j) => j.id);
-
-  // Step 2: Update those jobs to claimed status
-  // Race condition note: between SELECT and UPDATE, another agent could claim
-  // the same jobs. A Postgres function with FOR UPDATE SKIP LOCKED would
-  // eliminate this window. Acceptable for a personal tool with few agents.
-  const { data: claimedJobs, error: updateErr } = await supabase
-    .from("pipeline_jobs")
-    .update({
-      status: "claimed",
-      claimed_at: new Date().toISOString(),
-      agent_id: user.agentId ?? null,
-    })
-    .in("id", jobIds)
-    .eq("status", "pending") // guard: only claim if still pending
-    .select("id, job_type, status, track_id, payload, created_at");
-
-  if (updateErr) {
+  if (error) {
+    console.error("claim_jobs_batch rpc error:", error);
     return jsonError("Failed to claim jobs", 500);
   }
 
-  const jobs = (claimedJobs ?? []).map((row) => ({
-    id: String(row.id),
-    job_type: row.job_type,
-    status: row.status,
-    track_id: row.track_id,
-    payload: row.payload,
-    created_at: row.created_at,
-  }));
+  const jobs = (claimedJobs ?? []).map(
+    (row: Record<string, unknown>) => ({
+      id: String(row.id),
+      job_type: row.job_type,
+      status: row.status,
+      track_id: row.track_id,
+      payload: row.payload,
+      created_at: row.created_at,
+    })
+  );
 
   await auditLog(user.userId, "job.batch_claim", {
     resourceType: "pipeline_job",

@@ -8,7 +8,7 @@ import { jsonError } from "@/lib/api-server/errors";
 /**
  * POST /api/pipeline/jobs/[id]/claim
  *
- * Atomically claim a single pending job by ID for the authenticated agent.
+ * Atomically claim a single pending job by ID using FOR UPDATE SKIP LOCKED.
  * Returns the claimed job or 409 if the job is not available.
  */
 export async function POST(
@@ -25,62 +25,39 @@ export async function POST(
 
   const supabase = createServiceClient();
 
-  // Atomically claim: select the job only if it's pending and belongs to the user,
-  // then update to claimed status.
-  // Supabase doesn't support FOR UPDATE SKIP LOCKED, so we use a two-step
-  // select-then-update with a status check to prevent race conditions.
-  const { data: job, error: selectErr } = await supabase
-    .from("pipeline_jobs")
-    .select("id, job_type, status, track_id, payload, created_at")
-    .eq("id", jobId)
-    .eq("user_id", user.userId)
-    .eq("status", "pending")
-    .maybeSingle();
+  const { data: claimed, error } = await supabase.rpc("claim_job_by_id", {
+    p_job_id: jobId,
+    p_user_id: user.userId,
+    p_agent_id: user.agentId ?? null,
+  });
 
-  if (selectErr) {
-    return jsonError("Failed to fetch job", 500);
+  if (error) {
+    console.error("claim_job_by_id rpc error:", error);
+    return jsonError("Failed to claim job", 500);
   }
 
-  if (!job) {
+  if (!claimed || claimed.length === 0) {
     return jsonError(
       "Job is not available (already claimed or not found)",
       409
     );
   }
 
-  // Update to claimed — re-check status = 'pending' to guard against races
-  const { data: claimed, error: updateErr } = await supabase
-    .from("pipeline_jobs")
-    .update({
-      status: "claimed",
-      claimed_at: new Date().toISOString(),
-      agent_id: user.agentId ?? null,
-    })
-    .eq("id", jobId)
-    .eq("status", "pending")
-    .select("id, job_type, status, track_id, payload, created_at")
-    .maybeSingle();
-
-  if (updateErr || !claimed) {
-    return jsonError(
-      "Job is not available (already claimed or not found)",
-      409
-    );
-  }
+  const job = claimed[0] as Record<string, unknown>;
 
   await auditLog(user.userId, "job.claim", {
     resourceType: "pipeline_job",
-    resourceId: String(claimed.id),
-    details: { job_type: claimed.job_type, track_id: claimed.track_id },
+    resourceId: String(job.id),
+    details: { job_type: job.job_type, track_id: job.track_id },
     ipAddress: getClientIp(request),
   });
 
   return NextResponse.json({
-    id: String(claimed.id),
-    job_type: claimed.job_type,
-    status: claimed.status,
-    track_id: claimed.track_id,
-    payload: claimed.payload,
-    created_at: claimed.created_at,
+    id: String(job.id),
+    job_type: job.job_type,
+    status: job.status,
+    track_id: job.track_id,
+    payload: job.payload,
+    created_at: job.created_at,
   });
 }
