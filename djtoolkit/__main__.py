@@ -215,6 +215,64 @@ def import_trackid_cmd(
         console.print("[yellow]Warning: TrackID found 0 identifiable tracks in this mix.[/yellow]")
 
 
+@import_app.command("traktor")
+def import_traktor_cmd(
+    nml_path: Annotated[Path, typer.Argument(help="Path to Traktor NML collection file")],
+    config: ConfigOpt = "djtoolkit.toml",
+):
+    """Import a Traktor NML collection into the database."""
+    from djtoolkit.adapters.traktor import TraktorImporter
+
+    if not nml_path.exists():
+        console.print(f"[red]File not found:[/red] {nml_path}")
+        raise typer.Exit(1)
+
+    data = nml_path.read_bytes()
+    result = TraktorImporter().parse(data)
+
+    adapter = _adapter()
+    user_id = _user_id()
+    save_stats = adapter.save_tracks(result.tracks, user_id)
+
+    console.print(
+        f"[green]✓[/green] Imported [bold]{save_stats.get('imported', 0)}[/bold] tracks "
+        f"from Traktor collection ({len(result.tracks)} parsed)"
+    )
+    if result.playlists:
+        console.print(f"  Playlists found: {', '.join(result.playlists.keys())}")
+    if result.warnings:
+        console.print(f"  [yellow]{len(result.warnings)} warning(s)[/yellow]")
+
+
+@import_app.command("rekordbox")
+def import_rekordbox_cmd(
+    xml_path: Annotated[Path, typer.Argument(help="Path to Rekordbox XML collection file")],
+    config: ConfigOpt = "djtoolkit.toml",
+):
+    """Import a Rekordbox XML collection into the database."""
+    from djtoolkit.adapters.rekordbox import RekordboxImporter
+
+    if not xml_path.exists():
+        console.print(f"[red]File not found:[/red] {xml_path}")
+        raise typer.Exit(1)
+
+    data = xml_path.read_bytes()
+    result = RekordboxImporter().parse(data)
+
+    adapter = _adapter()
+    user_id = _user_id()
+    save_stats = adapter.save_tracks(result.tracks, user_id)
+
+    console.print(
+        f"[green]✓[/green] Imported [bold]{save_stats.get('imported', 0)}[/bold] tracks "
+        f"from Rekordbox collection ({len(result.tracks)} parsed)"
+    )
+    if result.playlists:
+        console.print(f"  Playlists found: {', '.join(result.playlists.keys())}")
+    if result.warnings:
+        console.print(f"  [yellow]{len(result.warnings)} warning(s)[/yellow]")
+
+
 # ─── pipeline commands ────────────────────────────────────────────────────────
 
 @app.command()
