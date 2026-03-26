@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Download, Upload, LayoutGrid, SlidersHorizontal, Bot, Settings, LogOut, Menu, X, Sun, Moon, Monitor, ChevronsLeft } from "lucide-react";
+import { Download, Upload, LayoutGrid, SlidersHorizontal, Bot, Bell, Settings, LogOut, Menu, X, Sun, Moon, Monitor, ChevronsLeft } from "lucide-react";
 import { useTheme } from "@/lib/theme-provider";
 import Logo from "@/components/ui/Logo";
 import type { LucideIcon } from "lucide-react";
@@ -15,6 +15,7 @@ const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/export", label: "Export", icon: Upload },
   { href: "/pipeline", label: "Pipeline", icon: SlidersHorizontal },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

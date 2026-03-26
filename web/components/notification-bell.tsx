@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCircle, XCircle } from "lucide-react";
+import Link from "next/link";
+import { Bell, CheckCircle, XCircle, Download } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { apiClient } from "@/lib/api";
 
@@ -10,7 +11,7 @@ import { apiClient } from "@/lib/api";
 
 interface Notification {
   id: string;
-  type: "batch_complete" | "track_failed";
+  type: "batch_complete" | "track_failed" | "track_downloaded";
   title: string;
   body: string;
   url: string | null;
@@ -264,7 +265,7 @@ export default function NotificationBell() {
           {/* Notification list */}
           <div
             className="overflow-y-auto"
-            style={{ maxHeight: 384 }}
+            style={{ maxHeight: 340 }}
           >
             {loading ? (
               <div
@@ -337,6 +338,12 @@ export default function NotificationBell() {
                         strokeWidth={2}
                         style={{ color: "var(--led-green, #22c55e)" }}
                       />
+                    ) : n.type === "track_downloaded" ? (
+                      <Download
+                        size={16}
+                        strokeWidth={2}
+                        style={{ color: "var(--led-blue, #4488ff)" }}
+                      />
                     ) : (
                       <XCircle
                         size={16}
@@ -389,6 +396,31 @@ export default function NotificationBell() {
               ))
             )}
           </div>
+
+          {/* View all link */}
+          <Link
+            href="/notifications"
+            onClick={() => setOpen(false)}
+            className="flex items-center justify-center font-mono transition-colors duration-150 border-t"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 1.5,
+              textTransform: "uppercase",
+              padding: "10px 16px",
+              color: "var(--led-blue)",
+              borderColor: "var(--hw-border)",
+              textDecoration: "none",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--hw-raised)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            View all notifications
+          </Link>
         </div>
       )}
     </div>
