@@ -461,6 +461,7 @@ export interface TrackIdJobStatus {
   step: string;         // human-readable current step
   error: string | null;
   result: ImportResult | null;
+  tracks_found?: number; // total unfiltered tracks from TrackID.dev (set on completion)
 }
 
 export async function getTrackIdJobStatus(jobId: string): Promise<TrackIdJobStatus> {

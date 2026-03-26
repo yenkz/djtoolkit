@@ -20,7 +20,7 @@ import { jsonError } from "@/lib/api-server/errors";
 export const maxDuration = 10;
 
 const TRACKID_BASE = "https://trackid.dev";
-const TRACKID_CONFIDENCE = 0.7;
+const TRACKID_CONFIDENCE = 0.3;
 
 function buildSearchString(artist: string, title: string): string {
   let a = artist.split(";")[0].trim();
@@ -90,9 +90,9 @@ export async function GET(
     });
   }
 
-  // Throttle: only poll TrackID.dev if last update was >90s ago
-  // (rate limit is 10 req / 15 min = ~90s between requests)
-  const MIN_POLL_GAP_MS = 90_000;
+  // Throttle: only poll TrackID.dev if last update was >10s ago.
+  // On 429, updated_at is set into the future to extend the gap automatically.
+  const MIN_POLL_GAP_MS = 10_000;
   const lastUpdate = job.updated_at ? new Date(job.updated_at).getTime() : 0;
   if (Date.now() - lastUpdate < MIN_POLL_GAP_MS) {
     return NextResponse.json({
@@ -110,11 +110,18 @@ export async function GET(
   );
 
   if (pollResp.status === 429) {
-    // Rate limited — return current state, frontend will retry in 2s
+    // Rate limited — push updated_at 30s into the future so the throttle
+    // check above automatically backs off without a schema change.
+    const backoffUntil = new Date(Date.now() + 30_000).toISOString();
+    await supabase
+      .from("trackid_import_jobs")
+      .update({ updated_at: backoffUntil })
+      .eq("id", jobId);
+
     return NextResponse.json({
       status: job.status,
       progress: job.progress,
-      step: "Waiting for TrackID.dev rate limit…",
+      step: "Rate limited by TrackID.dev, retrying soon…",
       error: null,
       result: null,
     });
@@ -287,6 +294,7 @@ export async function GET(
       step: `Done — ${previewTracks.length} track${previewTracks.length !== 1 ? "s" : ""} identified`,
       error: null,
       result: resultObj,
+      tracks_found: rawTracks.length,
     });
   }
 
@@ -345,5 +353,6 @@ export async function GET(
     step: `Done — ${inserted} track${inserted !== 1 ? "s" : ""} identified`,
     error: null,
     result: resultObj,
+    tracks_found: rawTracks.length,
   });
 }

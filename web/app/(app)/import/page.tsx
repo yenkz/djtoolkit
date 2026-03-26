@@ -615,11 +615,55 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [trackIdStatus, setTrackIdStatus] = useState<TrackIdJobStatus | null>(null);
+  const [trackIdElapsed, setTrackIdElapsed] = useState("");
+  const trackIdStartRef = useRef<number | null>(null);
+  const trackIdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showExportifyHint, setShowExportifyHint] = useState(false);
   const [djFile, setDjFile] = useState<File | null>(null);
   const [djParseResult, setDjParseResult] = useState<ParseResult | null>(null);
   const [djDraggingTarget, setDjDraggingTarget] = useState<"traktor" | "rekordbox" | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+
+  function formatElapsed(startMs: number): string {
+    const sec = Math.floor((Date.now() - startMs) / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  function friendlyStep(step: string): { label: string; detail: string } {
+    const s = step.toLowerCase();
+    if (s.includes("queue") || s.includes("submitted"))
+      return { label: "Queued", detail: "Waiting for TrackID.dev to start processing…" };
+    if (s.includes("download"))
+      return { label: "Downloading", detail: "Downloading audio from YouTube…" };
+    if (s.includes("fingerprint"))
+      return { label: "Fingerprinting", detail: "Analyzing audio fingerprint of the mix…" };
+    if (s.includes("match") || s.includes("identify"))
+      return { label: "Matching", detail: "Matching fingerprints against music database…" };
+    if (s.includes("rate limit") || s.includes("retrying"))
+      return { label: "Waiting", detail: "Rate limited by TrackID.dev, retrying soon…" };
+    if (s.includes("done"))
+      return { label: step, detail: "" };
+    return { label: step || "Processing", detail: "Analyzing your mix…" };
+  }
+
+  function startTrackIdTimer() {
+    trackIdStartRef.current = Date.now();
+    setTrackIdElapsed("0s");
+    trackIdTimerRef.current = setInterval(() => {
+      if (trackIdStartRef.current) setTrackIdElapsed(formatElapsed(trackIdStartRef.current));
+    }, 1000);
+  }
+
+  function stopTrackIdTimer() {
+    if (trackIdTimerRef.current) {
+      clearInterval(trackIdTimerRef.current);
+      trackIdTimerRef.current = null;
+    }
+    trackIdStartRef.current = null;
+    setTrackIdElapsed("");
+  }
 
   const loadPlaylists = useCallback(async () => {
     try {
@@ -709,27 +753,35 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
         } else {
           // Cache miss — poll until completed or failed
           const { job_id } = trackIdResult;
-          while (true) {
-            await new Promise((r) => setTimeout(r, 15000));
-            const s = await getTrackIdJobStatus(job_id);
-            setTrackIdStatus(s);
-            if (s.status === "completed") {
-              const result = s.result as unknown as { tracks: PreviewTrack[] } | null;
-              if (!result || result.tracks.length === 0) {
-                toast.warning("TrackID found no identifiable tracks in this mix.");
-                if (!selectedPlaylistId && !csvFile) {
-                  setLoading(false);
-                  setTrackIdStatus(null);
-                  return;
+          startTrackIdTimer();
+          try {
+            while (true) {
+              await new Promise((r) => setTimeout(r, 5000));
+              const s = await getTrackIdJobStatus(job_id);
+              setTrackIdStatus(s);
+              if (s.status === "completed") {
+                stopTrackIdTimer();
+                const result = s.result as unknown as { tracks: PreviewTrack[] } | null;
+                if (!result || result.tracks.length === 0) {
+                  toast.warning("TrackID found no identifiable tracks in this mix.");
+                  if (!selectedPlaylistId && !csvFile) {
+                    setLoading(false);
+                    setTrackIdStatus(null);
+                    return;
+                  }
+                } else {
+                  trackIdTracks = result.tracks;
                 }
-              } else {
-                trackIdTracks = result.tracks;
+                break;
               }
-              break;
+              if (s.status === "failed") {
+                stopTrackIdTimer();
+                throw new Error(s.error ?? "TrackID job failed");
+              }
             }
-            if (s.status === "failed") {
-              throw new Error(s.error ?? "TrackID job failed");
-            }
+          } catch (e) {
+            stopTrackIdTimer();
+            throw e;
           }
         }
 
@@ -1038,20 +1090,53 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
               </p>
             </div>
           )}
-          {trackIdStatus && (
-            <div className="mt-3">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="font-mono text-xs" style={{ color: "var(--led-blue)" }}>{trackIdStatus.step}</span>
-                <span className="font-mono text-xs" style={{ color: "var(--hw-text-dim)" }}>{trackIdStatus.progress}%</span>
+          {trackIdStatus && (() => {
+            const { label, detail } = friendlyStep(trackIdStatus.step);
+            const inProgress = trackIdStatus.progress < 100;
+            return (
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    {inProgress && (
+                      <div
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{
+                          background: "var(--led-blue)",
+                          animation: "led-pulse 1.5s infinite",
+                        }}
+                      />
+                    )}
+                    <span className="font-mono text-xs" style={{ color: "var(--led-blue)" }}>
+                      {label}
+                    </span>
+                  </div>
+                  <span className="font-mono text-xs" style={{ color: "var(--hw-text-dim)" }}>
+                    {trackIdStatus.progress}%
+                  </span>
+                </div>
+                {detail && (
+                  <p className="font-sans text-xs mb-2" style={{ color: "var(--hw-text-sec)" }}>
+                    {detail}
+                  </p>
+                )}
+                <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ background: "var(--hw-raised)" }}>
+                  <div
+                    className="h-1.5 rounded-full transition-all duration-500"
+                    style={{
+                      width: `${trackIdStatus.progress}%`,
+                      background: "var(--led-blue)",
+                      ...(inProgress ? { animation: "led-pulse 1.5s infinite" } : {}),
+                    }}
+                  />
+                </div>
+                {trackIdElapsed && (
+                  <div className="mt-1.5 font-mono text-[10px]" style={{ color: "var(--hw-text-dim)" }}>
+                    Elapsed: {trackIdElapsed}
+                  </div>
+                )}
               </div>
-              <div className="w-full rounded-full h-1.5" style={{ background: "var(--hw-raised)" }}>
-                <div
-                  className="h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${trackIdStatus.progress}%`, background: "var(--led-blue)" }}
-                />
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </SourceCard>
 
         <SectionHeader label="DJ Software" />
