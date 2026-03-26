@@ -490,3 +490,38 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4. Database webhook: push_notifications INSERT → push-send Edge Function
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE EXTENSION IF NOT EXISTS pg_net SCHEMA extensions;
+
+CREATE OR REPLACE FUNCTION notify_push_send()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  PERFORM net.http_post(
+    url := 'https://wpjrzpsfssyzjgfzcmvf.supabase.co/functions/v1/push-send',
+    body := jsonb_build_object(
+      'type', 'INSERT',
+      'table', 'push_notifications',
+      'schema', 'public',
+      'record', row_to_json(NEW)::jsonb,
+      'old_record', NULL
+    ),
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || current_setting('supabase.service_role_key', true)
+    )
+  );
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER push_notifications_webhook
+AFTER INSERT ON push_notifications
+FOR EACH ROW
+EXECUTE FUNCTION notify_push_send();
