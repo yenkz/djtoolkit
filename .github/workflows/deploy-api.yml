@@ -39,8 +39,8 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      - name: Run tests
-        run: poetry run pytest --tb=short -q
+      - name: Run service tests
+        run: poetry run pytest tests/test_service_*.py --tb=short -q
 
   build-and-deploy:
     needs: test

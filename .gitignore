@@ -41,6 +41,9 @@ djtoolkit.toml
 # Internal Supabase config (contains project IDs, not for public repo)
 SUPABASE_CONFIG.md
 
+# Supabase CLI temp files
+supabase/.temp/
+
 # Exported CSVs
 *.csv
 
