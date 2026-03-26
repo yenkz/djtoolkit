@@ -666,6 +666,7 @@ export interface UserSettings {
   export_output_path?: string;
   analysis_essentia_model_path?: string;
   analysis_enabled?: boolean;
+  push_notifications_enabled?: boolean;
 }
 
 export async function fetchSettings(): Promise<{

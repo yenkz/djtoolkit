@@ -29,6 +29,7 @@ const SECTIONS = [
   { id: "account", label: "Account" },
   { id: "spotify", label: "Spotify" },
   { id: "appearance", label: "Appearance" },
+  { id: "notifications", label: "Notifications" },
   { id: "paths", label: "Paths" },
   { id: "soulseek", label: "Soulseek" },
   { id: "matching", label: "Matching" },
@@ -137,6 +138,12 @@ export default function SettingsPage() {
   const [analysisModelPath, setAnalysisModelPath] = useState("");
   const [analysisEnabled, setAnalysisEnabled] = useState(false);
 
+  // Push notifications
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushToggling, setPushToggling] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">("default");
+  const [pushSupported, setPushSupported] = useState(true);
+
   // ─── Spotify connection (preserved from original) ────────────────────────
 
   useEffect(() => {
@@ -178,6 +185,18 @@ export default function SettingsPage() {
     const stored = localStorage.getItem("djtoolkit-grain");
     if (stored !== null) setGrainEnabled(stored !== "false");
 
+    // Push notification feature detection
+    const supported =
+      typeof window !== "undefined" &&
+      "serviceWorker" in navigator &&
+      "PushManager" in window;
+    setPushSupported(supported);
+    if (supported && "Notification" in window) {
+      setPushPermission(Notification.permission);
+    } else {
+      setPushPermission("unsupported");
+    }
+
     async function load() {
       try {
         const { settings, email: userEmail } = await fetchSettings();
@@ -216,6 +235,8 @@ export default function SettingsPage() {
     if (s.analysis_essentia_model_path != null)
       setAnalysisModelPath(s.analysis_essentia_model_path);
     if (s.analysis_enabled != null) setAnalysisEnabled(s.analysis_enabled);
+    if (s.push_notifications_enabled != null)
+      setPushEnabled(s.push_notifications_enabled);
   }
 
   // ─── IntersectionObserver scroll spy ────────────────────────────────────
@@ -309,6 +330,49 @@ export default function SettingsPage() {
     });
     toast.success("Analysis settings saved");
   }, [analysisModelPath, analysisEnabled]);
+
+  // ─── Push notifications toggle ────────────────────────────────────────
+
+  async function handlePushToggle(on: boolean) {
+    setPushToggling(true);
+    try {
+      if (on) {
+        const { subscribeToPush } = await import("@/lib/push-notifications");
+        const sub = await subscribeToPush();
+        if (!sub) {
+          // Permission denied or subscription failed
+          setPushPermission(
+            "Notification" in window ? Notification.permission : "unsupported",
+          );
+          toast.error(
+            Notification.permission === "denied"
+              ? "Notifications blocked by your browser"
+              : "Failed to enable notifications",
+          );
+          setPushToggling(false);
+          return;
+        }
+        setPushEnabled(true);
+        setPushPermission("granted");
+        await updateSettings({ push_notifications_enabled: true });
+        toast.success("Push notifications enabled");
+      } else {
+        const { unsubscribeFromPush } = await import(
+          "@/lib/push-notifications"
+        );
+        await unsubscribeFromPush();
+        setPushEnabled(false);
+        await updateSettings({ push_notifications_enabled: false });
+        toast.success("Push notifications disabled");
+      }
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update notifications",
+      );
+    } finally {
+      setPushToggling(false);
+    }
+  }
 
   // ─── Appearance (localStorage only) ────────────────────────────────────
 
@@ -568,6 +632,48 @@ export default function SettingsPage() {
           </Field>
           <Field label="Grain overlay" desc="Subtle film grain texture over the UI">
             <Toggle checked={grainEnabled} onChange={handleGrainToggle} />
+          </Field>
+        </Section>
+
+        {/* ─── NOTIFICATIONS ──────────────────────────────────────── */}
+        <Section
+          id="notifications"
+          title="Notifications"
+          desc="Get notified when pipeline batches finish or tracks fail"
+        >
+          <Field label="Enable push notifications">
+            {!pushSupported ? (
+              <div className="flex items-center gap-2">
+                <Toggle checked={false} onChange={() => {}} disabled />
+                <span
+                  className="font-sans text-xs"
+                  style={{ color: "var(--hw-text-dim)" }}
+                >
+                  Your browser does not support push notifications
+                </span>
+              </div>
+            ) : pushPermission === "denied" ? (
+              <div className="flex flex-col gap-2">
+                <Toggle checked={false} onChange={() => {}} disabled />
+                <p
+                  className="font-sans"
+                  style={{
+                    fontSize: 12,
+                    color: "var(--hw-error-text)",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Notifications blocked by your browser. Allow notifications in
+                  browser settings to enable.
+                </p>
+              </div>
+            ) : (
+              <Toggle
+                checked={pushEnabled}
+                onChange={handlePushToggle}
+                disabled={pushToggling}
+              />
+            )}
           </Field>
         </Section>
 

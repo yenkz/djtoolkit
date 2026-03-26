@@ -24,6 +24,7 @@ const ALLOWED_KEYS = new Set([
   "export_output_path",
   "analysis_essentia_model_path",
   "analysis_enabled",
+  "push_notifications_enabled",
 ]);
 
 export async function GET(request: NextRequest) {
