@@ -88,6 +88,7 @@ export default function CatalogPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
   const [confirmAnalyze, setConfirmAnalyze] = useState(false);
+  const [analyzedFilter, setAnalyzedFilter] = useState<boolean | undefined>(undefined);
   const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const load = useCallback(async () => {
@@ -101,6 +102,7 @@ export default function CatalogPage() {
           search: search || undefined,
           sort_by: sortBy,
           sort_dir: sortDir,
+          analyzed: analyzedFilter,
         }),
         fetchStats(),
       ]);
@@ -114,7 +116,7 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, statusFilter, search, sortBy, sortDir]);
+  }, [page, perPage, statusFilter, search, sortBy, sortDir, analyzedFilter]);
 
   useEffect(() => {
     load();
@@ -207,9 +209,10 @@ export default function CatalogPage() {
     filters.statuses.length +
     filters.artists.length +
     filters.keys.length +
-    (filters.bpmMin > 70 || filters.bpmMax < 180 ? 1 : 0);
+    (filters.bpmMin > 70 || filters.bpmMax < 180 ? 1 : 0) +
+    (analyzedFilter !== undefined ? 1 : 0);
 
-  const clearFilters = () =>
+  const clearFilters = () => {
     setFilters({
       genres: [],
       statuses: [],
@@ -218,6 +221,8 @@ export default function CatalogPage() {
       bpmMin: 70,
       bpmMax: 180,
     });
+    setAnalyzedFilter(undefined);
+  };
 
   // ── Selection helpers ──
   function toggleSelect(id: number) {
@@ -542,6 +547,12 @@ export default function CatalogPage() {
                   }
                 />
               )}
+              {analyzedFilter !== undefined && (
+                <ActiveTag
+                  label={analyzedFilter ? "Analyzed" : "Needs Analysis"}
+                  onRemove={() => setAnalyzedFilter(undefined)}
+                />
+              )}
               <button
                 type="button"
                 onClick={clearFilters}
@@ -583,6 +594,11 @@ export default function CatalogPage() {
             <LCDDisplay
               value={needsAnalysisCount}
               label="Needs Analysis"
+              active={analyzedFilter === false}
+              onClick={() => {
+                setAnalyzedFilter((prev) => (prev === false ? undefined : false));
+                setPage(1);
+              }}
             />
           </div>
         )}

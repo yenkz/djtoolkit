@@ -150,6 +150,7 @@ export async function fetchTracks(params: {
   search?: string;
   sort_by?: string;
   sort_dir?: "asc" | "desc";
+  analyzed?: boolean;
 }): Promise<{ tracks: Track[]; total: number; page: number }> {
   const qs = new URLSearchParams();
   if (params.page) qs.set("page", String(params.page));
@@ -158,6 +159,7 @@ export async function fetchTracks(params: {
   if (params.search) qs.set("search", params.search);
   if (params.sort_by) qs.set("sort_by", params.sort_by);
   if (params.sort_dir) qs.set("sort_dir", params.sort_dir);
+  if (params.analyzed !== undefined) qs.set("analyzed", String(params.analyzed));
   const res = await apiClient(`/catalog/tracks?${qs}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();

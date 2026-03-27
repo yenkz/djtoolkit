@@ -3,18 +3,27 @@
 interface LCDDisplayProps {
   value: string | number;
   label: string;
+  onClick?: () => void;
+  active?: boolean;
 }
 
-export default function LCDDisplay({ value, label }: LCDDisplayProps) {
+export default function LCDDisplay({ value, label, onClick, active }: LCDDisplayProps) {
   return (
     <div
       className="text-center"
+      onClick={onClick}
       style={{
         background: "var(--hw-lcd-bg)",
-        border: "1.5px solid var(--hw-lcd-border)",
+        border: active
+          ? "1.5px solid var(--led-orange)"
+          : "1.5px solid var(--hw-lcd-border)",
         borderRadius: 6,
         padding: "16px 18px",
-        boxShadow: "inset 0 1px 4px rgba(0,0,0,0.4)",
+        boxShadow: active
+          ? "inset 0 1px 4px rgba(0,0,0,0.4), 0 0 8px rgba(255,160,51,0.2)"
+          : "inset 0 1px 4px rgba(0,0,0,0.4)",
+        cursor: onClick ? "pointer" : undefined,
+        transition: "border-color 0.2s, box-shadow 0.2s",
       }}
     >
       <div

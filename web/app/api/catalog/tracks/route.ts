@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
   // Filters
   const status = searchParams.get("status");
   const search = searchParams.get("search");
+  const analyzed = searchParams.get("analyzed");  // "true" | "false" | null
   const idParams = searchParams.getAll("id");
   const ALLOWED_SORT = new Set(["created_at", "updated_at", "title", "artist", "album", "year", "tempo", "key_normalized", "energy", "genres"]);
   const sortBy = ALLOWED_SORT.has(searchParams.get("sort_by") ?? "") ? searchParams.get("sort_by")! : "created_at";
@@ -94,6 +95,12 @@ export async function GET(request: NextRequest) {
     query = query.or(
       `title.ilike.%${search.trim()}%,artist.ilike.%${search.trim()}%`
     );
+  }
+
+  if (analyzed === "true") {
+    query = query.eq("enriched_audio", true);
+  } else if (analyzed === "false") {
+    query = query.eq("enriched_audio", false);
   }
 
   if (idParams.length > 0) {

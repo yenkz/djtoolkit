@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import EnergyBar from "./EnergyBar";
-import StatusDot from "./StatusDot";
 import Tag from "./Tag";
 import { usePreviewPlayer } from "@/lib/preview-player-context";
 import { LED_COLORS } from "@/lib/design-system/tokens";
@@ -21,6 +20,7 @@ interface Track {
   preview_url?: string;
   spotify_uri?: string;
   created_at?: string;
+  enriched_audio?: boolean;
 }
 
 interface TrackListRowProps {
@@ -286,9 +286,22 @@ export default function TrackListRow({
           : ""}
       </span>
 
-      {/* Status */}
-      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-        {track.status && <StatusDot status={track.status} />}
+      {/* Metadata status */}
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+        title={track.enriched_audio ? "Metadata complete" : "Needs analysis"}
+      >
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: track.enriched_audio ? "var(--led-green)" : "var(--led-orange)",
+            boxShadow: track.enriched_audio
+              ? "0 0 6px rgba(68,255,68,0.27)"
+              : "0 0 6px rgba(255,160,51,0.27)",
+          }}
+        />
       </div>
     </div>
   );

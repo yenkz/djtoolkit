@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Bell, CheckCircle, XCircle, Download } from "lucide-react";
+import { Bell, CheckCircle, XCircle, Download, AudioWaveform } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { apiClient } from "@/lib/api";
 
@@ -11,7 +11,7 @@ import { apiClient } from "@/lib/api";
 
 interface Notification {
   id: string;
-  type: "batch_complete" | "track_failed" | "track_downloaded";
+  type: "batch_complete" | "track_failed" | "track_downloaded" | "analysis_complete";
   title: string;
   body: string;
   url: string | null;
@@ -337,6 +337,12 @@ export default function NotificationBell() {
                         size={16}
                         strokeWidth={2}
                         style={{ color: "var(--led-green, #22c55e)" }}
+                      />
+                    ) : n.type === "analysis_complete" ? (
+                      <AudioWaveform
+                        size={16}
+                        strokeWidth={2}
+                        style={{ color: "var(--led-orange, #ffa033)" }}
                       />
                     ) : n.type === "track_downloaded" ? (
                       <Download

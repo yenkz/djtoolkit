@@ -3,7 +3,6 @@
 import { useState } from "react";
 import MiniWave from "./MiniWave";
 import EnergyBar from "./EnergyBar";
-import StatusDot from "./StatusDot";
 import Tag from "./Tag";
 import { usePreviewPlayer } from "@/lib/preview-player-context";
 import { LED_COLORS } from "@/lib/design-system/tokens";
@@ -21,6 +20,7 @@ interface Track {
   artwork_url?: string;
   preview_url?: string;
   spotify_uri?: string;
+  enriched_audio?: boolean;
 }
 
 interface TrackCardProps {
@@ -177,31 +177,40 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
           </div>
         )}
 
-        {/* Status top-right */}
-        {track.status && (
-          <div
+        {/* Metadata status top-right */}
+        <div
+          title={track.enriched_audio ? "Metadata complete" : "Needs analysis"}
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <span
             style={{
-              position: "absolute",
-              top: 10,
-              right: 10,
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              background: track.enriched_audio ? "var(--led-green)" : "var(--led-orange)",
+              boxShadow: track.enriched_audio
+                ? "0 0 6px rgba(68,255,68,0.27)"
+                : "0 0 6px rgba(255,160,51,0.27)",
+            }}
+          />
+          <span
+            className="font-mono uppercase"
+            style={{
+              fontSize: 8,
+              color: "var(--hw-text-muted)",
+              letterSpacing: 0.5,
             }}
           >
-            <StatusDot status={track.status} />
-            <span
-              className="font-mono uppercase"
-              style={{
-                fontSize: 8,
-                color: "var(--hw-text-muted)",
-                letterSpacing: 0.5,
-              }}
-            >
-              {track.status}
-            </span>
-          </div>
-        )}
+            {track.enriched_audio ? "analyzed" : "pending"}
+          </span>
+        </div>
 
         {/* BPM + Key badges top-left */}
         <div

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import StatusDot from "./StatusDot";
 import EnergyBar from "./EnergyBar";
 
 interface Track {
@@ -16,6 +15,7 @@ interface Track {
   status?: string;
   artwork_url?: string;
   created_at?: string;
+  enriched_audio?: boolean;
 }
 
 interface TrackCompactRowProps {
@@ -52,8 +52,19 @@ export default function TrackCompactRow({
         transition: "background 0.12s",
       }}
     >
-      {/* Status dot */}
-      <StatusDot status={track.status ?? "available"} />
+      {/* Metadata status dot */}
+      <span
+        title={track.enriched_audio ? "Metadata complete" : "Needs analysis"}
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: track.enriched_audio ? "var(--led-green)" : "var(--led-orange)",
+          boxShadow: track.enriched_audio
+            ? "0 0 6px rgba(68,255,68,0.27)"
+            : "0 0 6px rgba(255,160,51,0.27)",
+        }}
+      />
 
       {/* Track title */}
       <span
