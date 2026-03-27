@@ -15,14 +15,16 @@ interface DetailPanelTrack {
   status?: string;
   artwork_url?: string;
   local_path?: string;
+  enriched_audio?: boolean;
 }
 
 interface DetailPanelProps {
   track: DetailPanelTrack;
   onClose: () => void;
+  onAnalyze?: (trackId: number) => void;
 }
 
-export default function DetailPanel({ track: t, onClose }: DetailPanelProps) {
+export default function DetailPanel({ track: t, onClose, onAnalyze }: DetailPanelProps) {
   const c = LED_COLORS.blue;
 
   const handleKeyDown = useCallback(
@@ -230,6 +232,70 @@ export default function DetailPanel({ track: t, onClose }: DetailPanelProps) {
               </div>
             ) : null
           )}
+
+          {/* Analysis status */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "8px 0",
+              borderBottom: `1px solid ${HARDWARE.border}`,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: FONTS.mono,
+                fontSize: 10,
+                color: HARDWARE.textDim,
+                letterSpacing: 1,
+                textTransform: "uppercase",
+                fontWeight: 700,
+              }}
+            >
+              Analysis
+            </span>
+            {t.enriched_audio ? (
+              <span
+                style={{
+                  fontFamily: FONTS.mono,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: LED_COLORS.green.on,
+                }}
+              >
+                Complete
+              </span>
+            ) : onAnalyze ? (
+              <button
+                type="button"
+                onClick={() => onAnalyze(t.id)}
+                style={{
+                  fontFamily: FONTS.mono,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "4px 10px",
+                  borderRadius: 4,
+                  background: LED_COLORS.orange.on,
+                  color: "#fff",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                Analyze
+              </button>
+            ) : (
+              <span
+                style={{
+                  fontFamily: FONTS.mono,
+                  fontSize: 11,
+                  color: LED_COLORS.orange.dim,
+                }}
+              >
+                Not analyzed
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </>

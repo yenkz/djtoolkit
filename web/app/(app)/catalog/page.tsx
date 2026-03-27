@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { Filter } from "lucide-react";
 import {
   fetchTracks,
   fetchStats,
+  analyzeTracksBulk,
   type Track,
   type CatalogStats,
 } from "@/lib/api";
+import { createClient } from "@/lib/supabase/client";
 
 import TrackCard from "@/components/ui/TrackCard";
 import TrackListRow from "@/components/ui/TrackListRow";
@@ -53,6 +55,7 @@ function toComponentTrack(t: Track) {
     created_at: t.created_at,
     preview_url: t.preview_url,
     spotify_uri: t.spotify_uri,
+    enriched_audio: !!t.enriched_audio,
   };
 }
 
@@ -80,6 +83,12 @@ export default function CatalogPage() {
     bpmMin: 70,
     bpmMax: 180,
   });
+
+  // ── Selection + Analyze state ──
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [analyzing, setAnalyzing] = useState(false);
+  const [confirmAnalyze, setConfirmAnalyze] = useState(false);
+  const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -210,6 +219,115 @@ export default function CatalogPage() {
       bpmMax: 180,
     });
 
+  // ── Selection helpers ──
+  function toggleSelect(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === filteredTracks.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filteredTracks.map((t) => t.id)));
+    }
+  }
+
+  const analyzableSelected = useMemo(
+    () =>
+      filteredTracks.filter(
+        (t) => selected.has(t.id) && !t.enriched_audio && t.local_path,
+      ),
+    [filteredTracks, selected],
+  );
+
+  const needsAnalysisCount = stats
+    ? (stats.by_status?.available ?? 0) - (stats.flags?.enriched_audio ?? 0)
+    : 0;
+
+  async function handleAnalyzeSelected() {
+    const ids = analyzableSelected.map((t) => t.id);
+    if (ids.length === 0) return;
+    setAnalyzing(true);
+    try {
+      const result = await analyzeTracksBulk(ids);
+      toast.success(
+        `${result.created} analysis job${result.created !== 1 ? "s" : ""} queued`,
+      );
+      if (result.skipped > 0) {
+        toast.info(`${result.skipped} tracks skipped`);
+      }
+      setSelected(new Set());
+      load();
+    } catch {
+      toast.error("Failed to queue analysis jobs");
+    } finally {
+      setAnalyzing(false);
+      setConfirmAnalyze(false);
+    }
+  }
+
+  async function handleAnalyzeAll() {
+    // Analyze all unanalyzed available tracks on current page
+    const ids = filteredTracks
+      .filter((t) => !t.enriched_audio && t.local_path)
+      .map((t) => t.id);
+    if (ids.length === 0) return;
+    setAnalyzing(true);
+    try {
+      const result = await analyzeTracksBulk(ids);
+      toast.success(
+        `${result.created} analysis job${result.created !== 1 ? "s" : ""} queued`,
+      );
+      load();
+    } catch {
+      toast.error("Failed to queue analysis jobs");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
+  // ── Supabase Realtime — live track updates ──
+  useEffect(() => {
+    const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    async function setup() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+      channel = supabase
+        .channel("catalog-tracks-realtime")
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "tracks",
+            filter: `user_id=eq.${session.user.id}`,
+          },
+          () => {
+            clearTimeout(refreshRef.current);
+            refreshRef.current = setTimeout(() => {
+              load();
+            }, 1500);
+          },
+        )
+        .subscribe();
+    }
+    setup();
+
+    return () => {
+      clearTimeout(refreshRef.current);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="flex h-full" style={{ minHeight: "calc(100vh - 64px)" }}>
       {/* ── Crate Sidebar ── */}
@@ -300,6 +418,27 @@ export default function CatalogPage() {
               {filteredTracks.length} tracks
             </span>
             <div className="flex-1" />
+
+            {/* Analyze button */}
+            {needsAnalysisCount > 0 && (
+              <button
+                type="button"
+                onClick={handleAnalyzeAll}
+                disabled={analyzing}
+                className="font-mono text-xs font-bold tracking-wide"
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 5,
+                  background: "var(--led-orange)",
+                  color: "#fff",
+                  border: "none",
+                  cursor: analyzing ? "wait" : "pointer",
+                  opacity: analyzing ? 0.6 : 1,
+                }}
+              >
+                {analyzing ? "Queuing..." : "Analyze Tracks"}
+              </button>
+            )}
 
             {/* Import button */}
             <a
@@ -425,7 +564,7 @@ export default function CatalogPage() {
         {/* ── Stats row (LCD Displays) ── */}
         {stats && (
           <div
-            className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0"
+            className="grid grid-cols-2 sm:grid-cols-5 gap-3 shrink-0"
             style={{ padding: "12px clamp(16px, 2vw, 24px)" }}
           >
             <LCDDisplay value={stats.total} label="Total" />
@@ -441,6 +580,66 @@ export default function CatalogPage() {
               value={stats.by_status?.failed ?? 0}
               label="Failed"
             />
+            <LCDDisplay
+              value={needsAnalysisCount}
+              label="Needs Analysis"
+            />
+          </div>
+        )}
+
+        {/* ── Selection Action Bar ── */}
+        {selected.size > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-3 shrink-0"
+            style={{
+              padding: "8px clamp(16px, 2vw, 24px)",
+              background: "color-mix(in srgb, var(--led-blue) 5%, var(--hw-surface))",
+              borderBottom: "1px solid color-mix(in srgb, var(--led-blue) 20%, transparent)",
+            }}
+          >
+            <span
+              className="font-mono"
+              style={{ fontSize: 11, fontWeight: 700, color: "var(--led-blue)" }}
+            >
+              {selected.size} selected
+            </span>
+            {analyzableSelected.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setConfirmAnalyze(true)}
+                disabled={analyzing}
+                className="font-mono"
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: 0.5,
+                  padding: "5px 12px",
+                  borderRadius: 4,
+                  background: "var(--led-orange)",
+                  color: "#fff",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                Analyze {analyzableSelected.length} Track
+                {analyzableSelected.length !== 1 ? "s" : ""}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="font-mono"
+              style={{
+                fontSize: 10,
+                color: "var(--hw-text-dim)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                textDecoration: "underline",
+              }}
+            >
+              Clear selection
+            </button>
           </div>
         )}
 
@@ -503,7 +702,7 @@ export default function CatalogPage() {
                 style={{
                   display: "grid",
                   gridTemplateColumns:
-                    "44px 2fr 1.5fr 50px 60px 0.5fr 0.8fr 0.6fr 48px",
+                    "28px 44px 2fr 1.5fr 50px 60px 0.5fr 0.8fr 0.6fr 48px",
                   padding: "10px 14px",
                   gap: 10,
                   background: "var(--hw-list-header)",
@@ -513,6 +712,23 @@ export default function CatalogPage() {
                   zIndex: 2,
                 }}
               >
+                {/* Select-all checkbox */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={
+                      filteredTracks.length > 0 &&
+                      selected.size === filteredTracks.length
+                    }
+                    onChange={toggleSelectAll}
+                    style={{
+                      width: 14,
+                      height: 14,
+                      accentColor: "var(--led-blue)",
+                      cursor: "pointer",
+                    }}
+                  />
+                </div>
                 {([
                   { label: "", key: "" },
                   { label: "Track", key: "title" },
@@ -577,6 +793,9 @@ export default function CatalogPage() {
                   track={toComponentTrack(t)}
                   isLast={i === filteredTracks.length - 1}
                   onClick={() => setSelectedTrack(t)}
+                  showCheckbox
+                  selected={selected.has(t.id)}
+                  onSelect={() => toggleSelect(t.id)}
                 />
               ))}
             </div>
@@ -774,7 +993,114 @@ export default function CatalogPage() {
         <DetailPanel
           track={toComponentTrack(selectedTrack)}
           onClose={() => setSelectedTrack(null)}
+          onAnalyze={async (trackId) => {
+            try {
+              const result = await analyzeTracksBulk([trackId]);
+              if (result.created > 0) {
+                toast.success("Analysis job queued");
+              } else {
+                toast.info("Track already analyzed or queued");
+              }
+              load();
+            } catch {
+              toast.error("Failed to queue analysis");
+            }
+          }}
         />
+      )}
+
+      {/* ── Analyze Confirmation Modal ── */}
+      {confirmAnalyze && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0, 0, 0, 0.5)",
+            backdropFilter: "blur(4px)",
+          }}
+          onClick={() => setConfirmAnalyze(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--hw-surface)",
+              border: "1px solid var(--hw-border)",
+              borderRadius: 8,
+              padding: "24px",
+              maxWidth: 420,
+              width: "90%",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3
+              className="font-sans"
+              style={{
+                fontSize: 16,
+                fontWeight: 700,
+                marginBottom: 12,
+                color: "var(--hw-text)",
+              }}
+            >
+              Analyze Selected Tracks
+            </h3>
+            <p
+              className="font-sans"
+              style={{
+                fontSize: 13,
+                color: "var(--hw-text-sec)",
+                lineHeight: 1.5,
+                marginBottom: 20,
+              }}
+            >
+              Queue audio analysis for{" "}
+              <strong>{analyzableSelected.length}</strong> track
+              {analyzableSelected.length !== 1 ? "s" : ""}? BPM, key, energy,
+              and loudness will be detected and written to files.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmAnalyze(false)}
+                className="font-mono"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  background: "none",
+                  border: "1px solid var(--hw-border)",
+                  color: "var(--hw-text-dim)",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAnalyzeSelected}
+                disabled={analyzing}
+                className="font-mono"
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "6px 16px",
+                  borderRadius: 4,
+                  background: "var(--led-orange)",
+                  border: "none",
+                  color: "#fff",
+                  cursor: analyzing ? "wait" : "pointer",
+                  opacity: analyzing ? 0.6 : 1,
+                }}
+              >
+                {analyzing ? "Queuing..." : "Analyze"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Filter Popover ── */}

@@ -605,6 +605,18 @@ export async function exportCollection(
   URL.revokeObjectURL(url);
 }
 
+export async function analyzeTracksBulk(
+  trackIds: number[],
+  force?: boolean,
+): Promise<{ created: number; skipped: number }> {
+  const res = await apiClient("/catalog/analyze", {
+    method: "POST",
+    body: JSON.stringify({ track_ids: trackIds, force: force ?? false }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
 export async function bulkCreateJobs(trackIds: number[]): Promise<{ created: number }> {
   const res = await apiClient("/pipeline/jobs/bulk", {
     method: "POST",

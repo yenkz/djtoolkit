@@ -27,6 +27,9 @@ interface TrackListRowProps {
   track: Track;
   onClick?: () => void;
   isLast?: boolean;
+  selected?: boolean;
+  onSelect?: (checked: boolean) => void;
+  showCheckbox?: boolean;
 }
 
 /** Deterministic color from artist name. */
@@ -43,6 +46,9 @@ export default function TrackListRow({
   track,
   onClick,
   isLast = false,
+  selected = false,
+  onSelect,
+  showCheckbox = false,
 }: TrackListRowProps) {
   const [hovered, setHovered] = useState(false);
   const { currentTrackId, isPlaying, play, pause } =
@@ -62,7 +68,9 @@ export default function TrackListRow({
       className="cursor-pointer"
       style={{
         display: "grid",
-        gridTemplateColumns: "44px 2fr 1.5fr 50px 60px 0.5fr 0.8fr 0.6fr 48px",
+        gridTemplateColumns: showCheckbox
+          ? "28px 44px 2fr 1.5fr 50px 60px 0.5fr 0.8fr 0.6fr 48px"
+          : "44px 2fr 1.5fr 50px 60px 0.5fr 0.8fr 0.6fr 48px",
         padding: "8px 14px",
         gap: 10,
         alignItems: "center",
@@ -82,6 +90,26 @@ export default function TrackListRow({
         transition: "all 0.2s ease",
       }}
     >
+      {/* Checkbox */}
+      {showCheckbox && (
+        <div
+          style={{ display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(e) => onSelect?.(e.target.checked)}
+            style={{
+              width: 14,
+              height: 14,
+              accentColor: "var(--led-blue)",
+              cursor: "pointer",
+            }}
+          />
+        </div>
+      )}
+
       {/* Artwork thumbnail */}
       <div style={{ position: "relative", width: 38, height: 38 }}>
         <div
