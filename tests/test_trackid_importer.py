@@ -157,10 +157,10 @@ def _mock_adapter():
     # Track insert returns the rows
     adapter._inserted_tracks = []
 
-    def capture_insert(rows):
-        adapter._inserted_tracks = rows
+    def capture_insert(row):
+        adapter._inserted_tracks.append(row)
         result = MagicMock()
-        result.execute.return_value.data = rows
+        result.execute.return_value.data = [row]
         return result
 
     # We need to handle multiple table() calls differently

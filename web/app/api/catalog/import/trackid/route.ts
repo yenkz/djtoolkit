@@ -176,34 +176,28 @@ export async function POST(request: NextRequest) {
         buildSearchString(t.artist ?? "", t.title ?? ""),
     }));
 
-    let insertedIds: number[] = [];
+    const insertedIds: number[] = [];
     let newlyInsertedCount = 0;
     let jobsCreated = 0;
 
     if (trackRows.length > 0) {
-      const { data: inserted } = await supabase
-        .from("tracks")
-        .upsert(trackRows, { onConflict: "user_id,title,artist", ignoreDuplicates: true })
-        .select("id, search_string, artist, title, duration_ms");
+      // Insert one-at-a-time; the DB unique partial index on
+      // (user_id, lower(title), lower(artist)) WHERE source='trackid'
+      // rejects duplicates from previous imports.
+      const newlyInserted: Array<{ id: number; search_string: string | null; artist: string | null; title: string | null; duration_ms: number | null }> = [];
 
-      const newlyInserted = inserted ?? [];
-      newlyInsertedCount = newlyInserted.length;
-
-      // Re-fetch ALL matching track IDs (upsert with ignoreDuplicates returns
-      // nothing for existing rows). Batch in chunks of 100 for URL safety.
-      const titles = trackRows.map((r) => r.title).filter(Boolean) as string[];
-      const allTrackIds: number[] = [];
-      for (let i = 0; i < titles.length; i += 100) {
-        const batch = titles.slice(i, i + 100);
-        const { data: rows } = await supabase
+      for (const row of trackRows) {
+        const { data: inserted, error: insertErr } = await supabase
           .from("tracks")
-          .select("id")
-          .eq("user_id", user.userId)
-          .eq("source", "trackid")
-          .in("title", batch);
-        allTrackIds.push(...(rows ?? []).map((r) => r.id as number));
+          .insert(row)
+          .select("id, search_string, artist, title, duration_ms")
+          .maybeSingle();
+
+        if (insertErr || !inserted) continue;
+        newlyInsertedCount++;
+        insertedIds.push(inserted.id as number);
+        newlyInserted.push(inserted as typeof newlyInserted[number]);
       }
-      insertedIds = [...new Set(allTrackIds)];
 
       if (queueJobs && newlyInsertedCount > 0) {
         const userSettings = await getUserSettings(supabase, user.userId);

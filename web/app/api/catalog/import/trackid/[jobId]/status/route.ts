@@ -16,11 +16,12 @@ import { getAuthUser, isAuthError } from "@/lib/api-server/auth";
 import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
+import { getUserSettings } from "@/lib/api-server/job-settings";
 
 export const maxDuration = 10;
 
 const TRACKID_BASE = "https://trackid.dev";
-const TRACKID_CONFIDENCE = 0.3;
+const DEFAULT_TRACKID_CONFIDENCE = 0.7;
 
 function buildSearchString(artist: string, title: string): string {
   let a = artist.split(";")[0].trim();
@@ -197,6 +198,11 @@ export async function GET(
 
   // ── TrackID completed — filter, deduplicate, insert tracks ────────────
 
+  const userSettings = await getUserSettings(supabase, user.userId);
+  const confidenceThreshold = Number(
+    userSettings.trackid_confidence_threshold ?? DEFAULT_TRACKID_CONFIDENCE
+  );
+
   const rawTracks = (
     (jobData.tracks as Array<Record<string, unknown>>) ?? []
   ).sort(
@@ -208,13 +214,13 @@ export async function GET(
     title: string | null;
     artist: string | null;
     artists: string | null;
-    duration_ms: null;
+    duration_ms: number | null;
     search_string: string | null;
   }> = [];
 
   for (const t of rawTracks) {
-    if (t.isUnknown) continue;
-    if (Number(t.confidence || 0) < TRACKID_CONFIDENCE) continue;
+    if (t.isUnknown || t.unknown) continue;
+    if (Number(t.confidence || 0) < confidenceThreshold) continue;
 
     const artist = String(t.artist || "");
     const title = String(t.title || "");
@@ -223,11 +229,14 @@ export async function GET(
     if (seenKeys.has(key)) continue;
     seenKeys.add(key);
 
+    const durationSec = Number(t.duration || 0);
+    const durationMs = durationSec > 0 ? Math.round(durationSec * 1000) : null;
+
     tracks.push({
       title: title || null,
       artist: artist || null,
       artists: artist || null,
-      duration_ms: null,
+      duration_ms: durationMs,
       search_string: buildSearchString(artist, title) || null,
     });
   }

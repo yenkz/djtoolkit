@@ -25,6 +25,7 @@ const ALLOWED_KEYS = new Set([
   "analysis_essentia_model_path",
   "analysis_enabled",
   "push_notifications_enabled",
+  "trackid_confidence_threshold",
 ]);
 
 export async function GET(request: NextRequest) {

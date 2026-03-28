@@ -132,6 +132,11 @@ CREATE TABLE IF NOT EXISTS tracks (
 
 CREATE INDEX IF NOT EXISTS idx_tracks_user_id            ON tracks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_acquisition_status ON tracks(user_id, acquisition_status);
+
+-- Per-user trackid dedup: case-insensitive (title, artist) uniqueness for trackid source
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tracks_trackid_user_title_artist
+    ON tracks (user_id, lower(title), lower(artist))
+    WHERE source = 'trackid' AND title IS NOT NULL AND artist IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tracks_spotify_uri        ON tracks(user_id, spotify_uri);
 CREATE INDEX IF NOT EXISTS idx_tracks_local_path         ON tracks(local_path);
 

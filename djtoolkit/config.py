@@ -99,7 +99,7 @@ class AudioAnalysisConfig:
 class AgentConfig:
     cloud_url: str = "https://www.djtoolkit.net"
     api_key: str = ""           # env: DJTOOLKIT_AGENT_KEY
-    poll_interval_sec: float = 30.0
+    poll_interval_sec: float = 60.0
     max_concurrent_jobs: int = 2
     max_download_batch: int = 50
     local_db_path: str = "~/.djtoolkit/agent.db"
@@ -116,7 +116,7 @@ class SupabaseConfig:
 
 @dataclass
 class TrackIdConfig:
-    confidence_threshold: float = 0.3   # 0.0–1.0; tracks below this are skipped
+    confidence_threshold: float = 0.7   # 0.0–1.0; tracks below this are skipped
     poll_interval_sec: int = 7          # seconds between status polls (clamped to 3–10 in poll_job)
     poll_timeout_sec: int = 1800        # max total poll duration in seconds; 0 = unlimited
     base_url: str = "https://trackid.dev"

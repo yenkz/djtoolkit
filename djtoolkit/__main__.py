@@ -209,7 +209,8 @@ def import_trackid_cmd(
     console.print(
         f"[green]✓[/green] Imported [bold]{stats['imported']}[/bold] tracks  "
         f"[yellow]{stats['skipped_low_confidence']}[/yellow] low-confidence  "
-        f"{stats['skipped_unknown']} unknown"
+        f"{stats['skipped_unknown']} unknown  "
+        f"{stats['skipped_duplicate']} duplicate"
     )
     if stats["identified"] == 0:
         console.print("[yellow]Warning: TrackID found 0 identifiable tracks in this mix.[/yellow]")
@@ -644,7 +645,7 @@ def agent_configure(
 
     config_content = f"""[agent]
 cloud_url = "{cloud_url}"
-poll_interval_sec = 30
+poll_interval_sec = 60
 max_concurrent_jobs = 2
 
 [soulseek]
@@ -1047,7 +1048,7 @@ def _setup_terminal_wizard():
 
     config_content = f"""[agent]
 cloud_url = "https://api.djtoolkit.com"
-poll_interval_sec = 30
+poll_interval_sec = 60
 max_concurrent_jobs = 2
 downloads_dir = "{toml_downloads_dir}"
 

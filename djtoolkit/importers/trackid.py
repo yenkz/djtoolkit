@@ -203,6 +203,7 @@ def import_trackid(
         "imported": 0,
         "skipped_low_confidence": 0,
         "skipped_unknown": 0,
+        "skipped_duplicate": 0,
         "failed": 0,
         "skipped_cached": 0,
     }
@@ -260,23 +261,32 @@ def import_trackid(
         stats["failed"] = 1
         return stats
 
-    # 6. Filter and insert tracks
+    # 6. Filter, deduplicate, and insert tracks
     all_tracks = job.get("tracks", [])
+    all_tracks.sort(key=lambda t: t.get("confidence", 0), reverse=True)
     threshold = cfg.trackid.confidence_threshold
     rows: list[dict] = []
+    seen_keys: set[str] = set()
 
     for track in all_tracks:
-        if track.get("isUnknown"):
+        if track.get("isUnknown") or track.get("unknown"):
             stats["skipped_unknown"] += 1
             continue
         if track.get("confidence", 0) < threshold:
             stats["skipped_low_confidence"] += 1
             continue
 
-        stats["identified"] += 1
-
         artist = track.get("artist") or ""
         title = track.get("title") or ""
+        key = f"{title.lower().strip()}|{artist.lower().strip()}"
+
+        if key in seen_keys:
+            stats["skipped_duplicate"] += 1
+            continue
+        seen_keys.add(key)
+
+        stats["identified"] += 1
+
         duration_sec = track.get("duration")
         duration_ms = int(duration_sec * 1000) if duration_sec is not None else None
 
@@ -291,13 +301,13 @@ def import_trackid(
             "search_string": build_search_string(artist, title) if (artist or title) else None,
         })
 
-    if rows:
-        result = (
-            client.table("tracks")
-            .insert(rows)
-            .execute()
-        )
-        stats["imported"] = len(result.data)
+    for row in rows:
+        try:
+            result = client.table("tracks").insert(row).execute()
+            if result.data:
+                stats["imported"] += 1
+        except Exception:
+            stats["skipped_duplicate"] += 1
 
     # 7. Update cache
     (client.table("trackid_jobs")

@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: "paths", label: "Paths" },
   { id: "soulseek", label: "Soulseek" },
   { id: "matching", label: "Matching" },
+  { id: "trackid", label: "Track ID" },
   { id: "fingerprint", label: "Fingerprint" },
   { id: "loudnorm", label: "Loudnorm" },
   { id: "coverart", label: "Cover Art" },
@@ -109,6 +110,9 @@ export default function SettingsPage() {
 
   // Matching
   const [minScore, setMinScore] = useState(0.86);
+
+  // Track ID
+  const [trackidConfidence, setTrackidConfidence] = useState(0.7);
   const [durTolerance, setDurTolerance] = useState(2000);
   const [searchTimeout, setSearchTimeout] = useState(15);
 
@@ -237,6 +241,8 @@ export default function SettingsPage() {
     if (s.analysis_enabled != null) setAnalysisEnabled(s.analysis_enabled);
     if (s.push_notifications_enabled != null)
       setPushEnabled(s.push_notifications_enabled);
+    if (s.trackid_confidence_threshold != null)
+      setTrackidConfidence(s.trackid_confidence_threshold);
   }
 
   // ─── IntersectionObserver scroll spy ────────────────────────────────────
@@ -290,6 +296,13 @@ export default function SettingsPage() {
     });
     toast.success("Matching settings saved");
   }, [minScore, durTolerance, searchTimeout]);
+
+  const saveTrackId = useCallback(async () => {
+    await updateSettings({
+      trackid_confidence_threshold: trackidConfidence,
+    });
+    toast.success("Track ID settings saved");
+  }, [trackidConfidence]);
 
   const saveFingerprint = useCallback(async () => {
     await updateSettings({
@@ -760,6 +773,29 @@ export default function SettingsPage() {
           </Field>
           <div className="flex justify-end mt-4">
             <SaveBtn onClick={saveMatching} />
+          </div>
+        </Section>
+
+        {/* ─── TRACK ID ────────────────────────────────────────────── */}
+        <Section
+          id="trackid"
+          title="Track ID"
+          desc="Minimum confidence for accepting identified tracks from TrackID.dev"
+        >
+          <Field
+            label="Confidence threshold"
+            desc="0.0–1.0 — higher means fewer but more accurate results"
+          >
+            <NumberInput
+              value={trackidConfidence}
+              onChange={setTrackidConfidence}
+              step={0.05}
+              min={0.1}
+              max={1}
+            />
+          </Field>
+          <div className="flex justify-end mt-4">
+            <SaveBtn onClick={saveTrackId} />
           </div>
         </Section>
 

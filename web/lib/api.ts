@@ -682,6 +682,7 @@ export interface UserSettings {
   analysis_essentia_model_path?: string;
   analysis_enabled?: boolean;
   push_notifications_enabled?: boolean;
+  trackid_confidence_threshold?: number;
 }
 
 export async function fetchSettings(): Promise<{

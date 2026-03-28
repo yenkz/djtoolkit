@@ -186,12 +186,12 @@ async function processJob(
       title: string | null;
       artist: string | null;
       artists: string | null;
-      duration_ms: null;
+      duration_ms: number | null;
       search_string: string | null;
     }> = [];
 
     for (const t of rawTracks) {
-      if (t.isUnknown) continue;
+      if (t.isUnknown || t.unknown) continue;
       if (Number(t.confidence || 0) < TRACKID_CONFIDENCE) continue;
 
       const artist = String(t.artist || "");
@@ -201,11 +201,14 @@ async function processJob(
       if (seenKeys.has(key)) continue;
       seenKeys.add(key);
 
+      const durationSec = Number(t.duration || 0);
+      const durationMs = durationSec > 0 ? Math.round(durationSec * 1000) : null;
+
       tracks.push({
         title: title || null,
         artist: artist || null,
         artists: artist || null,
-        duration_ms: null,
+        duration_ms: durationMs,
         search_string: buildSearchString(artist, title) || null,
       });
     }
