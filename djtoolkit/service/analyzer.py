@@ -101,11 +101,19 @@ def detect_boundaries(
     - Find peaks in the derivative (rapid spectral changes = transitions)
     - Auto-adjust threshold and min_duration based on audio length
 
+    Uses librosa.stream() to process in blocks — keeps memory under 500MB
+    even for multi-hour mixes (critical for 4GB servers).
+
     Returns a list of boundary timestamps in seconds (including 0.0 and end).
     """
+    import soundfile as sf
+
     log.info("Loading audio for boundary detection: %s", audio_path)
-    y, sr = librosa.load(audio_path, sr=22050, mono=True)
-    duration = len(y) / sr
+
+    # Get duration without loading entire file
+    info = sf.info(audio_path)
+    duration = info.duration
+    sr = 22050
     log.info("Audio duration: %.0f seconds (%.1f min)", duration, duration / 60)
 
     # Auto-adjust parameters based on duration
@@ -127,10 +135,24 @@ def detect_boundaries(
 
     log.info("Boundary detection: threshold=%.2f, min_duration=%ds", threshold, min_duration_sec)
 
-    # Spectral features
+    # Process in 30-second blocks to keep memory low (~2.6MB per block)
     hop = 512
-    centroid = librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop)[0]
-    rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+    block_sec = 30
+    block_samples = block_sec * sr
+    centroid_blocks: list[np.ndarray] = []
+    rms_blocks: list[np.ndarray] = []
+
+    for block in librosa.stream(audio_path, block_length=block_sec,
+                                 frame_length=2048, hop_length=hop,
+                                 mono=True):
+        c = librosa.feature.spectral_centroid(y=block, sr=sr, hop_length=hop)[0]
+        r = librosa.feature.rms(y=block, hop_length=hop)[0]
+        centroid_blocks.append(c)
+        rms_blocks.append(r)
+
+    centroid = np.concatenate(centroid_blocks)
+    rms = np.concatenate(rms_blocks)
+    del centroid_blocks, rms_blocks
 
     # Normalize to 0-1
     centroid_norm = (centroid - centroid.min()) / (centroid.max() - centroid.min() + 1e-8)
