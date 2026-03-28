@@ -167,6 +167,34 @@ export async function GET(
   const pct = Math.min(Number(jobData.progress || 0), 90);
   const step = (jobData.currentStep as string) || trackidStatus;
 
+  // ── Verify URL match on every poll ──────────────────────────────────
+  const returnedUrl = jobData.youtubeUrl as string | undefined;
+  if (returnedUrl) {
+    const submittedId = extractVideoId(job.youtube_url);
+    const returnedId = extractVideoId(returnedUrl);
+    if (submittedId && returnedId && submittedId !== returnedId) {
+      const msg = `TrackID.dev analyzed a different video (${returnedId}) than submitted (${submittedId}). Please retry.`;
+      await supabase
+        .from("trackid_import_jobs")
+        .update({
+          status: "failed",
+          progress: 0,
+          step: "URL mismatch",
+          error: msg,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+
+      return NextResponse.json({
+        status: "failed",
+        progress: 0,
+        step: "URL mismatch",
+        error: msg,
+        result: null,
+      });
+    }
+  }
+
   // TrackID job failed
   if (trackidStatus === "failed") {
     await supabase
@@ -208,35 +236,6 @@ export async function GET(
       error: null,
       result: null,
     });
-  }
-
-  // ── TrackID completed — verify URL match ───────────────────────────────
-
-  const returnedUrl = jobData.youtubeUrl as string | undefined;
-  if (returnedUrl) {
-    const submittedId = extractVideoId(job.youtube_url);
-    const returnedId = extractVideoId(returnedUrl);
-    if (submittedId && returnedId && submittedId !== returnedId) {
-      const msg = `TrackID.dev analyzed a different video (${returnedId}) than submitted (${submittedId}). Please retry.`;
-      await supabase
-        .from("trackid_import_jobs")
-        .update({
-          status: "failed",
-          progress: 0,
-          step: "URL mismatch",
-          error: msg,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", jobId);
-
-      return NextResponse.json({
-        status: "failed",
-        progress: 0,
-        step: "URL mismatch",
-        error: msg,
-        result: null,
-      });
-    }
   }
 
   // ── Filter, deduplicate, insert tracks ────────────────────────────────
