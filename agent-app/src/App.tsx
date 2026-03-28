@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import Wizard from "./wizard/Wizard";
 import LogViewer from "./logs/LogViewer";
 import SettingsPanel from "./settings/SettingsPanel";
@@ -24,6 +25,12 @@ function App() {
         const configured = await invoke<boolean>("has_config");
         if (!configured) {
           navigate("/wizard", { replace: true });
+          // Ensure the window is visible and focused on first launch.
+          // The Rust setup hook also does this, but calling it from the
+          // frontend is more reliable on macOS (webview is fully ready here).
+          const win = getCurrentWindow();
+          await win.show();
+          await win.setFocus();
         }
       } catch {
         navigate("/wizard", { replace: true });

@@ -500,6 +500,12 @@ a:hover {
   border: 1px solid rgba(255, 107, 107, 0.2);
 }
 
+.signin-method {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 /* Auth Divider */
 
 .auth-divider {
