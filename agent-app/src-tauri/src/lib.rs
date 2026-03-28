@@ -28,7 +28,6 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         // ---- Managed state ----
         .manage(DaemonManager::new())
-        .manage(commands::AuthState::new())
         // ---- IPC commands ----
         .invoke_handler(tauri::generate_handler![
             commands::get_daemon_status,
@@ -44,9 +43,6 @@ pub fn run() {
             commands::clear_log_file,
             commands::get_log_content,
             commands::open_downloads_dir,
-            commands::sign_in,
-            commands::start_browser_auth,
-            commands::check_auth_result,
         ])
         // ---- App setup ----
         .setup(|app| {
@@ -64,16 +60,11 @@ pub fn run() {
                 }
             }
 
-            // --- Deep link handler (djtoolkit://auth/callback) ---
+            // --- Deep link handler — bring window to front when djtoolkit:// URL opens ---
             #[cfg(desktop)]
             {
                 let dl_handle = app.handle().clone();
-                app.deep_link().on_open_url(move |event| {
-                    let auth = dl_handle.state::<commands::AuthState>();
-                    for url in event.urls() {
-                        commands::handle_auth_callback(url.as_str(), &*auth);
-                    }
-                    // Bring the app window to focus
+                app.deep_link().on_open_url(move |_event| {
                     if let Some(w) = dl_handle.get_webview_window("main") {
                         let _ = w.show();
                         let _ = w.set_focus();
