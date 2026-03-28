@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AppConfig } from "../types";
 import Button from "../components/Button";
 import Input from "../components/Input";
 import Toggle from "../components/Toggle";
+
+const CLOUD_URL = "https://www.djtoolkit.net";
 
 type Section = "general" | "credentials" | "agent" | "account";
 
@@ -32,6 +36,14 @@ export default function SettingsPanel() {
   const [signOutConfirm, setSignOutConfirm] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Account sign-in state (used when api_key is empty)
+  type SignInMethod = "browser" | "apikey";
+  const [signInMethod, setSignInMethod] = useState<SignInMethod>("browser");
+  const [signInApiKey, setSignInApiKey] = useState("");
+  const [signInWaiting, setSignInWaiting] = useState(false);
+  const [signInLoading, setSignInLoading] = useState(false);
+  const [signInError, setSignInError] = useState("");
+
   // Credential form state — kept separate so we don't auto-save passwords
   const [credUsername, setCredUsername] = useState("");
   const [credPassword, setCredPassword] = useState("");
@@ -50,6 +62,73 @@ export default function SettingsPanel() {
       }
     })();
   }, []);
+
+  // Listen for deep-link-url events emitted by the Rust handler.
+  // This fires when the browser redirects to djtoolkit://configure?api_key=...
+  useEffect(() => {
+    const unlisten = listen<string>("deep-link-url", async (event) => {
+      const url = event.payload;
+      if (!url.startsWith("djtoolkit://configure")) return;
+      const params = new URLSearchParams(url.split("?")[1] || "");
+      const key = params.get("api_key") || "";
+      if (!key.startsWith("djt_")) return;
+      setSignInWaiting(false);
+      setSignInLoading(true);
+      setSignInError("");
+      try {
+        await invoke("sign_in_from_settings", {
+          apiKey: key,
+          supabaseUrl: params.get("supabase_url") || null,
+          supabaseAnonKey: params.get("supabase_anon_key") || null,
+          agentEmail: params.get("agent_email") || null,
+          agentPassword: params.get("agent_password") || null,
+        });
+        const updated = await invoke<AppConfig>("get_config");
+        setConfig(updated);
+      } catch (e) {
+        setSignInError(String(e));
+      } finally {
+        setSignInLoading(false);
+      }
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  const handleBrowserSignIn = async () => {
+    setSignInWaiting(true);
+    setSignInError("");
+    try {
+      await openUrl(`${CLOUD_URL}/agent-connect`);
+    } catch {
+      setSignInWaiting(false);
+      setSignInError("Could not open browser. Try pasting your API key.");
+    }
+  };
+
+  const handleApiKeySignIn = async () => {
+    if (!signInApiKey.trim().startsWith("djt_")) {
+      setSignInError("API key must start with djt_");
+      return;
+    }
+    setSignInLoading(true);
+    setSignInError("");
+    try {
+      await invoke("sign_in_from_settings", {
+        apiKey: signInApiKey.trim(),
+        supabaseUrl: null,
+        supabaseAnonKey: null,
+        agentEmail: null,
+        agentPassword: null,
+      });
+      const updated = await invoke<AppConfig>("get_config");
+      setConfig(updated);
+      setSignInApiKey("");
+    } catch (e) {
+      setSignInError(String(e));
+    } finally {
+      setSignInLoading(false);
+    }
+  };
 
   const saveConfig = useCallback(
     (updated: AppConfig) => {
@@ -233,18 +312,67 @@ export default function SettingsPanel() {
         {section === "account" && (
           <div className="settings-section">
             <div className="settings-field">
-              <label>Status</label>
+              <label className="settings-label">Status</label>
               <p className="settings-value">
                 {config.api_key ? "Signed in" : "Not signed in"}
               </p>
             </div>
-            {config.api_key && (
-              <Button
-                variant="danger"
-                onClick={handleSignOut}
-              >
+
+            {config.api_key ? (
+              <Button variant="danger" onClick={handleSignOut}>
                 {signOutConfirm ? "Confirm sign out?" : "Sign Out"}
               </Button>
+            ) : (
+              <>
+                <div className="auth-toggle">
+                  <button
+                    className={`auth-toggle-btn ${signInMethod === "browser" ? "active" : ""}`}
+                    onClick={() => { setSignInMethod("browser"); setSignInError(""); setSignInWaiting(false); }}
+                  >
+                    Browser
+                  </button>
+                  <button
+                    className={`auth-toggle-btn ${signInMethod === "apikey" ? "active" : ""}`}
+                    onClick={() => { setSignInMethod("apikey"); setSignInError(""); }}
+                  >
+                    API Key
+                  </button>
+                </div>
+
+                {signInMethod === "browser" && (
+                  <div className="signin-method">
+                    <Button onClick={handleBrowserSignIn} disabled={signInWaiting || signInLoading}>
+                      {signInWaiting ? "Waiting for browser…" : signInLoading ? "Signing in…" : "Open djtoolkit.net"}
+                    </Button>
+                    {signInWaiting && (
+                      <p className="form-hint">Complete sign-in in your browser — this will update automatically.</p>
+                    )}
+                  </div>
+                )}
+
+                {signInMethod === "apikey" && (
+                  <div className="signin-method">
+                    <Input
+                      label="API Key"
+                      type="password"
+                      placeholder="djt_…"
+                      value={signInApiKey}
+                      onChange={(e) => { setSignInApiKey(e.currentTarget.value); setSignInError(""); }}
+                    />
+                    <p className="form-hint">
+                      Find your key at{" "}
+                      <a href={`${CLOUD_URL}/settings`} target="_blank" rel="noreferrer">
+                        djtoolkit.net/settings
+                      </a>
+                    </p>
+                    <Button onClick={handleApiKeySignIn} disabled={signInLoading || !signInApiKey.trim()}>
+                      {signInLoading ? "Signing in…" : "Sign In"}
+                    </Button>
+                  </div>
+                )}
+
+                {signInError && <p className="form-error">{signInError}</p>}
+              </>
             )}
           </div>
         )}

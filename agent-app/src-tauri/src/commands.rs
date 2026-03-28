@@ -125,6 +125,61 @@ pub fn configure_agent(
     Ok(())
 }
 
+/// Re-authenticate from the Settings panel (no wizard).
+/// Only api_key + Supabase credentials are sent; configure-headless loads
+/// existing Soulseek credentials from the keychain so they are preserved.
+#[tauri::command]
+pub fn sign_in_from_settings(
+    api_key: String,
+    supabase_url: Option<String>,
+    supabase_anon_key: Option<String>,
+    agent_email: Option<String>,
+    agent_password: Option<String>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let sidecar = daemon::get_sidecar_path(&app)?;
+
+    let mut payload = serde_json::json!({ "api_key": api_key });
+    if let Some(v) = supabase_url.filter(|s| !s.is_empty()) {
+        payload["supabase_url"] = serde_json::Value::String(v);
+    }
+    if let Some(v) = supabase_anon_key.filter(|s| !s.is_empty()) {
+        payload["supabase_anon_key"] = serde_json::Value::String(v);
+    }
+    if let Some(v) = agent_email.filter(|s| !s.is_empty()) {
+        payload["agent_email"] = serde_json::Value::String(v);
+    }
+    if let Some(v) = agent_password.filter(|s| !s.is_empty()) {
+        payload["agent_password"] = serde_json::Value::String(v);
+    }
+
+    let mut child = Command::new(&sidecar)
+        .args(["agent", "configure-headless", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn configure command: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin
+            .write_all(payload.to_string().as_bytes())
+            .map_err(|e| format!("Failed to write to stdin: {e}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Failed to wait for configure command: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Configure command failed: {stderr}"));
+    }
+
+    Ok(())
+}
+
 /// Update Soulseek credentials from the Settings panel without re-running the wizard.
 /// Reads the stored api_key from the config file and calls configure-headless with the
 /// new credentials + all existing config values.

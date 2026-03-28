@@ -43,6 +43,7 @@ pub fn run() {
             commands::clear_log_file,
             commands::get_log_content,
             commands::open_downloads_dir,
+            commands::sign_in_from_settings,
         ])
         // ---- App setup ----
         .setup(|app| {
@@ -60,14 +61,17 @@ pub fn run() {
                 }
             }
 
-            // --- Deep link handler — bring window to front when djtoolkit:// URL opens ---
+            // --- Deep link handler — focus main window and forward URL to all webviews ---
             #[cfg(desktop)]
             {
                 let dl_handle = app.handle().clone();
-                app.deep_link().on_open_url(move |_event| {
+                app.deep_link().on_open_url(move |event| {
                     if let Some(w) = dl_handle.get_webview_window("main") {
                         let _ = w.show();
                         let _ = w.set_focus();
+                    }
+                    for url in event.urls() {
+                        let _ = dl_handle.emit("deep-link-url", url.as_str().to_string());
                     }
                 });
             }
