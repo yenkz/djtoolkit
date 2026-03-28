@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AgentConnectPage() {
   const [status, setStatus] = useState<"idle" | "connecting" | "done" | "error">("idle");
@@ -10,9 +11,16 @@ export default function AgentConnectPage() {
     setStatus("connecting");
     setError("");
     try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not signed in — please log in first.");
+
       const res = await fetch("/api/agents/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ machine_name: navigator.userAgent.slice(0, 64) }),
       });
       if (!res.ok) {
