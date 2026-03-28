@@ -35,8 +35,14 @@ ProgressCallback = Callable[[int, str], Awaitable[None]] | None
 
 # ─── Download ─────────────────────────────────────────────────────────────────
 
+_COOKIES_PATH = os.environ.get("YTDLP_COOKIES", "/opt/djtoolkit/cookies.txt")
+
+
 def download_audio(url: str, output_dir: str) -> str:
     """Download audio from YouTube/SoundCloud to MP3 via yt-dlp.
+
+    Uses cookies file if available (required for YouTube on server IPs to
+    bypass bot detection). Falls back to cookieless download for SoundCloud.
 
     Returns the path to the downloaded MP3 file.
     """
@@ -50,8 +56,17 @@ def download_audio(url: str, output_dir: str) -> str:
         "--output", output_template,
         "--no-warnings",
         "--quiet",
-        url,
+        # Use iOS client to reduce bot detection on YouTube
+        "--extractor-args", "youtube:player_client=ios,web",
     ]
+
+    # Use cookies file if available (needed for YouTube on server IPs)
+    if os.path.exists(_COOKIES_PATH):
+        cmd.extend(["--cookies", _COOKIES_PATH])
+        log.info("Using cookies file: %s", _COOKIES_PATH)
+
+    cmd.append(url)
+
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
