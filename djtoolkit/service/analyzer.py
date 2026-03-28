@@ -39,43 +39,35 @@ _POT_SERVER_URL = os.environ.get("POT_SERVER_URL", "http://pot-server:4416")
 
 
 def download_audio(url: str, output_dir: str) -> str:
-    """Download audio from YouTube/SoundCloud to MP3 via yt-dlp Python API.
+    """Download audio from YouTube/SoundCloud to MP3 via yt-dlp CLI.
 
-    Uses cookies file if available (required for YouTube on server IPs to
-    bypass bot detection). Falls back to cookieless download for SoundCloud.
+    Uses the bgutil PO token provider (sidecar container) to bypass
+    YouTube bot detection on server IPs.
 
     Returns the path to the downloaded MP3 file.
     """
-    import yt_dlp
+    import subprocess
 
     output_template = os.path.join(output_dir, "mix.%(ext)s")
-
-    ydl_opts: dict = {
-        "format": "bestaudio/best",
-        "noplaylist": True,
-        "outtmpl": output_template,
-        "quiet": True,
-        "no_warnings": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
-        }],
-        # PO Token provider — generates proof-of-origin tokens via the
-        # bgutil sidecar container to bypass YouTube bot detection.
-        # The bgutil-ytdlp-pot-provider plugin auto-registers; we just
-        # need to point the HTTP provider to the sidecar container.
-        "extractor_args": {
-            "youtubepot-bgutilhttp": [f"base_url={_POT_SERVER_URL}"],
-        },
-    }
+    cmd = [
+        "yt-dlp",
+        "--no-playlist",
+        "--format", "bestaudio/best",
+        "--extract-audio",
+        "--audio-format", "mp3",
+        "--audio-quality", "192K",
+        "--output", output_template,
+        "--extractor-args", f"youtubepot-bgutilhttp:base_url={_POT_SERVER_URL}",
+        "--no-warnings",
+        url,
+    ]
 
     log.info("Downloading audio from: %s", url)
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except yt_dlp.utils.DownloadError as e:
-        raise RuntimeError(f"yt-dlp failed: {e}") from e
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        log.error("yt-dlp stderr: %s", stderr)
+        raise RuntimeError(f"yt-dlp failed: {stderr}")
 
     mp3_path = os.path.join(output_dir, "mix.mp3")
     if not os.path.exists(mp3_path):
