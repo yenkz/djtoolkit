@@ -34,8 +34,7 @@ ProgressCallback = Callable[[int, str], Awaitable[None]] | None
 
 # ─── Download ─────────────────────────────────────────────────────────────────
 
-_COOKIES_PATH = os.environ.get("YTDLP_COOKIES", "/opt/djtoolkit/cookies.txt")
-_POT_SERVER_URL = os.environ.get("POT_SERVER_URL", "http://pot-server:4416")
+_YTDLP_PROXY = os.environ.get("YTDLP_PROXY", "")
 
 
 def download_audio(url: str, output_dir: str) -> str:
@@ -57,10 +56,14 @@ def download_audio(url: str, output_dir: str) -> str:
         "--audio-format", "mp3",
         "--audio-quality", "192K",
         "--output", output_template,
-        "--extractor-args", f"youtubepot-bgutilhttp:base_url={_POT_SERVER_URL}",
         "--no-warnings",
         url,
     ]
+
+    # Route through SOCKS5 proxy to bypass YouTube bot detection on server IPs
+    if _YTDLP_PROXY:
+        cmd.insert(-1, "--proxy")
+        cmd.insert(-1, _YTDLP_PROXY)
 
     log.info("Downloading audio from: %s", url)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
