@@ -80,4 +80,4 @@ local_db_path           = "~/.djtoolkit/agent.db"
 confidence_threshold = 0.3    # 0.0–1.0; tracks below this are skipped
 poll_interval_sec = 7         # seconds between job status polls (clamped to 3–10 internally)
 poll_timeout_sec = 1800       # max total poll time in seconds; 0 = unlimited
-base_url = "https://trackid.dev"  # override for testing
+api_url = "https://api.djtoolkit.net"  # Hetzner analysis service

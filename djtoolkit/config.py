@@ -119,7 +119,7 @@ class TrackIdConfig:
     confidence_threshold: float = 0.7   # 0.0–1.0; tracks below this are skipped
     poll_interval_sec: int = 7          # seconds between status polls (clamped to 3–10 in poll_job)
     poll_timeout_sec: int = 1800        # max total poll duration in seconds; 0 = unlimited
-    base_url: str = "https://trackid.dev"
+    api_url: str = "https://api.djtoolkit.net"  # Hetzner analysis service
 
 
 @dataclass

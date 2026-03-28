@@ -8,6 +8,7 @@ from djtoolkit.service.config import get_settings
 from djtoolkit.service.routes.health import router as health_router
 from djtoolkit.service.routes.import_collection import router as import_router
 from djtoolkit.service.routes.export_collection import router as export_router
+from djtoolkit.service.routes.trackid import router as trackid_router
 
 VERCEL_ORIGIN_REGEX = r"https://djtoolkit(-[a-z0-9]+)?-yenkzs-projects\.vercel\.app"
 
@@ -42,5 +43,6 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(import_router)
     app.include_router(export_router)
+    app.include_router(trackid_router)
 
     return app

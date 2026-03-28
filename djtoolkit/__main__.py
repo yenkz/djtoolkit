@@ -174,11 +174,11 @@ def import_folder(
 
 @import_app.command("trackid")
 def import_trackid_cmd(
-    url: Annotated[str, typer.Option("--url", help="YouTube URL of DJ mix to identify")],
+    url: Annotated[str, typer.Option("--url", help="YouTube or SoundCloud URL of DJ mix to identify")],
     force: Annotated[bool, typer.Option("--force", help="Re-submit even if URL is cached")] = False,
     config: ConfigOpt = "djtoolkit.toml",
 ):
-    """Identify tracks in a YouTube DJ mix via TrackID.dev (Flow 3)."""
+    """Identify tracks in a YouTube/SoundCloud DJ mix via Shazam analysis (Flow 3)."""
     from djtoolkit.importers.trackid import import_trackid, validate_url
 
     try:
@@ -697,14 +697,12 @@ def agent_configure_headless(
         raise typer.Exit(1)
 
     # Validate required fields
-    required = ["api_key", "slsk_user", "slsk_pass"]
-    for field in required:
-        if field not in data or not data[field]:
-            _sys.stdout.write(_json.dumps({
-                "status": "error",
-                "message": f"Invalid input: missing required field '{field}'",
-            }) + "\n")
-            raise typer.Exit(1)
+    if not data.get("api_key"):
+        _sys.stdout.write(_json.dumps({
+            "status": "error",
+            "message": "Invalid input: missing required field 'api_key'",
+        }) + "\n")
+        raise typer.Exit(1)
 
     api_key = data["api_key"]
     if not api_key.startswith("djt_"):
@@ -714,11 +712,17 @@ def agent_configure_headless(
         }) + "\n")
         raise typer.Exit(1)
 
+    # slsk_user / slsk_pass are optional — fall back to existing keychain values
+    # so the Settings panel can re-auth without re-entering Soulseek credentials.
+    from djtoolkit.agent.keychain import get_secret, SLSK_USERNAME, SLSK_PASSWORD
+    slsk_user = data.get("slsk_user") or get_secret(SLSK_USERNAME) or ""
+    slsk_pass = data.get("slsk_pass") or get_secret(SLSK_PASSWORD) or ""
+
     # Store credentials in system credential store
     store_agent_credentials(
         api_key=api_key,
-        slsk_username=data["slsk_user"],
-        slsk_password=data["slsk_pass"],
+        slsk_username=slsk_user,
+        slsk_password=slsk_pass,
         acoustid_key=data.get("acoustid_key"),
         supabase_url=data.get("supabase_url"),
         supabase_anon_key=data.get("supabase_anon_key"),
@@ -747,6 +751,8 @@ cloud_url = "{cloud_url}"
 poll_interval_sec = {poll_interval}
 max_concurrent_jobs = 2
 downloads_dir = "{toml_downloads_dir}"
+api_key = "{api_key}"
+slsk_username = "{slsk_user}"
 
 [soulseek]
 search_timeout_sec = 15

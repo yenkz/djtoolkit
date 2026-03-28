@@ -133,7 +133,7 @@ def test_trackid_defaults():
     assert cfg.confidence_threshold == 0.7
     assert cfg.poll_interval_sec == 7
     assert cfg.poll_timeout_sec == 1800
-    assert cfg.base_url == "https://trackid.dev"
+    assert cfg.api_url == "https://api.djtoolkit.net"
 
 
 def test_config_has_trackid_section(tmp_path):

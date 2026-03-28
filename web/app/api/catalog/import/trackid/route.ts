@@ -1,9 +1,9 @@
 /**
  * POST /api/catalog/import/trackid
  *
- * Start a TrackID import job. Accepts a YouTube URL, checks cache, and either
- * inserts tracks immediately (cache hit) or submits to TrackID.dev and creates
- * a pending job that the status endpoint will poll.
+ * Start a track identification job. Accepts a YouTube or SoundCloud URL,
+ * checks cache, and either inserts tracks immediately (cache hit) or submits
+ * to the Hetzner analysis service for Shazam-based identification.
  *
  * Body: { url: string }
  * Query params:
@@ -21,37 +21,48 @@ import { jsonError } from "@/lib/api-server/errors";
 import { randomUUID } from "crypto";
 import { getUserSettings, getJobSettings } from "@/lib/api-server/job-settings";
 
-// ─── YouTube URL validator ───────────────────────────────────────────────────
+// ─── URL validator (YouTube + SoundCloud) ───────────────────────────────────
 
 const YT_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
-function validateYouTubeUrl(url: string): string {
-  let videoId: string | null = null;
-
+function validateMixUrl(url: string): string {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.replace(/^www\./, "");
 
-    if (host === "youtube.com") {
+    // YouTube
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      let videoId: string | null = null;
       if (parsed.pathname === "/watch") {
         videoId = parsed.searchParams.get("v");
       } else if (parsed.pathname.startsWith("/embed/")) {
         videoId = parsed.pathname.slice("/embed/".length).split("/")[0];
       }
-    } else if (host === "youtu.be") {
-      videoId = parsed.pathname.slice(1).split("/")[0];
+      if (videoId && YT_VIDEO_ID_RE.test(videoId)) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
+    if (host === "youtu.be") {
+      const videoId = parsed.pathname.slice(1).split("/")[0];
+      if (videoId && YT_VIDEO_ID_RE.test(videoId)) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
+
+    // SoundCloud
+    if (host === "soundcloud.com" || host === "m.soundcloud.com") {
+      const path = parsed.pathname.replace(/^\/+|\/+$/g, "");
+      if (path.includes("/")) {
+        return `https://soundcloud.com/${path}`;
+      }
     }
   } catch {
     throw new Error("Invalid URL");
   }
 
-  if (!videoId || !YT_VIDEO_ID_RE.test(videoId)) {
-    throw new Error(
-      "URL must be a valid YouTube video URL (youtube.com/watch?v=ID, youtu.be/ID, or youtube.com/embed/ID)"
-    );
-  }
-
-  return `https://www.youtube.com/watch?v=${videoId}`;
+  throw new Error(
+    "URL must be a YouTube or SoundCloud link (youtube.com/watch?v=ID, youtu.be/ID, or soundcloud.com/artist/set)"
+  );
 }
 
 // ─── Search string builder ───────────────────────────────────────────────────
@@ -77,7 +88,7 @@ interface CachedTrack {
   search_string: string | null;
 }
 
-const TRACKID_BASE = "https://trackid.dev";
+const ANALYSIS_API = process.env.DJTOOLKIT_API_URL || "https://api.djtoolkit.net";
 
 // ─── Route handler ───────────────────────────────────────────────────────────
 
@@ -107,7 +118,7 @@ export async function POST(request: NextRequest) {
   // Validate and normalize YouTube URL
   let normalizedUrl: string;
   try {
-    normalizedUrl = validateYouTubeUrl(body.url);
+    normalizedUrl = validateMixUrl(body.url);
   } catch (err) {
     return jsonError(
       err instanceof Error ? err.message : "Invalid YouTube URL",
@@ -257,37 +268,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ job_id: jobId }, { status: 202 });
   }
 
-  // Cache miss — submit to TrackID.dev directly
-  const submitResp = await fetch(`${TRACKID_BASE}/api/analyze`, {
+  // Cache miss — submit to Hetzner analysis service
+  const userSettings = await getUserSettings(supabase, user.userId);
+  const confidenceThreshold = Number(
+    userSettings.trackid_confidence_threshold ?? 0.7
+  );
+
+  const submitResp = await fetch(`${ANALYSIS_API}/trackid/analyze`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "User-Agent": "djtoolkit/1.0",
+      Authorization: request.headers.get("Authorization") ?? "",
     },
-    body: JSON.stringify({ url: normalizedUrl }),
+    body: JSON.stringify({
+      url: normalizedUrl,
+      job_id: jobId,
+      confidence_threshold: confidenceThreshold,
+      preview,
+    }),
   });
 
-  if (submitResp.status === 429) {
-    return jsonError("TrackID.dev rate limit reached. Try again in a few minutes.", 429);
-  }
   if (!submitResp.ok) {
-    return jsonError(`TrackID.dev submission failed: ${submitResp.status}`, 502);
+    const errText = await submitResp.text().catch(() => "");
+    return jsonError(`Analysis service error: ${submitResp.status} ${errText}`, 502);
   }
-
-  const submitData = await submitResp.json();
-  const trackidJobId = submitData.jobId as string;
-
-  // Create a pending job with the TrackID job ID stored for polling
-  await supabase.from("trackid_import_jobs").insert({
-    id: jobId,
-    user_id: user.userId,
-    youtube_url: normalizedUrl,
-    status: "queued",
-    progress: 0,
-    step: "Submitted to TrackID.dev…",
-    trackid_job_id: trackidJobId,
-    preview,
-  });
 
   await auditLog(user.userId, "track.import.trackid", {
     resourceType: "youtube_url",

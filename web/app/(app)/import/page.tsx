@@ -716,7 +716,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const totalTracks = (selectedPlaylist?.track_count ?? null) !== null
     ? (selectedPlaylist!.track_count! + csvRowCount)
     : csvRowCount;
-  const trackIdValid = /youtu\.?be/.test(trackIdUrl) || trackIdUrl.includes("youtube.com/watch");
+  const trackIdValid = /youtu\.?be/.test(trackIdUrl) || trackIdUrl.includes("youtube.com/watch") || trackIdUrl.includes("soundcloud.com/");
   const djReady = djFile !== null;
   const sourcesSelected = (selectedPlaylistId ? 1 : 0) + (csvFile ? 1 : 0) + (trackIdValid ? 1 : 0) + (djReady ? 1 : 0);
 
@@ -1058,7 +1058,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
         >
           <input
             type="url"
-            placeholder="https://www.youtube.com/watch?v=..."
+            placeholder="YouTube or SoundCloud URL…"
             value={trackIdUrl}
             onChange={(e) => setTrackIdUrl(e.target.value)}
             className="w-full font-mono text-[13px] outline-none transition-all duration-200"
