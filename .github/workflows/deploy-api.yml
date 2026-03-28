@@ -64,6 +64,15 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
+      - name: Copy docker-compose.yml to Hetzner
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "/opt/djtoolkit"
+
       - name: Deploy to Hetzner
         uses: appleboy/ssh-action@v1
         with:
@@ -72,6 +81,6 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
             cd /opt/djtoolkit
-            docker compose pull api
-            docker compose up -d --remove-orphans api
+            docker compose pull
+            docker compose up -d --remove-orphans
             docker image prune -f
