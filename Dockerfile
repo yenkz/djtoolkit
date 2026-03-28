@@ -29,9 +29,12 @@ RUN apt-get update && \
         libchromaprint-tools \
         ffmpeg \
         curl \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install deno — yt-dlp's default JS runtime for YouTube signature solving
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+ENV DENO_DIR=/tmp/deno
 
 RUN useradd --create-home --shell /bin/bash app
 WORKDIR /app
