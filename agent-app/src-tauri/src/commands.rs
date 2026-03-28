@@ -102,7 +102,7 @@ pub fn configure_agent(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn configure command: {e}"))?;
+        .map_err(|e| format!("Failed to spawn configure command ({}): {e}", sidecar.display()))?;
 
     // Write JSON to stdin and close it.
     if let Some(mut stdin) = child.stdin.take() {
@@ -159,7 +159,7 @@ pub fn sign_in_from_settings(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn configure command: {e}"))?;
+        .map_err(|e| format!("Failed to spawn configure command ({}): {e}", sidecar.display()))?;
 
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
