@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            os: macos-15
+            os: macos-14
             target-triple: aarch64-apple-darwin
             spec: packaging/macos/djtoolkit.spec
             binary-name: djtoolkit
@@ -118,7 +118,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            os: macos-15
+            os: macos-14
             target: aarch64-apple-darwin
             target-triple: aarch64-apple-darwin
           - name: Windows x64
