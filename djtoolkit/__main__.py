@@ -215,6 +215,64 @@ def import_trackid_cmd(
         console.print("[yellow]Warning: TrackID found 0 identifiable tracks in this mix.[/yellow]")
 
 
+@import_app.command("traktor")
+def import_traktor_cmd(
+    nml_path: Annotated[Path, typer.Argument(help="Path to Traktor NML collection file")],
+    config: ConfigOpt = "djtoolkit.toml",
+):
+    """Import a Traktor NML collection into the database."""
+    from djtoolkit.adapters.traktor import TraktorImporter
+
+    if not nml_path.exists():
+        console.print(f"[red]File not found:[/red] {nml_path}")
+        raise typer.Exit(1)
+
+    data = nml_path.read_bytes()
+    result = TraktorImporter().parse(data)
+
+    adapter = _adapter()
+    user_id = _user_id()
+    save_stats = adapter.save_tracks(result.tracks, user_id)
+
+    console.print(
+        f"[green]✓[/green] Imported [bold]{save_stats.get('imported', 0)}[/bold] tracks "
+        f"from Traktor collection ({len(result.tracks)} parsed)"
+    )
+    if result.playlists:
+        console.print(f"  Playlists found: {', '.join(result.playlists.keys())}")
+    if result.warnings:
+        console.print(f"  [yellow]{len(result.warnings)} warning(s)[/yellow]")
+
+
+@import_app.command("rekordbox")
+def import_rekordbox_cmd(
+    xml_path: Annotated[Path, typer.Argument(help="Path to Rekordbox XML collection file")],
+    config: ConfigOpt = "djtoolkit.toml",
+):
+    """Import a Rekordbox XML collection into the database."""
+    from djtoolkit.adapters.rekordbox import RekordboxImporter
+
+    if not xml_path.exists():
+        console.print(f"[red]File not found:[/red] {xml_path}")
+        raise typer.Exit(1)
+
+    data = xml_path.read_bytes()
+    result = RekordboxImporter().parse(data)
+
+    adapter = _adapter()
+    user_id = _user_id()
+    save_stats = adapter.save_tracks(result.tracks, user_id)
+
+    console.print(
+        f"[green]✓[/green] Imported [bold]{save_stats.get('imported', 0)}[/bold] tracks "
+        f"from Rekordbox collection ({len(result.tracks)} parsed)"
+    )
+    if result.playlists:
+        console.print(f"  Playlists found: {', '.join(result.playlists.keys())}")
+    if result.warnings:
+        console.print(f"  [yellow]{len(result.warnings)} warning(s)[/yellow]")
+
+
 # ─── pipeline commands ────────────────────────────────────────────────────────
 
 @app.command()
@@ -552,7 +610,7 @@ def coverart_list(
     console.print(t)
 
 
-# ─── agent commands ──────────────────────────────────────���────────────────────
+# ─── agent commands ───────────────────────────────────────────────────────────
 
 @agent_app.command("configure")
 def agent_configure(
@@ -586,7 +644,7 @@ def agent_configure(
 
     config_content = f"""[agent]
 cloud_url = "{cloud_url}"
-poll_interval_sec = 30
+poll_interval_sec = 60
 max_concurrent_jobs = 2
 
 [soulseek]
@@ -661,14 +719,17 @@ def agent_configure_headless(
         slsk_username=data["slsk_user"],
         slsk_password=data["slsk_pass"],
         acoustid_key=data.get("acoustid_key"),
+        supabase_url=data.get("supabase_url"),
+        supabase_anon_key=data.get("supabase_anon_key"),
+        agent_email=data.get("agent_email"),
+        agent_password=data.get("agent_password"),
     )
 
     # Write config file
     from djtoolkit.agent.paths import config_dir, default_downloads_dir
-    cloud_url = data.get("cloud_url", "https://www.djtoolkit.net")
+    cloud_url = data.get("cloud_url", "https://api.djtoolkit.com")
     downloads_dir = data.get("downloads_dir", str(default_downloads_dir()))
     poll_interval = data.get("poll_interval", 30)
-    slsk_username = data["slsk_user"]
 
     # Expand ~ for the response but keep unexpanded in config if user passed ~
     expanded_downloads = str(Path(downloads_dir).expanduser())
@@ -680,11 +741,7 @@ def agent_configure_headless(
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_path = cfg_dir / "config.toml"
 
-    config_content = f"""# Root-level keys are read by the Tauri GUI app (flat AppConfig struct).
-api_key = "{api_key}"
-slsk_username = "{slsk_username}"
-
-[agent]
+    config_content = f"""[agent]
 cloud_url = "{cloud_url}"
 poll_interval_sec = {poll_interval}
 max_concurrent_jobs = 2
@@ -990,7 +1047,7 @@ def _setup_terminal_wizard():
 
     config_content = f"""[agent]
 cloud_url = "https://api.djtoolkit.com"
-poll_interval_sec = 30
+poll_interval_sec = 60
 max_concurrent_jobs = 2
 downloads_dir = "{toml_downloads_dir}"
 

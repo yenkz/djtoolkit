@@ -98,7 +98,7 @@ CREATE POLICY trackid_url_cache_read ON trackid_url_cache
 CREATE POLICY trackid_url_cache_insert ON trackid_url_cache
     FOR INSERT
     TO authenticated
-    WITH CHECK (true);
+    WITH CHECK (auth.uid() IS NOT NULL);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- audit_logs  (service_role inserts; users can only read their own rows)
