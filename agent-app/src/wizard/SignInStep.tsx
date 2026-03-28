@@ -20,15 +20,12 @@ interface SignInStepProps {
   onBack: () => void;
 }
 
-type AuthMethod = "browser" | "email" | "apikey";
+type AuthMethod = "browser" | "apikey";
 
 export default function SignInStep({ onCredentials, onNext, onBack }: SignInStepProps) {
   const [method, setMethod] = useState<AuthMethod>("browser");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
 
@@ -79,44 +76,6 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
     }
   };
 
-  // --- Email / password auth ---
-  const handleEmailSignIn = async () => {
-    if (!email.trim() || !password) {
-      setError("Email and password are required");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(`${CLOUD_URL}/api/agents/register-with-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-          machine_name: navigator.userAgent.slice(0, 64),
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? `Sign in failed (${res.status})`);
-      }
-      const data = await res.json();
-      onCredentials({
-        apiKey: data.api_key ?? "",
-        supabaseUrl: data.supabase_url ?? "",
-        supabaseAnonKey: data.supabase_anon_key ?? "",
-        agentEmail: data.agent_email ?? "",
-        agentPassword: data.agent_password ?? "",
-      });
-      onNext();
-    } catch (e) {
-      setError(String(e).replace(/^Error: /, ""));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // --- API key ---
   const handleApiKeyNext = () => {
     if (!apiKey.trim()) {
@@ -150,12 +109,6 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
           Browser
         </button>
         <button
-          className={`auth-toggle-btn ${method === "email" ? "active" : ""}`}
-          onClick={() => switchMethod("email")}
-        >
-          Email & Password
-        </button>
-        <button
           className={`auth-toggle-btn ${method === "apikey" ? "active" : ""}`}
           onClick={() => switchMethod("apikey")}
         >
@@ -178,33 +131,6 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
               automatically.
             </p>
           )}
-        </div>
-      )}
-
-      {method === "email" && (
-        <div className="signin-method">
-          <div className="form-fields">
-            <Input
-              label="Email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.currentTarget.value);
-                clearError();
-              }}
-            />
-            <Input
-              label="Password"
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.currentTarget.value);
-                clearError();
-              }}
-            />
-          </div>
         </div>
       )}
 
@@ -241,11 +167,6 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
         <Button variant="secondary" onClick={onBack}>
           Back
         </Button>
-        {method === "email" && (
-          <Button onClick={handleEmailSignIn} disabled={loading}>
-            {loading ? "Signing in…" : "Sign In"}
-          </Button>
-        )}
         {method === "apikey" && (
           <Button onClick={handleApiKeyNext} disabled={!apiKey.trim()}>
             Continue
