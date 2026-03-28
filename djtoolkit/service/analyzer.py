@@ -56,8 +56,8 @@ def download_audio(url: str, output_dir: str) -> str:
         "--output", output_template,
         "--no-warnings",
         "--quiet",
-        # Use iOS client to reduce bot detection on YouTube
-        "--extractor-args", "youtube:player_client=ios,web",
+        # Use web_music client — better format availability on servers
+        "--extractor-args", "youtube:player_client=web_music,web",
     ]
 
     # Use cookies file if available (needed for YouTube on server IPs)
