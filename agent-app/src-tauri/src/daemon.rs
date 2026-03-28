@@ -2,8 +2,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::Manager;
-
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -68,20 +66,21 @@ fn pause_file() -> PathBuf {
 }
 
 /// Resolve the bundled sidecar binary path.
-/// For now we look in the app's resource directory for `djtoolkit` (or `djtoolkit.exe` on Windows).
-pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+/// Tauri places `externalBin` binaries next to the main executable (e.g. Contents/MacOS/ on macOS)
+/// with the target triple appended: `djtoolkit-aarch64-apple-darwin`.
+pub fn get_sidecar_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {e}"))?
+        .parent()
+        .ok_or_else(|| "Failed to get exe parent directory".to_string())?
+        .to_path_buf();
 
     #[cfg(target_os = "windows")]
-    let binary_name = "djtoolkit.exe";
+    let binary_name = concat!("djtoolkit-", env!("TARGET_TRIPLE"), ".exe");
     #[cfg(not(target_os = "windows"))]
-    let binary_name = "djtoolkit";
+    let binary_name = concat!("djtoolkit-", env!("TARGET_TRIPLE"));
 
-    let path = resource_dir.join(binary_name);
-    Ok(path)
+    Ok(exe_dir.join(binary_name))
 }
 
 /// Start the daemon as a detached child process.
