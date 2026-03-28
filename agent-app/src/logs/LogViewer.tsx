@@ -65,7 +65,12 @@ export default function LogViewer() {
     }
   };
 
-  const clearLogs = () => {
+  const clearLogs = async () => {
+    try {
+      await invoke("clear_log_file");
+    } catch {
+      // Best-effort — still clear the UI
+    }
     setLines([]);
   };
 

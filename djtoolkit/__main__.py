@@ -552,7 +552,7 @@ def coverart_list(
     console.print(t)
 
 
-# ─── agent commands ───────────────────────────────────────────────────────────
+# ─── agent commands ──────────────────────────────────────���────────────────────
 
 @agent_app.command("configure")
 def agent_configure(
@@ -665,9 +665,10 @@ def agent_configure_headless(
 
     # Write config file
     from djtoolkit.agent.paths import config_dir, default_downloads_dir
-    cloud_url = data.get("cloud_url", "https://api.djtoolkit.com")
+    cloud_url = data.get("cloud_url", "https://www.djtoolkit.net")
     downloads_dir = data.get("downloads_dir", str(default_downloads_dir()))
     poll_interval = data.get("poll_interval", 30)
+    slsk_username = data["slsk_user"]
 
     # Expand ~ for the response but keep unexpanded in config if user passed ~
     expanded_downloads = str(Path(downloads_dir).expanduser())
@@ -679,7 +680,11 @@ def agent_configure_headless(
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_path = cfg_dir / "config.toml"
 
-    config_content = f"""[agent]
+    config_content = f"""# Root-level keys are read by the Tauri GUI app (flat AppConfig struct).
+api_key = "{api_key}"
+slsk_username = "{slsk_username}"
+
+[agent]
 cloud_url = "{cloud_url}"
 poll_interval_sec = {poll_interval}
 max_concurrent_jobs = 2

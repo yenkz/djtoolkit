@@ -27,6 +27,15 @@ pub struct AppConfig {
     /// Whether the app should launch at system startup.
     #[serde(default = "default_launch_at_startup")]
     pub launch_at_startup: bool,
+
+    /// Agent API key (non-sensitive identifier, stored here for Settings display).
+    /// The canonical copy is in the OS keychain; this is kept in sync by configure-headless.
+    #[serde(default)]
+    pub api_key: String,
+
+    /// Soulseek username (non-sensitive, stored for display in Settings).
+    #[serde(default)]
+    pub slsk_username: String,
 }
 
 fn default_cloud_url() -> String {
@@ -64,6 +73,8 @@ impl Default for AppConfig {
             max_concurrent_jobs: default_max_concurrent(),
             downloads_dir: default_downloads_dir(),
             launch_at_startup: default_launch_at_startup(),
+            api_key: String::new(),
+            slsk_username: String::new(),
         }
     }
 }

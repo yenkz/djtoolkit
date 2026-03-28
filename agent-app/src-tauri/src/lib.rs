@@ -36,6 +36,8 @@ pub fn run() {
             commands::save_config,
             commands::has_config,
             commands::configure_agent,
+            commands::update_credentials,
+            commands::clear_log_file,
             commands::get_log_content,
             commands::open_downloads_dir,
         ])

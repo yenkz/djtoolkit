@@ -81,7 +81,7 @@ pub fn configure_agent(
     });
 
     let mut child = Command::new(&sidecar)
-        .args(["agent", "configure-headless"])
+        .args(["agent", "configure-headless", "--stdin"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -109,9 +109,35 @@ pub fn configure_agent(
     Ok(())
 }
 
+/// Update Soulseek credentials from the Settings panel without re-running the wizard.
+/// Reads the stored api_key from the config file and calls configure-headless with the
+/// new credentials + all existing config values.
+#[tauri::command]
+pub fn update_credentials(
+    slsk_user: String,
+    slsk_pass: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let cfg = config::load_config()?;
+    if cfg.api_key.is_empty() {
+        return Err("Not signed in — please run the setup wizard first".into());
+    }
+    configure_agent(cfg.api_key, slsk_user, slsk_pass, app)
+}
+
 // ---------------------------------------------------------------------------
 // Log viewer
 // ---------------------------------------------------------------------------
+
+/// Truncate `agent.log` so the viewer shows a clean slate.
+#[tauri::command]
+pub fn clear_log_file() -> Result<(), String> {
+    let log_path = daemon::get_config_dir().join("agent.log");
+    if log_path.exists() {
+        fs::write(&log_path, "").map_err(|e| format!("Failed to clear log file: {e}"))?;
+    }
+    Ok(())
+}
 
 /// Read the last N lines from `agent.log` in the config directory.
 #[tauri::command]

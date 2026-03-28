@@ -18,12 +18,10 @@ const SECTIONS: { key: Section; label: string }[] = [
 const DEFAULT_CONFIG: AppConfig = {
   downloads_dir: "",
   launch_at_startup: true,
-  slsk_username: "",
-  slsk_password: "",
-  acoustid_api_key: "",
-  poll_interval_secs: 30,
-  max_concurrent_jobs: 2,
   api_key: "",
+  slsk_username: "",
+  poll_interval_sec: 30,
+  max_concurrent_jobs: 2,
 };
 
 export default function SettingsPanel() {
@@ -34,11 +32,19 @@ export default function SettingsPanel() {
   const [signOutConfirm, setSignOutConfirm] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Credential form state — kept separate so we don't auto-save passwords
+  const [credUsername, setCredUsername] = useState("");
+  const [credPassword, setCredPassword] = useState("");
+  const [credSaving, setCredSaving] = useState(false);
+  const [credStatus, setCredStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [credError, setCredError] = useState("");
+
   useEffect(() => {
     (async () => {
       try {
         const c = await invoke<AppConfig>("get_config");
         setConfig(c);
+        setCredUsername(c.slsk_username || "");
       } catch {
         // Use defaults
       }
@@ -85,6 +91,40 @@ export default function SettingsPanel() {
     }
     update("api_key", "");
     setSignOutConfirm(false);
+  };
+
+  const handleSaveCredentials = async () => {
+    if (!credUsername.trim()) {
+      setCredError("Username is required");
+      setCredStatus("error");
+      return;
+    }
+    if (!credPassword.trim()) {
+      setCredError("Password is required");
+      setCredStatus("error");
+      return;
+    }
+    setCredSaving(true);
+    setCredStatus("idle");
+    setCredError("");
+    try {
+      await invoke("update_credentials", {
+        slskUser: credUsername.trim(),
+        slskPass: credPassword,
+      });
+      setCredStatus("saved");
+      setCredPassword("");
+      // Refresh config so slsk_username reflects the new value
+      const updated = await invoke<AppConfig>("get_config");
+      setConfig(updated);
+      setCredUsername(updated.slsk_username || credUsername.trim());
+      setTimeout(() => setCredStatus("idle"), 2000);
+    } catch (e) {
+      setCredError(String(e));
+      setCredStatus("error");
+    } finally {
+      setCredSaving(false);
+    }
   };
 
   return (
@@ -138,27 +178,38 @@ export default function SettingsPanel() {
 
         {section === "credentials" && (
           <div className="settings-section">
+            <p className="settings-hint">
+              Credentials are stored securely in the system keychain.
+            </p>
             <Input
               label="Soulseek username"
               type="text"
-              value={config.slsk_username}
-              onChange={(e) => update("slsk_username", e.currentTarget.value)}
-              placeholder="Username"
+              value={credUsername}
+              onChange={(e) => {
+                setCredUsername(e.currentTarget.value);
+                setCredStatus("idle");
+              }}
+              placeholder="Your Soulseek username"
             />
             <Input
-              label="Soulseek password"
+              label="New Soulseek password"
               type="password"
-              value={config.slsk_password}
-              onChange={(e) => update("slsk_password", e.currentTarget.value)}
-              placeholder="Password"
+              value={credPassword}
+              onChange={(e) => {
+                setCredPassword(e.currentTarget.value);
+                setCredStatus("idle");
+              }}
+              placeholder="Enter password to update"
             />
-            <Input
-              label="AcoustID API key (optional)"
-              type="text"
-              value={config.acoustid_api_key}
-              onChange={(e) => update("acoustid_api_key", e.currentTarget.value)}
-              placeholder="API key"
-            />
+            {credStatus === "error" && (
+              <p className="form-error">{credError || "Failed to save credentials"}</p>
+            )}
+            {credStatus === "saved" && (
+              <p className="form-success">Credentials saved</p>
+            )}
+            <Button onClick={handleSaveCredentials} loading={credSaving}>
+              Save Credentials
+            </Button>
           </div>
         )}
 
@@ -167,8 +218,8 @@ export default function SettingsPanel() {
             <Input
               label="Poll interval (seconds)"
               type="number"
-              value={config.poll_interval_secs}
-              onChange={(e) => update("poll_interval_secs", Number(e.currentTarget.value))}
+              value={config.poll_interval_sec}
+              onChange={(e) => update("poll_interval_sec", Number(e.currentTarget.value))}
             />
             <Input
               label="Max concurrent jobs"
