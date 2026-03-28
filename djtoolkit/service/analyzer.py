@@ -62,22 +62,13 @@ def download_audio(url: str, output_dir: str) -> str:
             "preferredquality": "192",
         }],
         # PO Token provider — generates proof-of-origin tokens via the
-        # bgutil sidecar container to bypass YouTube bot detection
+        # bgutil sidecar container to bypass YouTube bot detection.
+        # The bgutil-ytdlp-pot-provider plugin auto-registers; we just
+        # need to point the HTTP provider to the sidecar container.
         "extractor_args": {
-            "youtube": [f"po_token_provider=youtubepot-bgutilhttp"],
             "youtubepot-bgutilhttp": [f"base_url={_POT_SERVER_URL}"],
         },
     }
-
-    # Copy cookies to a writable temp file (container runs as non-root user
-    # but the mounted cookies file is owned by root)
-    if os.path.exists(_COOKIES_PATH):
-        tmp_cookies = os.path.join(output_dir, "cookies.txt")
-        shutil.copy2(_COOKIES_PATH, tmp_cookies)
-        ydl_opts["cookiefile"] = tmp_cookies
-        log.info("Using cookies file: %s (%d bytes)", _COOKIES_PATH, os.path.getsize(_COOKIES_PATH))
-    else:
-        log.warning("No cookies file at %s — YouTube may block the download", _COOKIES_PATH)
 
     log.info("Downloading audio from: %s", url)
     try:
