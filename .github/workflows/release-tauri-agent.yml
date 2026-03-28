@@ -112,6 +112,28 @@ jobs:
       - name: Build sidecar binary
         run: poetry run pyinstaller ${{ matrix.spec }} --clean --noconfirm
 
+      # Re-sign with ad-hoc identity + disable-library-validation entitlement (macOS).
+      # PyInstaller bundles python.org's Python.framework (signed with their Team ID).
+      # When the binary extracts to /tmp at runtime, macOS refuses to dlopen the framework
+      # because the calling process (ad-hoc, no Team ID) differs from the framework's Team ID.
+      # The disable-library-validation entitlement disables that check for this process.
+      - name: Re-sign sidecar with entitlements (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cat > /tmp/entitlements.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>com.apple.security.cs.disable-library-validation</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          codesign --force --sign - --options runtime \
+            --entitlements /tmp/entitlements.plist \
+            dist/${{ matrix.binary-name }}
+
       # Rename to Tauri sidecar convention: djtoolkit-{target-triple}
       - name: Rename sidecar (macOS)
         if: runner.os == 'macOS'
