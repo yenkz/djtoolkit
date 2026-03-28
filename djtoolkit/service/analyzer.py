@@ -15,7 +15,6 @@ import asyncio
 import logging
 import os
 import shutil
-import subprocess
 import tempfile
 from typing import Callable, Awaitable
 
@@ -39,44 +38,46 @@ _COOKIES_PATH = os.environ.get("YTDLP_COOKIES", "/opt/djtoolkit/cookies.txt")
 
 
 def download_audio(url: str, output_dir: str) -> str:
-    """Download audio from YouTube/SoundCloud to MP3 via yt-dlp.
+    """Download audio from YouTube/SoundCloud to MP3 via yt-dlp Python API.
 
     Uses cookies file if available (required for YouTube on server IPs to
     bypass bot detection). Falls back to cookieless download for SoundCloud.
 
     Returns the path to the downloaded MP3 file.
     """
+    import yt_dlp
+
     output_template = os.path.join(output_dir, "mix.%(ext)s")
-    cmd = [
-        "yt-dlp",
-        "--no-playlist",
-        "--format", "bestaudio/best",
-        "--extract-audio",
-        "--audio-format", "mp3",
-        "--postprocessor-args", "ffmpeg:-ac 2 -ar 22050",
-        "--output", output_template,
-        "--no-warnings",
-        "--quiet",
-    ]
+
+    ydl_opts: dict = {
+        "format": "bestaudio/best",
+        "noplaylist": True,
+        "outtmpl": output_template,
+        "quiet": True,
+        "no_warnings": True,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+    }
 
     # Copy cookies to a writable temp file (container runs as non-root user
     # but the mounted cookies file is owned by root)
     if os.path.exists(_COOKIES_PATH):
         tmp_cookies = os.path.join(output_dir, "cookies.txt")
         shutil.copy2(_COOKIES_PATH, tmp_cookies)
-        cmd.extend(["--cookies", tmp_cookies])
+        ydl_opts["cookiefile"] = tmp_cookies
         log.info("Using cookies file: %s (%d bytes)", _COOKIES_PATH, os.path.getsize(_COOKIES_PATH))
     else:
         log.warning("No cookies file at %s — YouTube may block the download", _COOKIES_PATH)
 
-    cmd.append(url)
-    log.info("yt-dlp command: %s", " ".join(cmd))
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        log.error("yt-dlp stderr: %s", stderr)
-        raise RuntimeError(f"yt-dlp failed: {stderr}")
+    log.info("Downloading audio from: %s", url)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except yt_dlp.utils.DownloadError as e:
+        raise RuntimeError(f"yt-dlp failed: {e}") from e
 
     mp3_path = os.path.join(output_dir, "mix.mp3")
     if not os.path.exists(mp3_path):
