@@ -10,6 +10,8 @@ const STEP_LABELS = ["Welcome", "Sign In", "Soulseek", "Done"];
 
 export default function Wizard() {
   const [step, setStep] = useState(0);
+  const [soulseekError, setSoulseekError] = useState("");
+  const [soulseekLoading, setSoulseekLoading] = useState(false);
   const [data, setData] = useState<WizardData>({
     apiKey: "",
     supabaseUrl: "",
@@ -35,16 +37,24 @@ export default function Wizard() {
   };
 
   const handleSoulseekDone = async () => {
-    await invoke("configure_agent", {
-      apiKey: data.apiKey,
-      slskUser: data.slskUsername,
-      slskPass: data.slskPassword,
-      supabaseUrl: data.supabaseUrl || null,
-      supabaseAnonKey: data.supabaseAnonKey || null,
-      agentEmail: data.agentEmail || null,
-      agentPassword: data.agentPassword || null,
-    });
-    goNext();
+    setSoulseekError("");
+    setSoulseekLoading(true);
+    try {
+      await invoke("configure_agent", {
+        apiKey: data.apiKey,
+        slskUser: data.slskUsername,
+        slskPass: data.slskPassword,
+        supabaseUrl: data.supabaseUrl || null,
+        supabaseAnonKey: data.supabaseAnonKey || null,
+        agentEmail: data.agentEmail || null,
+        agentPassword: data.agentPassword || null,
+      });
+      goNext();
+    } catch (e) {
+      setSoulseekError(String(e));
+    } finally {
+      setSoulseekLoading(false);
+    }
   };
 
   return (
@@ -85,6 +95,8 @@ export default function Wizard() {
               onPasswordChange={(v) => setData((d) => ({ ...d, slskPassword: v }))}
               onNext={handleSoulseekDone}
               onBack={goBack}
+              error={soulseekError}
+              loading={soulseekLoading}
             />
           )}
           {step === 3 && (

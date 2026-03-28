@@ -10,6 +10,7 @@ interface SoulseekStepProps {
   onNext: () => void;
   onBack: () => void;
   error?: string;
+  loading?: boolean;
 }
 
 export default function SoulseekStep({
@@ -20,6 +21,7 @@ export default function SoulseekStep({
   onNext,
   onBack,
   error,
+  loading = false,
 }: SoulseekStepProps) {
   const [errors, setErrors] = useState<{ username?: string; password?: string }>({});
 
@@ -80,10 +82,10 @@ export default function SoulseekStep({
       {error && <p className="form-error">{error}</p>}
 
       <div className="wizard-actions">
-        <Button variant="secondary" onClick={onBack}>
+        <Button variant="secondary" onClick={onBack} disabled={loading}>
           Back
         </Button>
-        <Button onClick={handleContinue}>
+        <Button onClick={handleContinue} loading={loading}>
           Continue
         </Button>
       </div>
