@@ -63,13 +63,18 @@ def download_audio(url: str, output_dir: str) -> str:
     # Use cookies file if available (needed for YouTube on server IPs)
     if os.path.exists(_COOKIES_PATH):
         cmd.extend(["--cookies", _COOKIES_PATH])
-        log.info("Using cookies file: %s", _COOKIES_PATH)
+        log.info("Using cookies file: %s (%d bytes)", _COOKIES_PATH, os.path.getsize(_COOKIES_PATH))
+    else:
+        log.warning("No cookies file at %s — YouTube may block the download", _COOKIES_PATH)
 
     cmd.append(url)
+    log.info("yt-dlp command: %s", " ".join(cmd))
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed: {result.stderr.strip()}")
+        stderr = result.stderr.strip()
+        log.error("yt-dlp stderr: %s", stderr)
+        raise RuntimeError(f"yt-dlp failed: {stderr}")
 
     mp3_path = os.path.join(output_dir, "mix.mp3")
     if not os.path.exists(mp3_path):
