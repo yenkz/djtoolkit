@@ -12,6 +12,10 @@ export default function Wizard() {
   const [step, setStep] = useState(0);
   const [data, setData] = useState<WizardData>({
     apiKey: "",
+    supabaseUrl: "",
+    supabaseAnonKey: "",
+    agentEmail: "",
+    agentPassword: "",
     slskUsername: "",
     slskPassword: "",
     launchAtStartup: true,
@@ -20,12 +24,25 @@ export default function Wizard() {
   const goNext = () => setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
   const goBack = () => setStep((s) => Math.max(s - 1, 0));
 
+  const handleCredentials = (creds: {
+    apiKey: string;
+    supabaseUrl: string;
+    supabaseAnonKey: string;
+    agentEmail: string;
+    agentPassword: string;
+  }) => {
+    setData((d) => ({ ...d, ...creds }));
+  };
+
   const handleSoulseekDone = async () => {
-    // Save all collected data via the configure_agent command
     await invoke("configure_agent", {
       apiKey: data.apiKey,
       slskUser: data.slskUsername,
       slskPass: data.slskPassword,
+      supabaseUrl: data.supabaseUrl || null,
+      supabaseAnonKey: data.supabaseAnonKey || null,
+      agentEmail: data.agentEmail || null,
+      agentPassword: data.agentPassword || null,
     });
     goNext();
   };
@@ -55,8 +72,7 @@ export default function Wizard() {
           {step === 0 && <WelcomeStep onNext={goNext} />}
           {step === 1 && (
             <SignInStep
-              apiKey={data.apiKey}
-              onApiKeyChange={(v) => setData((d) => ({ ...d, apiKey: v }))}
+              onCredentials={handleCredentials}
               onNext={goNext}
               onBack={goBack}
             />

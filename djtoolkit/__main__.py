@@ -727,7 +727,7 @@ def agent_configure_headless(
 
     # Write config file
     from djtoolkit.agent.paths import config_dir, default_downloads_dir
-    cloud_url = data.get("cloud_url", "https://api.djtoolkit.com")
+    cloud_url = data.get("cloud_url", "https://www.djtoolkit.net")
     downloads_dir = data.get("downloads_dir", str(default_downloads_dir()))
     poll_interval = data.get("poll_interval", 30)
 

@@ -11,6 +11,10 @@ export type DaemonStatus = "stopped" | "starting" | "running" | "paused";
 
 export interface WizardData {
   apiKey: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  agentEmail: string;
+  agentPassword: string;
   slskUsername: string;
   slskPassword: string;
   launchAtStartup: boolean;

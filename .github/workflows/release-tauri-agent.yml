@@ -191,6 +191,19 @@ jobs:
         working-directory: agent-app
         run: npm ci
 
+      # Patch the version in tauri.conf.json to match the release tag (strips "agent-v" prefix)
+      - name: Patch app version from tag
+        shell: bash
+        run: |
+          VERSION="${RELEASE_VERSION#agent-v}"
+          node -e "const p='agent-app/src-tauri/tauri.conf.json'; const j=JSON.parse(require('fs').readFileSync(p,'utf8')); j.version='${VERSION}'; require('fs').writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+
+      # Regenerate all icon formats from icon.png so .icns/.ico stay in sync
+      - name: Regenerate icons
+        working-directory: agent-app
+        shell: bash
+        run: npm run tauri -- icon src-tauri/icons/icon.png
+
       # Download the sidecar binary built in the previous job
       - name: Download sidecar artifact
         uses: actions/download-artifact@v4

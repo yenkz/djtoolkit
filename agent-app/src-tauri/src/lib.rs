@@ -23,6 +23,7 @@ pub fn run() {
             Some(vec![]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         // ---- Managed state ----
         .manage(DaemonManager::new())
         // ---- IPC commands ----

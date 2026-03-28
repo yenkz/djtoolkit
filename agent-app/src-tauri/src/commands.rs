@@ -70,15 +70,31 @@ pub fn configure_agent(
     api_key: String,
     slsk_user: String,
     slsk_pass: String,
+    supabase_url: Option<String>,
+    supabase_anon_key: Option<String>,
+    agent_email: Option<String>,
+    agent_password: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
     let sidecar = daemon::get_sidecar_path(&app)?;
 
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "api_key": api_key,
         "slsk_user": slsk_user,
         "slsk_pass": slsk_pass,
     });
+    if let Some(v) = supabase_url.filter(|s| !s.is_empty()) {
+        payload["supabase_url"] = serde_json::Value::String(v);
+    }
+    if let Some(v) = supabase_anon_key.filter(|s| !s.is_empty()) {
+        payload["supabase_anon_key"] = serde_json::Value::String(v);
+    }
+    if let Some(v) = agent_email.filter(|s| !s.is_empty()) {
+        payload["agent_email"] = serde_json::Value::String(v);
+    }
+    if let Some(v) = agent_password.filter(|s| !s.is_empty()) {
+        payload["agent_password"] = serde_json::Value::String(v);
+    }
 
     let mut child = Command::new(&sidecar)
         .args(["agent", "configure-headless", "--stdin"])
@@ -122,7 +138,7 @@ pub fn update_credentials(
     if cfg.api_key.is_empty() {
         return Err("Not signed in — please run the setup wizard first".into());
     }
-    configure_agent(cfg.api_key, slsk_user, slsk_pass, app)
+    configure_agent(cfg.api_key, slsk_user, slsk_pass, None, None, None, None, app)
 }
 
 // ---------------------------------------------------------------------------
