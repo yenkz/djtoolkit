@@ -4,30 +4,11 @@ import { rateLimit, limiters } from "@/lib/api-server/rate-limit";
 import { createServiceClient } from "@/lib/supabase/service";
 import { jsonError } from "@/lib/api-server/errors";
 
-const ACQUISITION_STATUSES = [
-  "candidate",
-  "downloading",
-  "available",
-  "failed",
-  "duplicate",
-] as const;
-
-const PROCESSING_FLAGS = [
-  "fingerprinted",
-  "enriched_spotify",
-  "enriched_audio",
-  "metadata_written",
-  "cover_art_written",
-  "in_library",
-] as const;
-
-type AcquisitionStatus = (typeof ACQUISITION_STATUSES)[number];
-type ProcessingFlag = (typeof PROCESSING_FLAGS)[number];
-
 /**
  * GET /api/catalog/stats
  *
- * Return aggregate counts for the authenticated user's catalog.
+ * Return aggregate counts for the authenticated user's catalog
+ * using a single SQL query instead of 12+ separate count queries.
  *
  * Returns:
  * {
@@ -46,63 +27,59 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServiceClient();
 
-  // Total count
-  const { count: total, error: totalErr } = await supabase
-    .from("tracks")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.userId);
+  const { data, error } = await supabase.rpc("catalog_stats", {
+    p_user_id: user.userId,
+  });
 
-  if (totalErr) {
-    return jsonError("Failed to fetch catalog stats", 500);
-  }
+  if (error) {
+    // Fallback: if the RPC doesn't exist yet, use inline SQL
+    const { data: raw, error: sqlErr } = await supabase
+      .from("tracks")
+      .select("acquisition_status, fingerprinted, enriched_spotify, enriched_audio, metadata_written, cover_art_written, in_library")
+      .eq("user_id", user.userId);
 
-  // Count per acquisition_status — run all queries in parallel
-  const statusCountResults = await Promise.all(
-    ACQUISITION_STATUSES.map((status) =>
-      supabase
-        .from("tracks")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.userId)
-        .eq("acquisition_status", status)
-        .then(({ count, error }) => ({ status, count: count ?? 0, error }))
-    )
-  );
-
-  for (const result of statusCountResults) {
-    if (result.error) {
+    if (sqlErr) {
       return jsonError("Failed to fetch catalog stats", 500);
     }
-  }
 
-  const by_status = Object.fromEntries(
-    statusCountResults.map(({ status, count }) => [status, count])
-  ) as Record<AcquisitionStatus, number>;
+    const rows = (raw ?? []) as Record<string, unknown>[];
+    const total = rows.length;
+    const by_status: Record<string, number> = {};
+    const flags: Record<string, number> = {};
 
-  // Count per processing flag — run all queries in parallel
-  const flagCountResults = await Promise.all(
-    PROCESSING_FLAGS.map((flag) =>
-      supabase
-        .from("tracks")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.userId)
-        .eq(flag, true)
-        .then(({ count, error }) => ({ flag, count: count ?? 0, error }))
-    )
-  );
-
-  for (const result of flagCountResults) {
-    if (result.error) {
-      return jsonError("Failed to fetch catalog stats", 500);
+    for (const r of rows) {
+      const st = r.acquisition_status as string;
+      by_status[st] = (by_status[st] ?? 0) + 1;
+      if (r.fingerprinted) flags.fingerprinted = (flags.fingerprinted ?? 0) + 1;
+      if (r.enriched_spotify) flags.enriched_spotify = (flags.enriched_spotify ?? 0) + 1;
+      if (r.enriched_audio) flags.enriched_audio = (flags.enriched_audio ?? 0) + 1;
+      if (r.metadata_written) flags.metadata_written = (flags.metadata_written ?? 0) + 1;
+      if (r.cover_art_written) flags.cover_art_written = (flags.cover_art_written ?? 0) + 1;
+      if (r.in_library) flags.in_library = (flags.in_library ?? 0) + 1;
     }
+
+    return NextResponse.json({ total, by_status, flags });
   }
 
-  const flags = Object.fromEntries(
-    flagCountResults.map(({ flag, count }) => [flag, count])
-  ) as Record<ProcessingFlag, number>;
+  // RPC returns a single row with all counts
+  const row = Array.isArray(data) ? data[0] : data;
 
   return NextResponse.json({
-    total: total ?? 0,
-    by_status,
-    flags,
+    total: row.total ?? 0,
+    by_status: {
+      candidate: row.candidate ?? 0,
+      downloading: row.downloading ?? 0,
+      available: row.available ?? 0,
+      failed: row.failed ?? 0,
+      duplicate: row.duplicate ?? 0,
+    },
+    flags: {
+      fingerprinted: row.fingerprinted ?? 0,
+      enriched_spotify: row.enriched_spotify ?? 0,
+      enriched_audio: row.enriched_audio ?? 0,
+      metadata_written: row.metadata_written ?? 0,
+      cover_art_written: row.cover_art_written ?? 0,
+      in_library: row.in_library ?? 0,
+    },
   });
 }

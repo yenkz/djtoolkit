@@ -91,19 +91,36 @@ export default function CatalogPage() {
   const [analyzedFilter, setAnalyzedFilter] = useState<boolean | undefined>(undefined);
   const refreshRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const trackParams = useMemo(
+    () => ({
+      page,
+      per_page: perPage,
+      status: statusFilter || "available",
+      search: search || undefined,
+      sort_by: sortBy,
+      sort_dir: sortDir,
+      analyzed: analyzedFilter,
+    }),
+    [page, perPage, statusFilter, search, sortBy, sortDir, analyzedFilter],
+  );
+
+  /** Lightweight: only reload tracks (used by Realtime). */
+  const loadTracks = useCallback(async () => {
+    try {
+      const data = await fetchTracks(trackParams);
+      setTracks(data.tracks);
+      setTotal(data.total);
+    } catch {
+      // silent — Realtime refresh, don't toast on transient errors
+    }
+  }, [trackParams]);
+
+  /** Full: reload tracks + stats (used on mount and manual actions). */
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [tracksData, statsData] = await Promise.all([
-        fetchTracks({
-          page,
-          per_page: perPage,
-          status: statusFilter || "available",
-          search: search || undefined,
-          sort_by: sortBy,
-          sort_dir: sortDir,
-          analyzed: analyzedFilter,
-        }),
+        fetchTracks(trackParams),
         fetchStats(),
       ]);
       setTracks(tracksData.tracks);
@@ -116,7 +133,7 @@ export default function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, perPage, statusFilter, search, sortBy, sortDir, analyzedFilter]);
+  }, [trackParams]);
 
   useEffect(() => {
     load();
@@ -319,7 +336,7 @@ export default function CatalogPage() {
           () => {
             clearTimeout(refreshRef.current);
             refreshRef.current = setTimeout(() => {
-              load();
+              loadTracks();
             }, 1500);
           },
         )

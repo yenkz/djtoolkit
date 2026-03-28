@@ -131,10 +131,13 @@ export async function GET(request: NextRequest) {
   const rows = (tracks ?? []) as unknown as Record<string, unknown>[];
   const total = count ?? 0;
 
-  // Batch already_owned check: find any 'available' tracks with matching
-  // spotify_uris for this user. Batched in chunks of 100 for URL safety.
-  const ownedUris = new Set<string>();
-  if (rows.length > 0) {
+  // Skip already_owned check when browsing the catalog (status=available) —
+  // it's only useful during import preview.  Saves 1+ extra DB queries per page.
+  const needsOwnedCheck = status !== "available" && status !== undefined;
+
+  let enriched: Record<string, unknown>[];
+  if (needsOwnedCheck && rows.length > 0) {
+    const ownedUris = new Set<string>();
     const uris = rows
       .map((t) => t.spotify_uri as string | null)
       .filter((u): u is string => typeof u === "string" && u.length > 0);
@@ -152,13 +155,15 @@ export async function GET(request: NextRequest) {
         if (row.spotify_uri) ownedUris.add(row.spotify_uri as string);
       }
     }
-  }
 
-  const enriched = rows.map((t) => ({
-    ...t,
-    already_owned:
-      typeof t.spotify_uri === "string" && ownedUris.has(t.spotify_uri),
-  }));
+    enriched = rows.map((t) => ({
+      ...t,
+      already_owned:
+        typeof t.spotify_uri === "string" && ownedUris.has(t.spotify_uri),
+    }));
+  } else {
+    enriched = rows;
+  }
 
   return NextResponse.json({ tracks: enriched, total, page, per_page: perPage });
 }
