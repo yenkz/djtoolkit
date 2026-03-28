@@ -2,8 +2,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use tauri::Manager;
-
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
@@ -68,51 +66,26 @@ fn pause_file() -> PathBuf {
 }
 
 /// Resolve the bundled sidecar binary path.
-/// Tauri places `externalBin` binaries next to the main executable (Contents/MacOS/ on macOS)
-/// with the target triple appended: `djtoolkit-aarch64-apple-darwin`.
-/// Falls back to resource_dir (Contents/Resources/) in case the bundle layout differs.
-pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+/// Tauri strips the target-triple suffix when bundling externalBin entries, so the binary
+/// is placed in Contents/MacOS/ as plain `djtoolkit` (not `djtoolkit-aarch64-apple-darwin`).
+pub fn get_sidecar_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
-    let binary_name = concat!("djtoolkit-", env!("TARGET_TRIPLE"), ".exe");
+    let binary_name = "djtoolkit.exe";
     #[cfg(not(target_os = "windows"))]
-    let binary_name = concat!("djtoolkit-", env!("TARGET_TRIPLE"));
+    let binary_name = "djtoolkit";
 
-    // Candidate 1: next to the current executable (Contents/MacOS/ on macOS).
-    let exe_candidate: Option<PathBuf> = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join(binary_name)));
+    let exe_dir = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current exe path: {e}"))?
+        .parent()
+        .ok_or_else(|| "Failed to get exe parent directory".to_string())?
+        .to_path_buf();
 
-    if let Some(ref p) = exe_candidate {
-        if p.exists() {
-            return Ok(p.clone());
-        }
+    let path = exe_dir.join(binary_name);
+    if path.exists() {
+        return Ok(path);
     }
 
-    // Candidate 2: resource directory (Contents/Resources/ on macOS).
-    let res_candidate: Option<PathBuf> = app
-        .path()
-        .resource_dir()
-        .ok()
-        .map(|d| d.join(binary_name));
-
-    if let Some(ref p) = res_candidate {
-        if p.exists() {
-            return Ok(p.clone());
-        }
-    }
-
-    Err(format!(
-        "Sidecar '{}' not found. Tried:\n  (1) {}\n  (2) {}",
-        binary_name,
-        exe_candidate
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "<current_exe unavailable>".into()),
-        res_candidate
-            .as_ref()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "<resource_dir unavailable>".into()),
-    ))
+    Err(format!("Sidecar not found at: {}", path.display()))
 }
 
 /// Start the daemon as a detached child process.
