@@ -5,7 +5,7 @@ mod tray;
 
 use std::time::Duration;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 #[cfg(desktop)]
 use tauri_plugin_deep_link::DeepLinkExt;
