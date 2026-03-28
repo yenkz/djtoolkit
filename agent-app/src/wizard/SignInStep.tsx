@@ -57,7 +57,7 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
     setWaiting(true);
     setError("");
     try {
-      await openUrl("https://app.djtoolkit.net/agent-connect");
+      await openUrl("https://www.djtoolkit.net/agent-connect");
     } catch {
       setWaiting(false);
       setError("Could not open browser. Try pasting your API key manually.");
@@ -117,7 +117,7 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
         <p className="form-hint">
           Find your key at{" "}
           <a
-            href="https://app.djtoolkit.net/settings"
+            href="https://www.djtoolkit.net/settings"
             target="_blank"
             rel="noreferrer"
           >

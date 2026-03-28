@@ -143,7 +143,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             open_or_create_window(app, "settings", "djtoolkit - Settings", 500.0, 500.0);
         }
         "dashboard" => {
-            let _ = open::that("https://app.djtoolkit.net");
+            let _ = open::that("https://www.djtoolkit.net");
         }
         "quit" => {
             // Quit the Tauri app but do NOT stop the daemon.
