@@ -83,6 +83,18 @@ async def run_daemon(
 ) -> None:
     """Main daemon entry point. Runs until SIGTERM/SIGINT or key revocation."""
 
+    # ── Raise FD soft limit (safety net for direct invocations / old plists)
+    if sys.platform != "win32":
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target = min(8192, hard) if hard != resource.RLIM_INFINITY else 8192
+        if soft < target:
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+                log.info("Raised FD soft limit: %d → %d", soft, target)
+            except (ValueError, OSError) as exc:
+                log.warning("Could not raise FD limit from %d: %s", soft, exc)
+
     # ── Load credentials ─────────────────────────────────────────────────
     creds = load_agent_credentials()
     api_key = creds.get("api_key")
@@ -379,6 +391,10 @@ async def run_daemon(
                 if sb_client:
                     try:
                         await sb_client.remove_all_channels()
+                    except Exception:
+                        pass
+                    try:
+                        await sb_client.auth.close()
                     except Exception:
                         pass
 

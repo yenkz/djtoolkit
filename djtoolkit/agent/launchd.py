@@ -75,6 +75,16 @@ def generate_plist(binary_path: str | None = None) -> str:
     <string>{log_path}</string>
     <key>ThrottleInterval</key>
     <integer>10</integer>
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>8192</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>8192</integer>
+    </dict>
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>

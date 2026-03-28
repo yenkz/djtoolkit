@@ -56,26 +56,45 @@ def save_job_state(
     }
     if result is not None:
         data["result"] = result
-    path.write_text(json.dumps(data, indent=2))
+    try:
+        path.write_text(json.dumps(data, indent=2))
+    except OSError as exc:
+        log.warning("Failed to write job state %s: %s", job_id, exc)
 
 
-def load_orphaned_jobs(*, jobs_dir: Path | None = None) -> list[dict]:
+def load_orphaned_jobs(*, jobs_dir: Path | None = None, max_age_hours: float = 72) -> list[dict]:
     """Load all job state files that have results to re-report.
 
     Returns list of dicts with keys: job_id, status, payload, result.
     Only returns jobs with status "completed" or "failed" (have results).
     Jobs with status "claimed" (interrupted mid-execution) are left for
     the stale job sweeper on the cloud side.
+
+    Files older than max_age_hours are deleted as stale.
     """
+    import time
+
     d = _jobs_dir(jobs_dir)
     orphans = []
+    now = time.time()
+    max_age_sec = max_age_hours * 3600
+
     for path in d.glob("*.json"):
         try:
+            file_age = now - path.stat().st_mtime
+            if file_age > max_age_sec:
+                log.info("Removing stale job file (%.0fh old): %s", file_age / 3600, path.name)
+                path.unlink(missing_ok=True)
+                continue
+
             data = json.loads(path.read_text())
             if data.get("status") in ("completed", "failed"):
                 orphans.append(data)
         except (json.JSONDecodeError, KeyError):
-            log.warning("Corrupt job state file: %s", path)
+            log.warning("Corrupt job state file, removing: %s", path)
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.warning("Could not read job state file %s: %s", path.name, exc)
     return orphans
 
 
@@ -106,7 +125,10 @@ def save_daemon_status(status: dict) -> None:
     STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     status["updated_at"] = time.time()
     status["recent_jobs"] = list(_recent_jobs)
-    STATUS_FILE.write_text(json.dumps(status, indent=2))
+    try:
+        STATUS_FILE.write_text(json.dumps(status, indent=2))
+    except OSError as exc:
+        log.warning("Failed to write daemon status: %s", exc)
 
 
 def load_daemon_status() -> dict | None:
