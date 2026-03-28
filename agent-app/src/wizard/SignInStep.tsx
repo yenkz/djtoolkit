@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { open } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import Button from "../components/Button";
 import Input from "../components/Input";
@@ -57,7 +57,7 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
     setWaiting(true);
     setError("");
     try {
-      await open("https://app.djtoolkit.net/agent-connect");
+      await openUrl("https://app.djtoolkit.net/agent-connect");
     } catch {
       setWaiting(false);
       setError("Could not open browser. Try pasting your API key manually.");
