@@ -35,6 +35,7 @@ ProgressCallback = Callable[[int, str], Awaitable[None]] | None
 # ─── Download ─────────────────────────────────────────────────────────────────
 
 _COOKIES_PATH = os.environ.get("YTDLP_COOKIES", "/opt/djtoolkit/cookies.txt")
+_POT_SERVER_URL = os.environ.get("POT_SERVER_URL", "http://pot-server:4416")
 
 
 def download_audio(url: str, output_dir: str) -> str:
@@ -60,6 +61,12 @@ def download_audio(url: str, output_dir: str) -> str:
             "preferredcodec": "mp3",
             "preferredquality": "192",
         }],
+        # PO Token provider — generates proof-of-origin tokens via the
+        # bgutil sidecar container to bypass YouTube bot detection
+        "extractor_args": {
+            "youtube": [f"po_token_provider=youtubepot-bgutilhttp"],
+            "youtubepot-bgutilhttp": [f"base_url={_POT_SERVER_URL}"],
+        },
     }
 
     # Copy cookies to a writable temp file (container runs as non-root user

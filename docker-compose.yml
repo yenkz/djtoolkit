@@ -9,6 +9,8 @@ services:
     env_file: .env.service
     volumes:
       - ./cookies.txt:/opt/djtoolkit/cookies.txt
+    depends_on:
+      - pot-server
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -16,3 +18,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  pot-server:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4416:4416"
