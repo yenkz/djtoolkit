@@ -67,50 +67,21 @@ fn pause_file() -> PathBuf {
     get_config_dir().join("agent_paused")
 }
 
-/// Resolve the djtoolkit binary. Returns (python_path, args_prefix).
-/// - Release: bundled sidecar binary, args = ["agent", "run"]
-/// - Dev: venv python with PYTHONPATH, args = ["-c", "from djtoolkit.__main__ import app; ...", "agent", "run"]
-pub fn get_daemon_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String>), String> {
+/// Resolve the bundled sidecar binary path.
+/// For now we look in the app's resource directory for `djtoolkit` (or `djtoolkit.exe` on Windows).
+pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+
     #[cfg(target_os = "windows")]
     let binary_name = "djtoolkit.exe";
     #[cfg(not(target_os = "windows"))]
     let binary_name = "djtoolkit";
 
-    // Try bundled sidecar — Tauri puts externalBin in the same dir as the main binary
-    // macOS: .app/Contents/MacOS/djtoolkit
-    // Windows: install_dir/djtoolkit.exe
-    if let Ok(exe_dir) = std::env::current_exe().and_then(|p| Ok(p.parent().unwrap().to_path_buf())) {
-        let sidecar = exe_dir.join(binary_name);
-        if sidecar.exists() {
-            return Ok((sidecar, vec!["agent".into(), "run".into()]));
-        }
-    }
-
-    // Also check resource_dir (fallback)
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let sidecar = resource_dir.join(binary_name);
-        if sidecar.exists() {
-            return Ok((sidecar, vec!["agent".into(), "run".into()]));
-        }
-    }
-
-    // Dev mode: find the poetry venv python and run djtoolkit directly.
-    // On macOS: poetry is at /opt/homebrew/bin/poetry or ~/.local/bin/poetry
-    // On Windows: poetry is at %APPDATA%\Python\Scripts\poetry.exe or on PATH
-    let poetry_cmd = if cfg!(target_os = "windows") { "poetry.exe" } else { "poetry" };
-    if let Ok(output) = std::process::Command::new(poetry_cmd)
-        .args(["env", "info", "-e"])
-        .output()
-    {
-        let python = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !python.is_empty() && PathBuf::from(&python).exists() {
-            // Use -c to import and run the app, bypassing the broken shim
-            let bootstrap = "import sys; from importlib import import_module; sys.exit(import_module('djtoolkit.__main__').app())".to_string();
-            return Ok((PathBuf::from(python), vec!["-c".into(), bootstrap, "agent".into(), "run".into()]));
-        }
-    }
-
-    Err("djtoolkit not found. Install the bundled app or use `poetry install`.".into())
+    let path = resource_dir.join(binary_name);
+    Ok(path)
 }
 
 /// Start the daemon as a detached child process.
@@ -118,32 +89,20 @@ pub fn get_daemon_command(app: &tauri::AppHandle) -> Result<(PathBuf, Vec<String
 /// The PID is written to `{config_dir}/agent.pid`.
 pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(), String> {
     let mut state = manager.state.lock().map_err(|e| format!("Lock error: {e}"))?;
-
-    // If we think it's running, verify the PID is actually alive
     if *state == DaemonState::Running || *state == DaemonState::Starting {
-        if let Ok(pid_str) = fs::read_to_string(pid_file()) {
-            if let Ok(pid) = pid_str.trim().parse::<u32>() {
-                if is_process_alive(pid) {
-                    return Err("Daemon is already running".into());
-                }
-            }
-        }
-        // PID is stale — clean up and proceed
-        let _ = fs::remove_file(pid_file());
-        *state = DaemonState::Stopped;
+        return Err("Daemon is already running or starting".into());
     }
 
     *state = DaemonState::Starting;
 
-    let (program, args) = get_daemon_command(app)?;
+    let sidecar = get_sidecar_path(app)?;
     let config_dir = get_config_dir();
     fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
 
     // Remove stale pause file so the daemon starts in active mode.
     let _ = fs::remove_file(pause_file());
 
-    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let child = spawn_detached(&program, &args_ref)?;
+    let child = spawn_detached(&sidecar, &["agent", "run"])?;
     let pid = child;
 
     // Write PID file.
@@ -160,13 +119,14 @@ pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(
 fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     use std::process::{Command, Stdio};
 
-    let mut child = unsafe {
+    let child = unsafe {
         Command::new(program)
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .pre_exec(|| {
+                // Create a new session so the child is fully detached.
                 libc::setsid();
                 Ok(())
             })
@@ -174,14 +134,7 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
             .map_err(|e| format!("Failed to spawn daemon: {e}"))?
     };
 
-    let pid = child.id();
-
-    // Spawn a reaper thread so the child doesn't become a zombie
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-
-    Ok(pid)
+    Ok(child.id())
 }
 
 #[cfg(target_os = "windows")]
@@ -189,11 +142,10 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-    // (DETACHED_PROCESS alone still shows a console for console apps)
-    const DETACH_FLAGS: u32 = 0x00000008 | 0x08000000;
+    // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    const DETACH_FLAGS: u32 = 0x00000008 | 0x00000200 | 0x08000000;
 
-    let mut child = Command::new(program)
+    let child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -202,14 +154,7 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
         .spawn()
         .map_err(|e| format!("Failed to spawn daemon: {e}"))?;
 
-    let pid = child.id();
-
-    // Reaper thread to clean up the process handle
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-
-    Ok(pid)
+    Ok(child.id())
 }
 
 /// Stop the daemon by reading the PID file and sending a signal.
@@ -252,12 +197,9 @@ fn kill_process(pid: u32) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn kill_process(pid: u32) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
     use std::process::Command;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let status = Command::new("taskkill")
         .args(["/F", "/PID", &pid.to_string()])
-        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| format!("Failed to run taskkill: {e}"))?;
     if !status.success() {
@@ -337,32 +279,18 @@ pub fn check_daemon_health(manager: &DaemonManager) {
     }
 }
 
-/// Check if a process with the given PID is alive (not a zombie).
+/// Check if a process with the given PID is alive.
 #[cfg(unix)]
 fn is_process_alive(pid: u32) -> bool {
-    // kill(pid, 0) returns 0 even for zombies, so also check process state
-    if unsafe { libc::kill(pid as i32, 0) } != 0 {
-        return false;
-    }
-    // On macOS/BSD, check if the process is a zombie via ps
-    std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "state="])
-        .output()
-        .map(|o| {
-            let state = String::from_utf8_lossy(&o.stdout);
-            !state.trim().starts_with('Z')
-        })
-        .unwrap_or(false)
+    // kill(pid, 0) checks existence without sending a signal.
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
 #[cfg(target_os = "windows")]
 fn is_process_alive(pid: u32) -> bool {
-    use std::os::windows::process::CommandExt;
     use std::process::Command;
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
     Command::new("tasklist")
         .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map(|o| {
             let out = String::from_utf8_lossy(&o.stdout);

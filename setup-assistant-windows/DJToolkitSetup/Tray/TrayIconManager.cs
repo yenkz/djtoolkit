@@ -50,7 +50,7 @@ public sealed class TrayIconManager : IDisposable
         openDownloads.Click += OnOpenDownloads;
         openLogs.Click += OnOpenLogs;
         recentActivity.Click += OnRecentActivity;
-        openDashboard.Click += (_, _) => Process.Start(new ProcessStartInfo("https://app.djtoolkit.net") { UseShellExecute = true });
+        openDashboard.Click += (_, _) => Process.Start(new ProcessStartInfo("https://www.djtoolkit.net") { UseShellExecute = true });
         rerunSetup.Click += (_, _) => Process.Start(new ProcessStartInfo(Process.GetCurrentProcess().MainModule!.FileName) { UseShellExecute = true });
         exit.Click += (_, _) => { Dispose(); Application.Current.Exit(); };
 

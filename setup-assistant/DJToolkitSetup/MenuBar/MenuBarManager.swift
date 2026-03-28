@@ -361,7 +361,7 @@ final class MenuBarManager {
     }
 
     @objc private func openWebDashboard() {
-        if let url = URL(string: "https://app.djtoolkit.net") {
+        if let url = URL(string: "https://www.djtoolkit.net") {
             NSWorkspace.shared.open(url)
         }
     }

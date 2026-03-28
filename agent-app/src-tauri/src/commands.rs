@@ -1,49 +1,11 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
 
-use tauri::{Manager, State};
+use tauri::State;
 
 use crate::config::{self, AppConfig};
 use crate::daemon::{self, DaemonManager};
-
-/// The Supabase project URL (set at build time via SUPABASE_URL env var).
-const SUPABASE_URL: &str = match option_env!("SUPABASE_URL") {
-    Some(url) => url,
-    None => "",
-};
-
-/// The Supabase anon key (set at build time via SUPABASE_ANON_KEY env var).
-const SUPABASE_ANON_KEY: &str = match option_env!("SUPABASE_ANON_KEY") {
-    Some(key) => key,
-    None => "",
-};
-
-/// The cloud API URL for agent registration.
-const CLOUD_URL: &str = "https://www.djtoolkit.net";
-
-// ---------------------------------------------------------------------------
-// Local logging — writes to agent.log in the config directory
-// ---------------------------------------------------------------------------
-
-fn write_log(level: &str, msg: &str) {
-    let log_path = daemon::get_config_dir().join("agent.log");
-    let _ = fs::create_dir_all(daemon::get_config_dir());
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let line = format!("[{now}] {level}: {msg}\n");
-    let _ = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .and_then(|mut f| {
-            use std::io::Write;
-            f.write_all(line.as_bytes())
-        });
-}
 
 // ---------------------------------------------------------------------------
 // Daemon lifecycle
@@ -60,46 +22,22 @@ pub fn start_agent(
     app: tauri::AppHandle,
     manager: State<'_, DaemonManager>,
 ) -> Result<(), String> {
-    write_log("INFO", "Starting agent daemon...");
-    let result = daemon::start_daemon(&app, &manager);
-    match &result {
-        Ok(()) => write_log("INFO", "Agent daemon started"),
-        Err(e) => write_log("ERROR", &format!("Failed to start daemon: {e}")),
-    }
-    result
+    daemon::start_daemon(&app, &manager)
 }
 
 #[tauri::command]
 pub fn stop_agent(manager: State<'_, DaemonManager>) -> Result<(), String> {
-    write_log("INFO", "Stopping agent daemon...");
-    let result = daemon::stop_daemon(&manager);
-    match &result {
-        Ok(()) => write_log("INFO", "Agent daemon stopped"),
-        Err(e) => write_log("WARN", &format!("Stop daemon: {e}")),
-    }
-    result
+    daemon::stop_daemon(&manager)
 }
 
 #[tauri::command]
 pub fn pause_agent(manager: State<'_, DaemonManager>) -> Result<(), String> {
-    write_log("INFO", "Pausing agent daemon...");
-    let result = daemon::pause_daemon(&manager);
-    match &result {
-        Ok(()) => write_log("INFO", "Agent daemon paused"),
-        Err(e) => write_log("WARN", &format!("Pause daemon: {e}")),
-    }
-    result
+    daemon::pause_daemon(&manager)
 }
 
 #[tauri::command]
 pub fn resume_agent(manager: State<'_, DaemonManager>) -> Result<(), String> {
-    write_log("INFO", "Resuming agent daemon...");
-    let result = daemon::resume_daemon(&manager);
-    match &result {
-        Ok(()) => write_log("INFO", "Agent daemon resumed"),
-        Err(e) => write_log("WARN", &format!("Resume daemon: {e}")),
-    }
-    result
+    daemon::resume_daemon(&manager)
 }
 
 // ---------------------------------------------------------------------------
@@ -122,288 +60,11 @@ pub fn has_config() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Authentication — email/password via Supabase REST API
-// ---------------------------------------------------------------------------
-
-/// Holds the auth result (JWT) from browser-based sign-in.
-pub struct AuthState {
-    pub jwt: Arc<Mutex<Option<String>>>,
-}
-
-impl AuthState {
-    pub fn new() -> Self {
-        Self {
-            jwt: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
-/// Open the web app's agent auth page in the system browser.
-/// Starts a localhost callback server as a fallback for when the
-/// `djtoolkit://` deep link scheme isn't registered on the system.
-/// The web page tries the deep link first, then falls back to localhost.
-#[tauri::command]
-pub fn start_browser_auth(auth: State<'_, AuthState>) -> Result<(), String> {
-    *auth.jwt.lock().unwrap() = None;
-
-    // Start localhost callback server (fallback for deep link)
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Failed to bind: {e}"))?;
-    let port = listener.local_addr().unwrap().port();
-
-    let jwt_ref = Arc::clone(&auth.jwt);
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    use std::io::{Read, Write};
-                    let mut buf = [0u8; 8192];
-                    let n = stream.read(&mut buf).unwrap_or(0);
-                    if n == 0 { continue; }
-                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let first = req.lines().next().unwrap_or("");
-
-                    if first.starts_with("GET /callback") {
-                        // Extract JWT from query params and register the agent
-                        if let Some(qs) = first.find('?') {
-                            let end = first.rfind(' ').unwrap_or(first.len());
-                            let query = &first[qs + 1..end];
-                            for param in query.split('&') {
-                                if let Some(jwt) = param.strip_prefix("token=") {
-                                    write_log("INFO", "Auth: received JWT, registering agent...");
-                                    // Register agent with cloud API
-                                    let register_url = format!("{}/api/agents/register", CLOUD_URL);
-                                    let machine_name = hostname::get()
-                                        .map(|h| h.to_string_lossy().to_string())
-                                        .unwrap_or_else(|_| "My Computer".into());
-                                    match ureq::post(&register_url)
-                                        .set("Authorization", &format!("Bearer {jwt}"))
-                                        .set("Content-Type", "application/json")
-                                        .send_json(serde_json::json!({ "machine_name": machine_name }))
-                                    {
-                                        Ok(resp) => {
-                                            if let Ok(json) = resp.into_json::<serde_json::Value>() {
-                                                if let Some(api_key) = json["api_key"].as_str() {
-                                                    let _ = store_keychain("agent-api-key", api_key);
-                                                    if let Ok(mut r) = jwt_ref.lock() {
-                                                        *r = Some(api_key.to_string());
-                                                    }
-                                                    // Store Realtime credentials if present
-                                                    if let Some(v) = json["supabase_url"].as_str() {
-                                                        let _ = store_keychain("supabase-url", v);
-                                                    }
-                                                    if let Some(v) = json["supabase_anon_key"].as_str() {
-                                                        let _ = store_keychain("supabase-anon-key", v);
-                                                    }
-                                                    if let Some(v) = json["agent_email"].as_str() {
-                                                        let _ = store_keychain("agent-email", v);
-                                                    }
-                                                    if let Some(v) = json["agent_password"].as_str() {
-                                                        let _ = store_keychain("agent-password", v);
-                                                    }
-                                                    write_log("INFO", "Auth: agent registered + API key stored");
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            write_log("ERROR", &format!("Auth: agent registration failed: {e}"));
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        let html = r#"<!DOCTYPE html><html><head><title>djtoolkit</title>
-<style>body{font-family:system-ui;background:#1a1a2e;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-h2{color:#4caf50}</style></head><body>
-<div style="text-align:center"><h2>&#10003; Authenticated!</h2><p>You can close this tab.</p></div>
-</body></html>"#;
-                        let resp = format!(
-                            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
-                            html.len(), html
-                        );
-                        let _ = stream.write_all(resp.as_bytes());
-                        let _ = stream.flush();
-                        break;
-                    } else {
-                        let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-                        let _ = stream.write_all(resp.as_bytes());
-                        let _ = stream.flush();
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Open the web app with both callback options
-    let auth_url = format!("{}/auth/agent?port={}", CLOUD_URL, port);
-    open::that(&auth_url).map_err(|e| format!("Failed to open browser: {e}"))?;
-    write_log("INFO", &format!("Browser auth: opened web app (localhost port {port})"));
-    Ok(())
-}
-
-/// Called by the deep-link handler when `djtoolkit://auth/callback` is received.
-/// Extracts the JWT, registers the agent, and stores the API key.
-pub fn handle_auth_callback(url: &str, auth: &AuthState) {
-    write_log("INFO", &format!("Auth callback: {}", &url[..url.len().min(60)]));
-
-    if let Some(fragment_start) = url.find('#') {
-        let fragment = &url[fragment_start + 1..];
-        for param in fragment.split('&') {
-            if let Some(token) = param.strip_prefix("access_token=") {
-                // Register agent
-                let register_url = format!("{}/api/agents/register", CLOUD_URL);
-                let machine_name = hostname::get()
-                    .map(|h| h.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| "My Computer".into());
-
-                match ureq::post(&register_url)
-                    .set("Authorization", &format!("Bearer {token}"))
-                    .set("Content-Type", "application/json")
-                    .send_json(serde_json::json!({ "machine_name": machine_name }))
-                {
-                    Ok(resp) => {
-                        if let Ok(json) = resp.into_json::<serde_json::Value>() {
-                            if let Some(api_key) = json["api_key"].as_str() {
-                                let _ = store_keychain("agent-api-key", api_key);
-                                // Store Realtime credentials if present
-                                if let Some(v) = json["supabase_url"].as_str() {
-                                    let _ = store_keychain("supabase-url", v);
-                                }
-                                if let Some(v) = json["supabase_anon_key"].as_str() {
-                                    let _ = store_keychain("supabase-anon-key", v);
-                                }
-                                if let Some(v) = json["agent_email"].as_str() {
-                                    let _ = store_keychain("agent-email", v);
-                                }
-                                if let Some(v) = json["agent_password"].as_str() {
-                                    let _ = store_keychain("agent-password", v);
-                                }
-                                if let Ok(mut jwt) = auth.jwt.lock() {
-                                    *jwt = Some(api_key.to_string());
-                                }
-                                write_log("INFO", "Agent registered via browser auth");
-                                return;
-                            }
-                        }
-                        write_log("ERROR", "Registration response missing api_key");
-                    }
-                    Err(e) => {
-                        write_log("ERROR", &format!("Agent registration failed: {e}"));
-                    }
-                }
-                return;
-            }
-        }
-    }
-    write_log("WARN", "Auth callback: no access_token in URL");
-}
-
-/// Check if browser auth completed. Returns the API key if available.
-#[tauri::command]
-pub fn check_auth_result(auth: State<'_, AuthState>) -> Option<String> {
-    auth.jwt.lock().ok().and_then(|guard| guard.clone())
-}
-
-/// Sign in with email/password via Supabase, then register the agent.
-/// Returns the agent API key on success.
-#[tauri::command]
-pub fn sign_in(email: String, password: String) -> Result<SignInResult, String> {
-    if SUPABASE_URL.is_empty() || SUPABASE_ANON_KEY.is_empty() {
-        return Err("SUPABASE_URL or SUPABASE_ANON_KEY not set at build time".into());
-    }
-
-    write_log("INFO", &format!("Signing in as {email}..."));
-
-    // Step 1: Authenticate with Supabase
-    let auth_url = format!("{}/auth/v1/token?grant_type=password", SUPABASE_URL);
-    let auth_body = serde_json::json!({
-        "email": email,
-        "password": password,
-    });
-
-    let auth_json: serde_json::Value = ureq::post(&auth_url)
-        .set("apikey", SUPABASE_ANON_KEY)
-        .set("Content-Type", "application/json")
-        .send_json(auth_body)
-        .map_err(|e| format!("Authentication failed: {e}"))?
-        .into_json()
-        .map_err(|e| format!("Failed to parse auth response: {e}"))?;
-
-    let access_token = auth_json["access_token"]
-        .as_str()
-        .ok_or("No access_token in auth response")?
-        .to_string();
-
-    let user_email = auth_json["user"]["email"]
-        .as_str()
-        .unwrap_or(&email)
-        .to_string();
-
-    write_log("INFO", &format!("Authenticated as {user_email}"));
-
-    // Step 2: Register agent with cloud API
-    let register_url = format!("{}/api/agents/register", CLOUD_URL);
-    let machine_name = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "My Computer".into());
-
-    let reg_body = serde_json::json!({
-        "machine_name": machine_name,
-    });
-
-    let reg_json: serde_json::Value = ureq::post(&register_url)
-        .set("Authorization", &format!("Bearer {access_token}"))
-        .set("Content-Type", "application/json")
-        .send_json(reg_body)
-        .map_err(|e| format!("Agent registration failed: {e}"))?
-        .into_json()
-        .map_err(|e| format!("Failed to parse registration response: {e}"))?;
-
-    let api_key = reg_json["api_key"]
-        .as_str()
-        .ok_or("No api_key in registration response")?
-        .to_string();
-
-    // Store the API key in the keychain so the Python daemon can read it
-    store_keychain("agent-api-key", &api_key)?;
-
-    // Store Realtime credentials if present
-    if let Some(v) = reg_json["supabase_url"].as_str() {
-        let _ = store_keychain("supabase-url", v);
-    }
-    if let Some(v) = reg_json["supabase_anon_key"].as_str() {
-        let _ = store_keychain("supabase-anon-key", v);
-    }
-    if let Some(v) = reg_json["agent_email"].as_str() {
-        let _ = store_keychain("agent-email", v);
-    }
-    if let Some(v) = reg_json["agent_password"].as_str() {
-        let _ = store_keychain("agent-password", v);
-    }
-
-    write_log("INFO", "Agent registered successfully (API key stored in keychain)");
-
-    Ok(SignInResult {
-        api_key,
-        email: user_email,
-    })
-}
-
-#[derive(serde::Serialize)]
-pub struct SignInResult {
-    pub api_key: String,
-    pub email: String,
-}
-
-// ---------------------------------------------------------------------------
 // Agent headless configuration (setup wizard)
 // ---------------------------------------------------------------------------
 
-/// Save agent credentials collected by the setup wizard.
-/// Writes config.toml and stores secrets in the OS keychain
-/// (same format as the Python daemon's keychain.py).
+/// Run `djtoolkit agent configure-headless` with a JSON payload on stdin.
+/// This sets up the agent's credentials and connection details.
 #[tauri::command]
 pub fn configure_agent(
     api_key: String,
@@ -413,128 +74,90 @@ pub fn configure_agent(
     supabase_anon_key: Option<String>,
     agent_email: Option<String>,
     agent_password: Option<String>,
+    app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let config_dir = daemon::get_config_dir();
-    fs::create_dir_all(&config_dir)
-        .map_err(|e| format!("Failed to create config dir: {e}"))?;
+    let sidecar = daemon::get_sidecar_path(&app)?;
 
-    // Save the main config file
-    let cfg = AppConfig::default();
-    config::save_config(&cfg)?;
-
-    // Store credentials in the OS keychain using the `keyring` CLI convention
-    // Service: "djtoolkit", Account: "agent-api-key" / "soulseek-username" / etc.
-    // This matches djtoolkit/agent/keychain.py exactly.
-    store_keychain("agent-api-key", &api_key)?;
-    store_keychain("soulseek-username", &slsk_user)?;
-    store_keychain("soulseek-password", &slsk_pass)?;
-
-    // Realtime credentials (optional — agent falls back to polling without them)
-    if let Some(v) = supabase_url {
-        store_keychain("supabase-url", &v)?;
+    let mut payload = serde_json::json!({
+        "api_key": api_key,
+        "slsk_user": slsk_user,
+        "slsk_pass": slsk_pass,
+    });
+    if let Some(v) = supabase_url.filter(|s| !s.is_empty()) {
+        payload["supabase_url"] = serde_json::Value::String(v);
     }
-    if let Some(v) = supabase_anon_key {
-        store_keychain("supabase-anon-key", &v)?;
+    if let Some(v) = supabase_anon_key.filter(|s| !s.is_empty()) {
+        payload["supabase_anon_key"] = serde_json::Value::String(v);
     }
-    if let Some(v) = agent_email {
-        store_keychain("agent-email", &v)?;
+    if let Some(v) = agent_email.filter(|s| !s.is_empty()) {
+        payload["agent_email"] = serde_json::Value::String(v);
     }
-    if let Some(v) = agent_password {
-        store_keychain("agent-password", &v)?;
+    if let Some(v) = agent_password.filter(|s| !s.is_empty()) {
+        payload["agent_password"] = serde_json::Value::String(v);
     }
 
-    write_log("INFO", "Agent configured (credentials saved to keychain)");
+    let mut child = Command::new(&sidecar)
+        .args(["agent", "configure-headless", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn configure command: {e}"))?;
+
+    // Write JSON to stdin and close it.
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin
+            .write_all(payload.to_string().as_bytes())
+            .map_err(|e| format!("Failed to write to stdin: {e}"))?;
+        // stdin is closed when dropped
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Failed to wait for configure command: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Configure command failed: {stderr}"));
+    }
+
     Ok(())
 }
 
-/// Store a secret in both the OS keychain AND a credentials file.
-/// The file fallback ensures the Python daemon can always read credentials,
-/// even if the Rust keychain backend stores them differently.
-fn store_keychain(account: &str, value: &str) -> Result<(), String> {
-    // Try OS keychain (best effort)
-    match keyring::Entry::new("djtoolkit", account) {
-        Ok(entry) => {
-            let _ = entry.set_password(value);
-        }
-        Err(_) => {} // Keychain unavailable, file fallback below
+/// Update Soulseek credentials from the Settings panel without re-running the wizard.
+/// Reads the stored api_key from the config file and calls configure-headless with the
+/// new credentials + all existing config values.
+#[tauri::command]
+pub fn update_credentials(
+    slsk_user: String,
+    slsk_pass: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let cfg = config::load_config()?;
+    if cfg.api_key.is_empty() {
+        return Err("Not signed in — please run the setup wizard first".into());
     }
-
-    // Also write to credentials file (Python daemon reads this as fallback)
-    let config_dir = daemon::get_config_dir();
-    let creds_path = config_dir.join("credentials.json");
-
-    // Read existing credentials or start fresh
-    let mut creds: serde_json::Value = if creds_path.exists() {
-        fs::read_to_string(&creds_path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_else(|| serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    creds[account] = serde_json::Value::String(value.to_string());
-    fs::write(&creds_path, serde_json::to_string_pretty(&creds).unwrap())
-        .map_err(|e| format!("Failed to write credentials file: {e}"))?;
-
-    Ok(())
+    configure_agent(cfg.api_key, slsk_user, slsk_pass, None, None, None, None, app)
 }
 
 // ---------------------------------------------------------------------------
 // Log viewer
 // ---------------------------------------------------------------------------
 
-/// Read the last N lines from the daemon's agent.log AND the Tauri app log.
-/// Merges both log sources so the user sees everything.
+/// Truncate `agent.log` so the viewer shows a clean slate.
 #[tauri::command]
-pub fn get_log_content(lines: Option<usize>) -> Result<String, String> {
-    let config_dir = daemon::get_config_dir();
-
-    // Daemon log location (where Python writes)
-    #[cfg(target_os = "macos")]
-    let daemon_log = dirs::home_dir()
-        .unwrap_or_default()
-        .join("Library/Logs/djtoolkit/agent.log");
-    #[cfg(target_os = "windows")]
-    let daemon_log = config_dir.join("logs").join("agent.log");
-    #[cfg(target_os = "linux")]
-    let daemon_log = config_dir.join("logs").join("agent.log");
-
-    // Tauri app log (start/stop/auth actions)
-    let app_log = config_dir.join("agent.log");
-
-    // Read both and merge
-    let mut all_lines: Vec<String> = Vec::new();
-
-    for log_path in &[&daemon_log, &app_log] {
-        if log_path.exists() {
-            if let Ok(file) = fs::File::open(log_path) {
-                let reader = BufReader::new(file);
-                for line in reader.lines() {
-                    if let Ok(l) = line {
-                        all_lines.push(l);
-                    }
-                }
-            }
-        }
+pub fn clear_log_file() -> Result<(), String> {
+    let log_path = daemon::get_config_dir().join("agent.log");
+    if log_path.exists() {
+        fs::write(&log_path, "").map_err(|e| format!("Failed to clear log file: {e}"))?;
     }
-
-    // Sort by timestamp (both formats start with a timestamp)
-    all_lines.sort();
-
-    let max_lines = lines.unwrap_or(500);
-    let start = if all_lines.len() > max_lines {
-        all_lines.len() - max_lines
-    } else {
-        0
-    };
-
-    Ok(all_lines[start..].join("\n"))
+    Ok(())
 }
 
-/// Old single-file log reader — kept for backward compatibility
-#[allow(dead_code)]
-fn read_single_log(lines: Option<usize>) -> Result<String, String> {
+/// Read the last N lines from `agent.log` in the config directory.
+#[tauri::command]
+pub fn get_log_content(lines: Option<usize>) -> Result<String, String> {
     let log_path = daemon::get_config_dir().join("agent.log");
     if !log_path.exists() {
         return Ok(String::new());

@@ -17,6 +17,43 @@ env:
   RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - name: Create release
+        id: create
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > release-notes.md << 'NOTES'
+          Cross-platform djtoolkit agent app (Tauri v2).
+
+          ### macOS
+          1. Download the `.dmg`, open it, drag **djtoolkit** to Applications
+          2. On first launch macOS will block the app — go to **System Settings → Privacy & Security** and click **Open Anyway**
+
+          > The app is ad-hoc signed (no paid Apple Developer certificate). No terminal command needed — just follow the Open Anyway prompt.
+
+          ### Windows
+          1. Download the `.msi` and run the installer
+          2. If Windows SmartScreen appears, click **More info → Run anyway**
+          NOTES
+
+          gh release create "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "djtoolkit Agent $RELEASE_VERSION" \
+            --notes-file release-notes.md \
+            || true
+
+          RELEASE_ID=$(gh release view "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json databaseId \
+            --jq '.databaseId')
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
   build-sidecar:
     name: Build Python sidecar (${{ matrix.name }})
     strategy:
@@ -24,7 +61,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            os: macos-15
+            os: macos-14
             target-triple: aarch64-apple-darwin
             spec: packaging/macos/djtoolkit.spec
             binary-name: djtoolkit
@@ -112,13 +149,13 @@ jobs:
 
   build-tauri:
     name: Build Tauri app (${{ matrix.name }})
-    needs: build-sidecar
+    needs: [build-sidecar, create-release]
     strategy:
       fail-fast: true
       matrix:
         include:
           - name: macOS arm64
-            os: macos-15
+            os: macos-14
             target: aarch64-apple-darwin
             target-triple: aarch64-apple-darwin
           - name: Windows x64
@@ -154,6 +191,19 @@ jobs:
         working-directory: agent-app
         run: npm ci
 
+      # Patch the version in tauri.conf.json to match the release tag (strips "agent-v" prefix)
+      - name: Patch app version from tag
+        shell: bash
+        run: |
+          VERSION="${RELEASE_VERSION#agent-v}"
+          node -e "const p='agent-app/src-tauri/tauri.conf.json'; const j=JSON.parse(require('fs').readFileSync(p,'utf8')); j.version='${VERSION}'; require('fs').writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
+
+      # Regenerate all icon formats from icon.png so .icns/.ico stay in sync
+      - name: Regenerate icons
+        working-directory: agent-app
+        shell: bash
+        run: npm run tauri -- icon src-tauri/icons/icon.png
+
       # Download the sidecar binary built in the previous job
       - name: Download sidecar artifact
         uses: actions/download-artifact@v4
@@ -166,25 +216,22 @@ jobs:
         run: chmod +x agent-app/src-tauri/binaries/*
 
       - name: List sidecar binaries
-        run: python -c "import os,pathlib;[print(p.stat().st_size,p.name) for p in pathlib.Path('agent-app/src-tauri/binaries').iterdir()]"
+        shell: bash
+        run: ls -la agent-app/src-tauri/binaries/
 
-      # Build the Tauri app (unsigned — add APPLE_CERTIFICATE secret to enable signing)
+      # Build the Tauri app and upload artifacts to the pre-created release
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Windows code signing (optional)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: agent-app
           tauriScript: npm run tauri
           args: --target ${{ matrix.target }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           tagName: ${{ env.RELEASE_VERSION }}
-          releaseName: "djtoolkit Agent ${{ env.RELEASE_VERSION }}"
-          releaseBody: |
-            Cross-platform djtoolkit agent app (Tauri v2).
-
-            **macOS**: Download the `.dmg`, open it, drag to Applications.
-            **Windows**: Download the `.msi`, run the installer.
           releaseDraft: false
           prerelease: false

@@ -6,7 +6,6 @@ import Button from "../components/Button";
 import Input from "../components/Input";
 import Toggle from "../components/Toggle";
 
-
 type Section = "general" | "credentials" | "agent" | "account";
 
 const SECTIONS: { key: Section; label: string }[] = [
@@ -17,15 +16,12 @@ const SECTIONS: { key: Section; label: string }[] = [
 ];
 
 const DEFAULT_CONFIG: AppConfig = {
-  cloud_url: "https://www.djtoolkit.net",
-  poll_interval_sec: 30,
-  max_concurrent_jobs: 2,
   downloads_dir: "",
   launch_at_startup: true,
-  slsk_username: "",
-  slsk_password: "",
-  acoustid_api_key: "",
   api_key: "",
+  slsk_username: "",
+  poll_interval_sec: 30,
+  max_concurrent_jobs: 2,
 };
 
 export default function SettingsPanel() {
@@ -34,15 +30,21 @@ export default function SettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [signOutConfirm, setSignOutConfirm] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(false);
-  const [oauthError, setOauthError] = useState("");
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Credential form state — kept separate so we don't auto-save passwords
+  const [credUsername, setCredUsername] = useState("");
+  const [credPassword, setCredPassword] = useState("");
+  const [credSaving, setCredSaving] = useState(false);
+  const [credStatus, setCredStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [credError, setCredError] = useState("");
 
   useEffect(() => {
     (async () => {
       try {
         const c = await invoke<AppConfig>("get_config");
         setConfig(c);
+        setCredUsername(c.slsk_username || "");
       } catch {
         // Use defaults
       }
@@ -91,37 +93,37 @@ export default function SettingsPanel() {
     setSignOutConfirm(false);
   };
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, []);
-
-  const handleBrowserSignIn = async () => {
-    setOauthError("");
-    setOauthLoading(true);
+  const handleSaveCredentials = async () => {
+    if (!credUsername.trim()) {
+      setCredError("Username is required");
+      setCredStatus("error");
+      return;
+    }
+    if (!credPassword.trim()) {
+      setCredError("Password is required");
+      setCredStatus("error");
+      return;
+    }
+    setCredSaving(true);
+    setCredStatus("idle");
+    setCredError("");
     try {
-      await invoke("start_browser_auth");
-      pollRef.current = setInterval(async () => {
-        try {
-          const apiKey = await invoke<string | null>("check_auth_result");
-          if (apiKey) {
-            if (pollRef.current) clearInterval(pollRef.current);
-            pollRef.current = null;
-            update("api_key", apiKey);
-            try { await invoke("start_agent"); } catch { /* may already be running */ }
-            setOauthLoading(false);
-          }
-        } catch (e) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setOauthError(String(e));
-          setOauthLoading(false);
-        }
-      }, 1000);
+      await invoke("update_credentials", {
+        slskUser: credUsername.trim(),
+        slskPass: credPassword,
+      });
+      setCredStatus("saved");
+      setCredPassword("");
+      // Refresh config so slsk_username reflects the new value
+      const updated = await invoke<AppConfig>("get_config");
+      setConfig(updated);
+      setCredUsername(updated.slsk_username || credUsername.trim());
+      setTimeout(() => setCredStatus("idle"), 2000);
     } catch (e) {
-      setOauthError(String(e));
-      setOauthLoading(false);
+      setCredError(String(e));
+      setCredStatus("error");
+    } finally {
+      setCredSaving(false);
     }
   };
 
@@ -176,27 +178,38 @@ export default function SettingsPanel() {
 
         {section === "credentials" && (
           <div className="settings-section">
+            <p className="settings-hint">
+              Credentials are stored securely in the system keychain.
+            </p>
             <Input
               label="Soulseek username"
               type="text"
-              value={config.slsk_username}
-              onChange={(e) => update("slsk_username", e.currentTarget.value)}
-              placeholder="Username"
+              value={credUsername}
+              onChange={(e) => {
+                setCredUsername(e.currentTarget.value);
+                setCredStatus("idle");
+              }}
+              placeholder="Your Soulseek username"
             />
             <Input
-              label="Soulseek password"
+              label="New Soulseek password"
               type="password"
-              value={config.slsk_password}
-              onChange={(e) => update("slsk_password", e.currentTarget.value)}
-              placeholder="Password"
+              value={credPassword}
+              onChange={(e) => {
+                setCredPassword(e.currentTarget.value);
+                setCredStatus("idle");
+              }}
+              placeholder="Enter password to update"
             />
-            <Input
-              label="AcoustID API key (optional)"
-              type="text"
-              value={config.acoustid_api_key}
-              onChange={(e) => update("acoustid_api_key", e.currentTarget.value)}
-              placeholder="API key"
-            />
+            {credStatus === "error" && (
+              <p className="form-error">{credError || "Failed to save credentials"}</p>
+            )}
+            {credStatus === "saved" && (
+              <p className="form-success">Credentials saved</p>
+            )}
+            <Button onClick={handleSaveCredentials} loading={credSaving}>
+              Save Credentials
+            </Button>
           </div>
         )}
 
@@ -225,34 +238,11 @@ export default function SettingsPanel() {
                 {config.api_key ? "Signed in" : "Not signed in"}
               </p>
             </div>
-
-            {!config.api_key && (
-              <>
-                <Button onClick={handleBrowserSignIn} loading={oauthLoading}>
-                  Sign in with Browser
-                </Button>
-                {oauthLoading && (
-                  <p className="form-hint">Complete sign-in in your browser...</p>
-                )}
-
-                <div className="auth-divider">
-                  <span>or enter API key manually</span>
-                </div>
-
-                <Input
-                  label="API Key"
-                  type="password"
-                  placeholder="djt_..."
-                  value={config.api_key}
-                  onChange={(e) => update("api_key", e.currentTarget.value)}
-                />
-
-                {oauthError && <p className="form-error">{oauthError}</p>}
-              </>
-            )}
-
             {config.api_key && (
-              <Button variant="danger" onClick={handleSignOut}>
+              <Button
+                variant="danger"
+                onClick={handleSignOut}
+              >
                 {signOutConfirm ? "Confirm sign out?" : "Sign Out"}
               </Button>
             )}
