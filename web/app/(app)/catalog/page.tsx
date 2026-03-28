@@ -425,6 +425,64 @@ export default function CatalogPage() {
             <div className="flex-1" />
 
             {/* Analyze button */}
+            {/* Metadata filter toggles */}
+            <div className="flex items-center gap-1">
+              {([
+                { label: "All", value: undefined as boolean | undefined },
+                { label: "Needs Analysis", value: false },
+                { label: "Analyzed", value: true },
+              ] as const).map((opt) => {
+                const isActive = analyzedFilter === opt.value;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => {
+                      setAnalyzedFilter(opt.value);
+                      setPage(1);
+                    }}
+                    className="font-mono"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: 0.5,
+                      padding: "5px 10px",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      border: `1px solid ${isActive ? "var(--led-orange)" : "var(--hw-border-light)"}`,
+                      background: isActive
+                        ? "color-mix(in srgb, var(--led-orange) 12%, transparent)"
+                        : "transparent",
+                      color: isActive ? "var(--led-orange)" : "var(--hw-text-dim)",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {opt.label}
+                    {opt.value === false && needsAnalysisCount > 0 && (
+                      <span
+                        style={{
+                          marginLeft: 5,
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: "#fff",
+                          background: "var(--led-orange)",
+                          width: 18,
+                          height: 18,
+                          borderRadius: "50%",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {needsAnalysisCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Analyze button */}
             {needsAnalysisCount > 0 && (
               <button
                 type="button"
