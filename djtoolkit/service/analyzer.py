@@ -50,9 +50,10 @@ def download_audio(url: str, output_dir: str) -> str:
     cmd = [
         "yt-dlp",
         "--no-playlist",
+        "--format", "bestaudio/best",
         "--extract-audio",
         "--audio-format", "mp3",
-        "--audio-quality", "192K",
+        "--postprocessor-args", "ffmpeg:-ac 2 -ar 22050",
         "--output", output_template,
         "--no-warnings",
         "--quiet",
