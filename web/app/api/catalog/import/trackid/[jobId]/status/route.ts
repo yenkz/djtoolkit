@@ -23,6 +23,20 @@ export const maxDuration = 10;
 const TRACKID_BASE = "https://trackid.dev";
 const DEFAULT_TRACKID_CONFIDENCE = 0.7;
 
+/** Extract the 11-char YouTube video ID from any YouTube URL format. */
+function extractVideoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (u.pathname === "/watch") return u.searchParams.get("v");
+      if (u.pathname.startsWith("/embed/")) return u.pathname.slice("/embed/".length).split("/")[0];
+    }
+    if (host === "youtu.be") return u.pathname.slice(1).split("/")[0];
+  } catch { /* ignore */ }
+  return null;
+}
+
 function buildSearchString(artist: string, title: string): string {
   let a = artist.split(";")[0].trim();
   a = a.replace(/\s*(feat\.?|ft\.?|vs\.?).*$/i, "").trim();
@@ -196,7 +210,36 @@ export async function GET(
     });
   }
 
-  // ── TrackID completed — filter, deduplicate, insert tracks ────────────
+  // ── TrackID completed — verify URL match ───────────────────────────────
+
+  const returnedUrl = jobData.youtubeUrl as string | undefined;
+  if (returnedUrl) {
+    const submittedId = extractVideoId(job.youtube_url);
+    const returnedId = extractVideoId(returnedUrl);
+    if (submittedId && returnedId && submittedId !== returnedId) {
+      const msg = `TrackID.dev analyzed a different video (${returnedId}) than submitted (${submittedId}). Please retry.`;
+      await supabase
+        .from("trackid_import_jobs")
+        .update({
+          status: "failed",
+          progress: 0,
+          step: "URL mismatch",
+          error: msg,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
+
+      return NextResponse.json({
+        status: "failed",
+        progress: 0,
+        step: "URL mismatch",
+        error: msg,
+        result: null,
+      });
+    }
+  }
+
+  // ── Filter, deduplicate, insert tracks ────────────────────────────────
 
   const userSettings = await getUserSettings(supabase, user.userId);
   const confidenceThreshold = Number(

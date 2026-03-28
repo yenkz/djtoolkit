@@ -167,6 +167,30 @@ async function processJob(
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
 
+    // ── Verify TrackID.dev analyzed the correct video ─────────────────────
+
+    const returnedUrl = jobData.youtubeUrl as string | undefined;
+    if (returnedUrl) {
+      const extract = (u: string): string | null => {
+        try {
+          const p = new URL(u);
+          const h = p.hostname.replace(/^www\./, "");
+          if (h === "youtube.com" || h === "m.youtube.com") {
+            if (p.pathname === "/watch") return p.searchParams.get("v");
+            if (p.pathname.startsWith("/embed/")) return p.pathname.slice("/embed/".length).split("/")[0];
+          }
+          if (h === "youtu.be") return p.pathname.slice(1).split("/")[0];
+        } catch { /* ignore */ }
+        return null;
+      };
+      const submittedId = extract(url);
+      const returnedId = extract(returnedUrl);
+      if (submittedId && returnedId && submittedId !== returnedId) {
+        await fail(`TrackID.dev analyzed a different video (${returnedId}) than submitted (${submittedId}). Please retry.`);
+        return;
+      }
+    }
+
     // ── Filter and deduplicate identified tracks ─────────────────────────
 
     await updateJob({

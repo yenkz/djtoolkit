@@ -261,6 +261,22 @@ def import_trackid(
         stats["failed"] = 1
         return stats
 
+    # 5b. Verify TrackID.dev analyzed the correct video
+    returned_url = job.get("youtubeUrl", "")
+    if returned_url:
+        returned_id = _extract_video_id(returned_url)
+        submitted_id = _extract_video_id(normalized_url)
+        if returned_id and submitted_id and returned_id != submitted_id:
+            (client.table("trackid_jobs")
+             .update({"status": "failed"})
+             .eq("user_id", user_id)
+             .eq("youtube_url", normalized_url)
+             .execute())
+            raise RuntimeError(
+                f"TrackID.dev analyzed a different video ({returned_id}) "
+                f"than submitted ({submitted_id}). Please retry."
+            )
+
     # 6. Filter, deduplicate, and insert tracks
     all_tracks = job.get("tracks", [])
     all_tracks.sort(key=lambda t: t.get("confidence", 0), reverse=True)
