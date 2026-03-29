@@ -95,13 +95,10 @@ jobs:
           Remove-Item -Recurse "dist\fpcalc-tmp", "dist\fpcalc.zip"
         shell: pwsh
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
 
       - name: Install dependencies
         run: uv sync --frozen
@@ -109,13 +106,9 @@ jobs:
       - name: Install PyInstaller
         run: uv run pip install pyinstaller
 
-      # Re-sign Python.framework with ad-hoc BEFORE PyInstaller embeds it.
-      #
-      # v0.2.10 used --remove-signature which corrupts the __LINKEDIT segment and
-      # causes PyInstaller's install_name_tool to abort. The correct fix is
-      # --force --sign - which replaces the python.org Team ID signature with
-      # ad-hoc (no Team ID) while keeping the Mach-O structure valid. At runtime
-      # both djtoolkit and the extracted Python.framework have no Team ID → no mismatch.
+      # uv uses python-build-standalone (not python.org Python.framework), so there is
+      # no Team ID to strip. This step is a no-op for python-build-standalone but is kept
+      # as a safety net in case the Python path ever changes back to a framework build.
       - name: Re-sign Python.framework with ad-hoc before bundling (macOS)
         if: runner.os == 'macOS'
         run: |

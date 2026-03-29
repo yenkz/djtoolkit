@@ -106,6 +106,6 @@ exe = EXE(
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
-    codesign_identity=None,
+    codesign_identity="-",
     entitlements_file=None,
 )
