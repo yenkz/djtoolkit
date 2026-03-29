@@ -144,7 +144,8 @@ ssh root@<SERVER_IP> "cd /opt/djtoolkit && docker compose pull && docker compose
 | `SUPABASE_URL` | Yes | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
 | `CORS_ORIGINS` | No | Allowed CORS origins (defaults include djtoolkit.net) |
-| `YTDLP_PROXY` | Yes (for YouTube) | SOCKS5 proxy URL for yt-dlp (e.g., `socks5://user:pass@amsterdam.nl.socks.nordhold.net:1080`) |
+| `YTDLP_PROXY` | Yes (for YouTube) | Primary SOCKS5 proxy URL (e.g., `socks5://user:pass@stockholm.se.socks.nordhold.net:1080`) |
+| `YTDLP_PROXY_CREDS` | Recommended | NordVPN service credentials as `user:pass` — enables automatic fallback to other NordVPN servers if primary fails |
 
 ---
 

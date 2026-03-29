@@ -31,12 +31,36 @@ def _log(msg: str):
 
 # ─── Download ─────────────────────────────────────────────────────────────────
 
-_YTDLP_PROXY = os.environ.get("YTDLP_PROXY", "")
+# Primary proxy from env, plus fallback SOCKS5 servers (NordVPN).
+# Each will be tried in order if the previous fails.
+_PROXY_PRIMARY = os.environ.get("YTDLP_PROXY", "")
+_PROXY_CREDS = os.environ.get("YTDLP_PROXY_CREDS", "")  # user:pass (shared across servers)
+
+_FALLBACK_SERVERS = [
+    "stockholm.se.socks.nordhold.net:1080",
+    "nl.socks.nordhold.net:1080",
+    "us.socks.nordhold.net:1080",
+    "dallas.us.socks.nordhold.net:1080",
+]
 
 
-def download_audio(url: str, output_dir: str) -> str:
-    """Download audio from YouTube/SoundCloud to MP3 via yt-dlp CLI."""
-    output_template = os.path.join(output_dir, "mix.%(ext)s")
+def _build_proxy_list() -> list[str]:
+    """Build ordered list of proxy URLs to try."""
+    proxies = []
+    if _PROXY_PRIMARY:
+        proxies.append(_PROXY_PRIMARY)
+
+    if _PROXY_CREDS:
+        for server in _FALLBACK_SERVERS:
+            proxy = f"socks5://{_PROXY_CREDS}@{server}"
+            if proxy not in proxies:
+                proxies.append(proxy)
+
+    return proxies
+
+
+def _try_download(url: str, output_template: str, proxy: str | None) -> tuple[bool, str]:
+    """Attempt a single yt-dlp download. Returns (success, stderr)."""
     cmd = [
         "yt-dlp",
         "--no-playlist",
@@ -47,18 +71,57 @@ def download_audio(url: str, output_dir: str) -> str:
         "--output", output_template,
         "--js-runtimes", "deno",
     ]
-
-    if _YTDLP_PROXY:
-        cmd.extend(["--proxy", _YTDLP_PROXY])
-
+    if proxy:
+        cmd.extend(["--proxy", proxy])
     cmd.append(url)
 
-    _log(f"yt-dlp command: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
-        _log(f"yt-dlp stderr: {stderr}")
-        raise RuntimeError(f"yt-dlp failed: {stderr}")
+    return result.returncode == 0, result.stderr.strip()
+
+
+def download_audio(
+    url: str,
+    output_dir: str,
+    on_attempt: Callable[[int, int, str], None] | None = None,
+) -> str:
+    """Download audio from YouTube/SoundCloud to MP3 via yt-dlp CLI.
+
+    Tries multiple proxy servers if the primary fails. Calls on_attempt(attempt, total, server)
+    for each attempt so the UI can show progress.
+    """
+    output_template = os.path.join(output_dir, "mix.%(ext)s")
+    proxies = _build_proxy_list()
+
+    if not proxies:
+        # No proxy — try direct (works for SoundCloud)
+        proxies = [""]
+
+    total_attempts = len(proxies)
+    last_error = ""
+
+    for i, proxy in enumerate(proxies):
+        server_name = proxy.split("@")[-1] if "@" in proxy else ("direct" if not proxy else proxy)
+        attempt = i + 1
+        _log(f"Download attempt {attempt}/{total_attempts} via {server_name}")
+
+        if on_attempt:
+            on_attempt(attempt, total_attempts, server_name)
+
+        success, stderr = _try_download(url, output_template, proxy or None)
+
+        if success:
+            _log(f"Download succeeded on attempt {attempt} via {server_name}")
+            break
+
+        last_error = stderr
+        _log(f"Attempt {attempt} failed: {stderr[:200]}")
+
+        # Clean up partial downloads before retry
+        for f in os.listdir(output_dir):
+            if f.startswith("mix."):
+                os.remove(os.path.join(output_dir, f))
+    else:
+        raise RuntimeError(f"yt-dlp failed after {total_attempts} attempts: {last_error}")
 
     mp3_path = os.path.join(output_dir, "mix.mp3")
     if not os.path.exists(mp3_path):
@@ -222,9 +285,20 @@ async def analyze_mix(
     tmp_dir = tempfile.mkdtemp(prefix="djtoolkit-mix-")
 
     try:
+        # Download with retry across multiple proxy servers
+        def on_download_attempt(attempt: int, total: int, server: str):
+            if on_progress:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if attempt == 1:
+                    msg = f"Downloading audio…"
+                else:
+                    msg = f"Retrying download (attempt {attempt}/{total}, server: {server})…"
+                loop.create_task(on_progress(5, msg))
+
         if on_progress:
             await on_progress(5, "Downloading audio…")
-        audio_path = download_audio(url, tmp_dir)
+        audio_path = download_audio(url, tmp_dir, on_attempt=on_download_attempt)
 
         if on_progress:
             await on_progress(10, "Preparing samples…")
