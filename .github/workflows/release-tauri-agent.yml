@@ -109,30 +109,38 @@ jobs:
       - name: Install PyInstaller
         run: poetry run pip install pyinstaller
 
-      - name: Build sidecar binary
-        run: poetry run pyinstaller ${{ matrix.spec }} --clean --noconfirm
-
-      # Re-sign with ad-hoc identity + disable-library-validation entitlement (macOS).
-      # PyInstaller bundles python.org's Python.framework (signed with their Team ID).
-      # When the binary extracts to /tmp at runtime, macOS refuses to dlopen the framework
-      # because the calling process (ad-hoc, no Team ID) differs from the framework's Team ID.
-      # The disable-library-validation entitlement disables that check for this process.
-      - name: Re-sign sidecar with entitlements (macOS)
+      # Strip the Python.framework signature BEFORE PyInstaller embeds it.
+      #
+      # Problem: actions/setup-python installs python.org Python, whose Python.framework
+      # is signed with python.org's Team ID. PyInstaller packages it as raw bytes inside
+      # the onefile binary. At runtime the bootloader extracts it to /tmp and calls dlopen.
+      # macOS rejects the load: djtoolkit is ad-hoc signed (no Team ID) but Python.framework
+      # has python.org's Team ID — "different Team IDs" → fatal.
+      #
+      # Fix: strip the signature from Python.framework BEFORE PyInstaller bundles it.
+      # The embedded (and later-extracted) framework then has no Team ID, which is
+      # compatible with an ad-hoc-signed calling process.
+      - name: Strip Python.framework signature before bundling (macOS)
         if: runner.os == 'macOS'
         run: |
-          cat > /tmp/entitlements.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>com.apple.security.cs.disable-library-validation</key>
-              <true/>
-          </dict>
-          </plist>
-          EOF
-          codesign --force --sign - --options runtime \
-            --entitlements /tmp/entitlements.plist \
-            dist/${{ matrix.binary-name }}
+          PYLIB=$(python3 -c "import sysconfig,os; fw=sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or ''; ver=sysconfig.get_python_version(); print(os.path.join(fw,'Python.framework','Versions',ver,'Python'))")
+          echo "Python dylib: $PYLIB"
+          if [ -f "$PYLIB" ]; then
+            codesign --remove-signature "$PYLIB"
+            echo "Signature stripped."
+          else
+            PYLIB2=$(python3 -c "import sys,os; print(os.path.join(sys.prefix,'Python'))")
+            echo "sysconfig miss — fallback: $PYLIB2"
+            if [ -f "$PYLIB2" ]; then
+              codesign --remove-signature "$PYLIB2"
+              echo "Stripped (fallback)."
+            else
+              echo "WARNING: could not locate Python dylib"
+            fi
+          fi
+
+      - name: Build sidecar binary
+        run: poetry run pyinstaller ${{ matrix.spec }} --clean --noconfirm
 
       # Rename to Tauri sidecar convention: djtoolkit-{target-triple}
       - name: Rename sidecar (macOS)
