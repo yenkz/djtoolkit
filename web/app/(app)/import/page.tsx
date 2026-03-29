@@ -1284,7 +1284,6 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
           icon={SRC_ICONS.agent}
           title="Local Folder"
           desc="Browse and import audio files from your agent's machine"
-          badge="NEW"
         >
           <ActionButton
             variant="outline"
