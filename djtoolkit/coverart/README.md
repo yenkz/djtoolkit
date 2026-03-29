@@ -93,7 +93,7 @@ Pillow is used to resize images that exceed `maxwidth`. Without it, oversized im
 embedded as-is (still functional — just potentially larger than configured).
 
 ```bash
-poetry add Pillow   # or: pip install Pillow
+uv add Pillow   # or: pip install Pillow
 ```
 
 ---

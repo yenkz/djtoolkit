@@ -16,7 +16,7 @@ cd djtoolkit
 ### 2. Set up your dev environment
 
 ```bash
-# Install dependencies (requires Python 3.11+ and Poetry)
+# Install dependencies (requires Python 3.11+ and uv)
 make install
 
 # Copy config templates
@@ -29,7 +29,7 @@ make setup
 ### 3. Run the tests
 
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 All tests should pass before you submit a PR.
@@ -44,7 +44,7 @@ Open an issue and include:
 - What you were trying to do
 - The exact command or action
 - The error message or unexpected output
-- Your OS, Python version (`python --version`), and Poetry version (`poetry --version`)
+- Your OS, Python version (`python --version`), and uv version (`uv --version`)
 
 ### Suggesting a feature
 
@@ -61,8 +61,8 @@ Open an issue describing the use case. What problem does the feature solve? How 
 3. Make your changes (see guidelines below)
 4. Run tests and the linter:
    ```bash
-   poetry run pytest
-   poetry run python -m py_compile djtoolkit/**/*.py
+   uv run pytest
+   uv run python -m py_compile djtoolkit/**/*.py
    ```
 5. Commit with a clear message:
    ```bash
@@ -92,7 +92,7 @@ What problem does it solve, or what improvement does it make?
 Steps to verify the change works correctly.
 
 ## Checklist
-- [ ] Tests pass (`poetry run pytest`)
+- [ ] Tests pass (`uv run pytest`)
 - [ ] No new linter errors
 - [ ] `make migrate-db` updated if schema changed
 - [ ] CLAUDE.md updated if architecture or commands changed

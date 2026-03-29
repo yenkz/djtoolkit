@@ -24,8 +24,8 @@ build/
 venv/
 env/
 
-# Poetry
-# poetry.lock is intentionally tracked (reproducible installs)
+# uv
+# uv.lock is intentionally tracked (reproducible installs)
 
 # djtoolkit runtime files
 djtoolkit.db

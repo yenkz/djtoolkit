@@ -7,7 +7,7 @@ on:
       - "djtoolkit/**"
       - "tests/**"
       - "pyproject.toml"
-      - "poetry.lock"
+      - "uv.lock"
       - ".github/workflows/ci-api.yml"
   pull_request:
     branches: [master]
@@ -15,7 +15,7 @@ on:
       - "djtoolkit/**"
       - "tests/**"
       - "pyproject.toml"
-      - "poetry.lock"
+      - "uv.lock"
       - ".github/workflows/ci-api.yml"
 
 permissions:
@@ -27,22 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Poetry
-        run: |
-          pip install poetry==2.3.2
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "poetry"
-
-      - name: Verify lock file
-        run: poetry check --lock
 
       - name: Install dependencies
-        run: poetry install --no-interaction
+        run: uv sync --frozen
 
       - name: Run tests
-        run: poetry run pytest --tb=short -q
+        run: uv run pytest --tb=short -q

@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 if (-not $Version) {
-    $Version = (poetry version -s)
+    $Version = (python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
 }
 
 Write-Host "Building djtoolkit $Version for Windows x86_64"
@@ -33,7 +33,7 @@ if (-not (Test-Path $FpcalcPath)) {
 # ── 2. PyInstaller — single-file executable ────────────────────────────────
 Write-Host "Running PyInstaller..."
 $env:FPCALC_PATH = $FpcalcPath
-poetry run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
+uv run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
 
 $Binary = "dist\djtoolkit.exe"
 if (-not (Test-Path $Binary)) {

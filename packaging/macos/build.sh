@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ARCH=$(uname -m)     # arm64 or x86_64
-VERSION=${VERSION:-$(poetry version -s)}
+VERSION=${VERSION:-$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")}
 
 echo "Building djtoolkit $VERSION for $ARCH"
 
@@ -28,7 +28,7 @@ chmod +x packaging/macos/scripts/postinstall
 
 # ── 3. PyInstaller — single-file executable ────────────────────────────────
 echo "Running PyInstaller..."
-poetry run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
+uv run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
 
 BINARY="dist/djtoolkit"
 if [ ! -f "$BINARY" ]; then

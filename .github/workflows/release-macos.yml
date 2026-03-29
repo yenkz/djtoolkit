@@ -35,14 +35,38 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Poetry
-        run: pip install poetry
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: poetry install --no-interaction
+        run: uv sync --frozen
 
       - name: Install PyInstaller
-        run: poetry run pip install pyinstaller
+        run: uv run pip install pyinstaller
+
+      # Strip the Python.framework signature BEFORE PyInstaller embeds it.
+      # actions/setup-python's Python.framework is signed with python.org's Team ID.
+      # PyInstaller packages it inside the onefile binary. At runtime the bootloader
+      # extracts it and calls dlopen — macOS rejects the load because the ad-hoc-signed
+      # djtoolkit binary has no Team ID while the framework does ("different Team IDs").
+      # Stripping the signature makes the framework compatible with ad-hoc signing.
+      - name: Strip Python.framework signature before bundling
+        run: |
+          PYLIB=$(python3 -c "import sysconfig,os; fw=sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or ''; ver=sysconfig.get_python_version(); print(os.path.join(fw,'Python.framework','Versions',ver,'Python'))")
+          echo "Python dylib: $PYLIB"
+          if [ -f "$PYLIB" ]; then
+            codesign --remove-signature "$PYLIB"
+            echo "Signature stripped."
+          else
+            PYLIB2=$(python3 -c "import sys,os; print(os.path.join(sys.prefix,'Python'))")
+            echo "sysconfig miss — fallback: $PYLIB2"
+            if [ -f "$PYLIB2" ]; then
+              codesign --remove-signature "$PYLIB2"
+              echo "Stripped (fallback)."
+            else
+              echo "WARNING: could not locate Python dylib"
+            fi
+          fi
 
       - name: Build Setup Assistant
         env:

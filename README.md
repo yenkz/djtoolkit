@@ -21,7 +21,7 @@ The system has two modes:
 | **macOS** (recommended) | Tested on macOS with Apple Silicon. Linux works. Windows untested. |
 | **[Homebrew](https://brew.sh)** | macOS package manager — install it first |
 | **Python 3.11+** | `brew install python` |
-| **[Poetry](https://python-poetry.org)** | `brew install poetry` |
+| **[uv](https://docs.astral.sh/uv/)** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | **Soulseek account** | Free account at [slsknet.org](http://www.slsknet.org) — needed for downloading |
 | **Chromaprint** (`fpcalc`) | `brew install chromaprint` — needed for fingerprinting |
 | **Supabase project** | PostgreSQL + Auth — set `SUPABASE_PROJECT_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DJTOOLKIT_USER_ID` in `.env` |
@@ -166,9 +166,9 @@ djtoolkit metadata apply --source audio-analysis             # BPM / key / loudn
 make enrich ARGS='--spotify x.csv'   # enrich DB only (no file writes)
 make fetch-cover-art                 # fetch + embed cover art
 
-poetry run djtoolkit db status        # track counts + processing flags
-poetry run djtoolkit db reset-downloading  # reset stuck downloads → candidate
-poetry run djtoolkit db purge-failed       # delete all failed tracks
+uv run djtoolkit db status        # track counts + processing flags
+uv run djtoolkit db reset-downloading  # reset stuck downloads → candidate
+uv run djtoolkit db purge-failed       # delete all failed tracks
 ```
 
 See [docs/flows.md](docs/flows.md) for the full pipeline reference.

@@ -184,7 +184,7 @@ make download
 
 ```bash
 make check-db          # DB integrity check
-poetry run djtoolkit db status   # track counts by acquisition_status + processing flags
+uv run djtoolkit db status   # track counts by acquisition_status + processing flags
 ```
 
 Or open the web UI at `http://localhost:3000` after `make api` and `cd web && npm run dev`.

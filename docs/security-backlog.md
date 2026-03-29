@@ -30,7 +30,7 @@ Remaining items ordered by priority.
 ### SEC-05: Pillow pinned at ^10.0 — multiple CVEs in 10.x
 - **File:** `pyproject.toml`
 - **Issue:** Pillow 10.4.0 is two majors behind (latest 12.1.1) with heap buffer overflow fixes in 11.x/12.x.
-- **Fix:** Update to `Pillow = "^12.0"` and run `poetry update pillow`.
+- **Fix:** Update to `Pillow = "^12.0"` and run `uv lock --upgrade-package pillow`.
 
 ### SEC-06: Weak Supabase password policy
 - **File:** `supabase/config.toml:175`
@@ -79,10 +79,8 @@ Remaining items ordered by priority.
 - **Issue:** `^0.0.22` means `>=0.0.22,<0.0.23` in Poetry — blocks future minor versions.
 - **Fix:** Change to `python-multipart = ">=0.0.22"`.
 
-### SEC-15: Docker pip install without hash pinning
-- **File:** `Dockerfile:15`
-- **Issue:** `pip install poetry==$POETRY_VERSION` without `--require-hashes`.
-- **Fix:** Add hash pinning for supply chain protection.
+### SEC-15: ~~Docker pip install without hash pinning~~ (Resolved)
+- **Status:** Fixed — Poetry replaced by uv. uv binary is copied from official container image (`ghcr.io/astral-sh/uv`), no pip install needed.
 
 ---
 

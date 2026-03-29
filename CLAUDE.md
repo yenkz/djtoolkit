@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Setup
-make install                      # poetry install
+make install                      # uv sync
 make init                         # copy example config files (djtoolkit.toml, .env)
 
 # Required env vars in .env:
@@ -43,17 +43,17 @@ djtoolkit import rekordbox --xml path/to/rekordbox.xml    # import Rekordbox XML
 
 # Cover art
 make fetch-cover-art                          # fetch + embed cover art for tracks missing artwork
-poetry run djtoolkit coverart fetch -v        # same, with debug logs (source attempts, search results)
-poetry run djtoolkit coverart verify          # check cover_art_written tracks actually have art in file
-poetry run djtoolkit coverart verify --fix    # reset flag for tracks missing embedded art, then re-fetch
-poetry run djtoolkit coverart list            # show tracks with embedded cover art
-poetry run djtoolkit coverart list --since 7  # show tracks embedded in the last 7 days
+uv run djtoolkit coverart fetch -v        # same, with debug logs (source attempts, search results)
+uv run djtoolkit coverart verify          # check cover_art_written tracks actually have art in file
+uv run djtoolkit coverart verify --fix    # reset flag for tracks missing embedded art, then re-fetch
+uv run djtoolkit coverart list            # show tracks with embedded cover art
+uv run djtoolkit coverart list --since 7  # show tracks embedded in the last 7 days
 
 # DB utilities (Supabase-backed)
-poetry run djtoolkit db status          # track counts by acquisition_status + processing flags
-poetry run djtoolkit db reset-downloading  # reset stuck 'downloading' tracks → candidate
-poetry run djtoolkit db purge-failed       # delete all 'failed' tracks
-poetry run djtoolkit db reconcile          # reconcile disk files with DB state
+uv run djtoolkit db status          # track counts by acquisition_status + processing flags
+uv run djtoolkit db reset-downloading  # reset stuck 'downloading' tracks → candidate
+uv run djtoolkit db purge-failed       # delete all 'failed' tracks
+uv run djtoolkit db reconcile          # reconcile disk files with DB state
 
 # Agent (background daemon)
 djtoolkit agent configure          # interactive credential setup (stores in OS keychain)
@@ -71,8 +71,8 @@ djtoolkit setup                    # launch Setup Assistant GUI (macOS/Windows) 
 # make dedup                      # remove duplicate tracks
 
 # Dev
-poetry run pytest                 # run all tests
-poetry run pytest tests/test_X.py # run single test file
+uv run pytest                 # run all tests
+uv run pytest tests/test_X.py # run single test file
 cd web && npm run dev             # start Next.js dev server (API routes + UI)
 make lint                         # py_compile check on all Python files
 ```

@@ -67,7 +67,7 @@ make move-to-library MODE=imported    # for folder-imported tracks
 Or via the CLI directly:
 
 ```bash
-poetry run djtoolkit move-to-library --mode imported
+uv run djtoolkit move-to-library --mode imported
 ```
 
 ---

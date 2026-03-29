@@ -8,7 +8,7 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "  init            copy example config files (.env, djtoolkit.toml)"
-	@echo "  install         poetry install"
+	@echo "  install         uv sync"
 	@echo ""
 	@echo "  import-csv      CSV=path  import Exportify CSV"
 	@echo "  download        download candidate tracks via Soulseek"
@@ -24,7 +24,7 @@ help:
 	@echo "  dev             start Next.js dev server"
 	@echo "  test            run pytest"
 
-PYTHON  := poetry run python
+PYTHON  := uv run python
 DJ      := $(PYTHON) -m djtoolkit
 CONFIG  ?= djtoolkit.toml
 CSV     ?=
@@ -48,7 +48,7 @@ init:
 	@echo "Next: add your Soulseek credentials to djtoolkit.toml [soulseek] and .env"
 
 install:
-	poetry install --lock --no-interaction
+	uv sync
 
 # ── Flow 1: Exportify CSV → Downloaded + Tagged ───────────────────────────────
 
@@ -108,7 +108,7 @@ dev:
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 test:
-	poetry run pytest
+	uv run pytest
 
 lint:
-	poetry run python -m py_compile djtoolkit/**/*.py
+	uv run python -m py_compile djtoolkit/**/*.py
