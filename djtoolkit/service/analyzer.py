@@ -46,13 +46,13 @@ def download_audio(url: str, output_dir: str) -> str:
         "--audio-format", "mp3",
         "--audio-quality", "192K",
         "--output", output_template,
-        "--no-warnings",
-        url,
+        "--remote-components", "ejs:github",
     ]
 
     if _YTDLP_PROXY:
-        cmd.insert(-1, "--proxy")
-        cmd.insert(-1, _YTDLP_PROXY)
+        cmd.extend(["--proxy", _YTDLP_PROXY])
+
+    cmd.append(url)
 
     _log(f"Downloading audio from: {url}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
