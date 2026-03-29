@@ -25,16 +25,57 @@ EasyID3.RegisterTextKey("initialkey", "TKEY")
 
 _UNSAFE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
+# Version keywords that indicate a remix/edit/version suffix
+_VERSION_KEYWORDS = re.compile(
+    r'\b(remix|edit|mix|version|rework|dub|bootleg|extended|club|radio|'
+    r'acoustic|live|instrumental|vip|remaster|remastered)\b',
+    re.IGNORECASE,
+)
+_ORIGINAL_MIX_RE = re.compile(r'^original\s+(mix|version)$', re.IGNORECASE)
+_PAREN_SUFFIX_RE = re.compile(r'\s*[\(\[](.*?)[\)\]]\s*$')
+_DASH_SUFFIX_RE = re.compile(r'\s+-\s+(.*?)\s*$')
+
 
 def _safe_name(name: str) -> str:
     return _UNSAFE_CHARS.sub("_", name).strip()
 
 
+def _extract_version(title: str) -> tuple[str, str | None]:
+    """Extract version/remix info from a track title.
+
+    Returns (clean_title, version_string_or_None).
+    """
+    # Try parenthetical/bracketed suffix
+    match = _PAREN_SUFFIX_RE.search(title)
+    if match:
+        candidate = match.group(1).strip()
+        if _VERSION_KEYWORDS.search(candidate):
+            clean = title[:match.start()].strip()
+            if _ORIGINAL_MIX_RE.match(candidate):
+                return clean, None
+            return clean, candidate
+
+    # Try dash-separated suffix
+    match = _DASH_SUFFIX_RE.search(title)
+    if match:
+        candidate = match.group(1).strip()
+        if _VERSION_KEYWORDS.search(candidate):
+            clean = title[:match.start()].strip()
+            if _ORIGINAL_MIX_RE.match(candidate):
+                return clean, None
+            return clean, candidate
+
+    return title, None
+
+
 def _target_filename(artist: str, title: str, suffix: str) -> str:
-    """Normalize to 'Artist - Title.ext' format."""
+    """Normalize to 'Artist - Title (Version).ext' format."""
+    clean_title, version = _extract_version(title)
     artist = _safe_name(artist or "Unknown Artist")
-    title = _safe_name(title or "Unknown Title")
-    return f"{artist} - {title}{suffix}"
+    clean_title = _safe_name(clean_title or "Unknown Title")
+    if version:
+        return f"{artist} - {clean_title} ({_safe_name(version)}){suffix}"
+    return f"{artist} - {clean_title}{suffix}"
 
 
 _KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
