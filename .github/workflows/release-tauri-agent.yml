@@ -63,7 +63,10 @@ jobs:
           - name: macOS arm64
             os: macos-15
             target-triple: aarch64-apple-darwin
-            spec: packaging/macos/djtoolkit.spec
+            # onedir mode: all native libs are separate files, so Tauri's
+            # codesign --deep signs everything in one consistent pass.
+            # This eliminates the Team ID mismatch that onefile causes.
+            spec: packaging/macos/djtoolkit-onedir.spec
             binary-name: djtoolkit
           - name: Windows x64
             os: windows-latest
@@ -73,10 +76,6 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    # Force uv to use its own managed Python (python-build-standalone) rather
-    # than any system python.org Python present on the runner. python.org
-    # Python.framework carries Apple's Team ID; python-build-standalone does not,
-    # so it bundles cleanly into a PyInstaller onefile without Team ID mismatches.
     env:
       UV_PYTHON: "3.11"
       UV_PYTHON_PREFERENCE: "only-managed"
@@ -108,106 +107,30 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Explicitly create the venv with python-build-standalone 3.11.
-      # Without this, uv may find and use a system python.org Python (e.g. 3.14)
-      # that satisfies requires-python >=3.11 and is available on the runner.
       - name: Create virtual environment
         run: uv venv --python 3.11 --clear
 
       - name: Install dependencies
         run: uv sync --frozen
 
-      # Install PyInstaller using the explicit Python interpreter, not the
-      # `pyinstaller` script, to prevent PATH resolution from picking up a
-      # system-installed pyinstaller from python.org Python.
       - name: Install PyInstaller
         run: uv pip install pyinstaller
-
-      # Re-sign all native binaries with ad-hoc signatures before PyInstaller bundles them.
-      # python-build-standalone carries Astral's Team ID; python.org carries Apple's.
-      # macOS 15+ enforces that dlopen-ed libraries share the same Team ID as the loading
-      # process. Our PyInstaller onefile is ad-hoc signed (no Team ID), so any embedded
-      # library with a real Team ID causes PYI-30900 at runtime. We must re-sign BOTH the
-      # Python prefix (libpython3.11.dylib, etc.) AND venv site-packages (cryptography,
-      # cffi, etc.) to remove all Team IDs before bundling.
-      - name: Re-sign all native binaries with ad-hoc before bundling (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-
-          PYTHON_REAL=$(uv run python -c "import os,sys; print(os.path.realpath(sys.executable))")
-          PYTHON_PREFIX=$(cd "$(dirname "$PYTHON_REAL")/.." && pwd)
-          VENV_SITE=$(uv run python -c "import site; print(site.getsitepackages()[0])")
-
-          echo "Python executable: $PYTHON_REAL"
-          echo "Python prefix:     $PYTHON_PREFIX"
-          echo "Venv site-packages: $VENV_SITE"
-
-          SIGNED=0
-          FAILED=0
-          FAIL_LIST=$(mktemp)
-
-          for dir in "$PYTHON_PREFIX" "$VENV_SITE"; do
-            if [ ! -d "$dir" ]; then
-              echo "SKIP: $dir does not exist"
-              continue
-            fi
-            echo "--- Signing binaries under: $dir ---"
-            while IFS= read -r -d '' f; do
-              if codesign --force --sign - "$f" 2>&1; then
-                echo "  [OK] $f"
-                SIGNED=$((SIGNED + 1))
-              else
-                echo "  [FAIL] $f"
-                echo "$f" >> "$FAIL_LIST"
-                FAILED=$((FAILED + 1))
-              fi
-            done < <(find "$dir" -type f \( -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
-          done
-
-          echo ""
-          echo "=== Re-signing summary: $SIGNED signed, $FAILED failed ==="
-
-          if [ "$FAILED" -gt 0 ]; then
-            echo "Failed files:"
-            cat "$FAIL_LIST"
-            rm -f "$FAIL_LIST"
-            exit 1
-          fi
-          rm -f "$FAIL_LIST"
-
-          # Verify libpython specifically — this is the dylib that causes PYI-30900
-          LIBPYTHON=$(find "$PYTHON_PREFIX" -name "libpython3*.dylib" -print -quit)
-          if [ -z "$LIBPYTHON" ]; then
-            echo "WARNING: libpython3*.dylib not found under $PYTHON_PREFIX"
-            echo "PyInstaller may use a statically-linked Python — continuing"
-          else
-            echo ""
-            echo "=== Verifying: $LIBPYTHON ==="
-            codesign -dvv "$LIBPYTHON" 2>&1 || true
-            TEAM_ID=$(codesign -dvv "$LIBPYTHON" 2>&1 | grep 'TeamIdentifier=' | cut -d= -f2)
-            if [ "$TEAM_ID" != "not set" ]; then
-              echo "ERROR: $LIBPYTHON still has TeamIdentifier=$TEAM_ID after re-signing"
-              exit 1
-            fi
-            echo "TeamIdentifier=not set — OK"
-          fi
 
       - name: Build sidecar binary
         run: uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
 
-      # Smoke-test the built binary before renaming / uploading.
-      # If Python fails to load (Team ID mismatch, missing dylib, etc.) the
-      # bootloader exits non-zero here and CI fails before a broken DMG is released.
+      # macOS onedir: smoke-test the binary from the output directory.
+      # The bootloader loads _internal/libpython3.11.dylib from the same dir.
       - name: Smoke-test sidecar binary (macOS)
         if: runner.os == 'macOS'
         run: |
-          echo "=== djtoolkit --help (verifies Python loads and CLI boots) ==="
-          ./dist/${{ matrix.binary-name }} --help
+          echo "=== onedir contents ==="
+          ls -la dist/djtoolkit/
+          ls -la dist/djtoolkit/_internal/ | head -20
 
           echo ""
-          echo "=== DYLD library load diagnostics ==="
-          DYLD_PRINT_LIBRARIES=1 ./dist/${{ matrix.binary-name }} --help 2>&1 | head -50 || true
+          echo "=== djtoolkit --help (verifies Python loads and CLI boots) ==="
+          ./dist/djtoolkit/djtoolkit --help
 
       - name: Smoke-test sidecar binary (Windows)
         if: runner.os == 'Windows'
@@ -216,30 +139,32 @@ jobs:
           .\dist\${{ matrix.binary-name }} --help
         shell: pwsh
 
-      # Rename to Tauri sidecar convention: djtoolkit-{target-triple}
-      - name: Rename sidecar (macOS)
+      # macOS onedir: upload the entire directory + fpcalc.
+      # The Tauri build job will place the main binary via externalBin and
+      # inject the remaining files (_internal/, dylibs) into the .app bundle.
+      - name: Prepare sidecar artifact (macOS)
         if: runner.os == 'macOS'
         run: |
-          mv dist/${{ matrix.binary-name }} dist/djtoolkit-${{ matrix.target-triple }}
+          # Rename main binary to Tauri sidecar convention
+          cp dist/djtoolkit/djtoolkit dist/djtoolkit-${{ matrix.target-triple }}
           chmod +x dist/djtoolkit-${{ matrix.target-triple }}
 
-      - name: Rename sidecar (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          Move-Item -Path "dist\${{ matrix.binary-name }}" -Destination "dist\djtoolkit-${{ matrix.target-triple }}.exe"
-        shell: pwsh
-
-      # Bundle fpcalc alongside
-      - name: Bundle fpcalc (macOS)
-        if: runner.os == 'macOS'
-        run: |
+          # Bundle fpcalc
           FPCALC=$(which fpcalc || echo "/opt/homebrew/bin/fpcalc")
           cp "$FPCALC" dist/fpcalc-${{ matrix.target-triple }}
           chmod +x dist/fpcalc-${{ matrix.target-triple }}
 
-      - name: Bundle fpcalc (Windows)
+          # Tar the _internal directory for the Tauri build job
+          tar czf dist/onedir-internal.tar.gz -C dist/djtoolkit _internal
+
+          echo "Artifact contents:"
+          ls -lh dist/djtoolkit-* dist/fpcalc-* dist/onedir-internal.tar.gz
+
+      # Windows onefile: rename binary + bundle fpcalc (unchanged)
+      - name: Prepare sidecar artifact (Windows)
         if: runner.os == 'Windows'
         run: |
+          Move-Item -Path "dist\${{ matrix.binary-name }}" -Destination "dist\djtoolkit-${{ matrix.target-triple }}.exe"
           Move-Item -Path "dist\fpcalc.exe" -Destination "dist\fpcalc-${{ matrix.target-triple }}.exe"
         shell: pwsh
 
@@ -250,6 +175,7 @@ jobs:
           path: |
             dist/djtoolkit-${{ matrix.target-triple }}*
             dist/fpcalc-${{ matrix.target-triple }}*
+            dist/onedir-internal.tar.gz
 
   build-tauri:
     name: Build Tauri app (${{ matrix.name }})
@@ -295,20 +221,17 @@ jobs:
         working-directory: agent-app
         run: npm ci
 
-      # Patch the version in tauri.conf.json to match the release tag (strips "agent-v" prefix)
       - name: Patch app version from tag
         shell: bash
         run: |
           VERSION="${RELEASE_VERSION#agent-v}"
           node -e "const p='agent-app/src-tauri/tauri.conf.json'; const j=JSON.parse(require('fs').readFileSync(p,'utf8')); j.version='${VERSION}'; require('fs').writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
 
-      # Regenerate all icon formats from icon.png so .icns/.ico stay in sync
       - name: Regenerate icons
         working-directory: agent-app
         shell: bash
         run: npm run tauri -- icon src-tauri/icons/icon.png
 
-      # Download the sidecar binary built in the previous job
       - name: Download sidecar artifact
         uses: actions/download-artifact@v4
         with:
@@ -323,12 +246,120 @@ jobs:
         shell: bash
         run: ls -la agent-app/src-tauri/binaries/
 
-      # Build the Tauri app and upload artifacts to the pre-created release
-      - name: Build Tauri app
+      # ── macOS: manual build so we can inject onedir files before signing ──
+      #
+      # Tauri's codesign --deep re-signs the PyInstaller sidecar, creating a
+      # different ad-hoc identity than the libs inside its onefile archive.
+      # With onedir mode, all libs are separate files. We:
+      #   1. Build the .app (Tauri signs the main binary + externalBin)
+      #   2. Inject _internal/ from the onedir output into Contents/MacOS/
+      #   3. Re-sign the .app (codesign --deep signs ALL files consistently)
+      #   4. Smoke-test the bundled sidecar (catches the exact user failure)
+      #   5. Create .dmg and upload to release
+      - name: Build Tauri app (macOS)
+        if: runner.os == 'macOS'
+        working-directory: agent-app
+        run: npm run tauri -- build --target ${{ matrix.target }}
+
+      - name: Inject onedir files into .app bundle (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+
+          APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
+          echo "App bundle: $APP_PATH"
+
+          MACOS_DIR="$APP_PATH/Contents/MacOS"
+          echo "Injecting onedir _internal/ into $MACOS_DIR"
+
+          tar xzf agent-app/src-tauri/binaries/onedir-internal.tar.gz -C "$MACOS_DIR"
+
+          echo "Contents/MacOS after injection:"
+          ls -la "$MACOS_DIR"
+          echo "_internal/ contents (first 20):"
+          ls "$MACOS_DIR/_internal/" | head -20
+
+      - name: Re-sign .app bundle (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+
+          APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
+
+          echo "Re-signing entire .app with ad-hoc (covers injected onedir files)..."
+          codesign --force --deep --sign - "$APP_PATH"
+          echo "Signed: $APP_PATH"
+
+          # Verify the sidecar and a key dylib share the same signing state
+          SIDECAR="$APP_PATH/Contents/MacOS/djtoolkit"
+          LIBPYTHON=$(find "$APP_PATH/Contents/MacOS/_internal" -name "libpython3*.dylib" -print -quit)
+
+          echo ""
+          echo "=== Sidecar signature ==="
+          codesign -dvv "$SIDECAR" 2>&1 | grep -E "Identifier=|TeamIdentifier=|Signature=" || true
+
+          if [ -n "$LIBPYTHON" ]; then
+            echo ""
+            echo "=== libpython signature ==="
+            codesign -dvv "$LIBPYTHON" 2>&1 | grep -E "Identifier=|TeamIdentifier=|Signature=" || true
+          fi
+
+      # The critical test: run the sidecar FROM WITHIN the signed .app bundle.
+      # This catches the exact Team ID mismatch that users see — if this passes,
+      # the released DMG will work on user machines.
+      - name: Smoke-test bundled sidecar (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
+          SIDECAR="$APP_PATH/Contents/MacOS/djtoolkit"
+
+          echo "=== Running bundled sidecar: $SIDECAR ==="
+          "$SIDECAR" --help
+
+          echo ""
+          echo "=== DYLD library load diagnostics ==="
+          DYLD_PRINT_LIBRARIES=1 "$SIDECAR" --help 2>&1 | head -30 || true
+
+      - name: Create .dmg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+
+          VERSION="${RELEASE_VERSION#agent-v}"
+          APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
+          DMG_NAME="djtoolkit_${VERSION}_aarch64.dmg"
+
+          echo "Creating $DMG_NAME from $APP_PATH"
+
+          TMP_DMG_DIR=$(mktemp -d)
+          cp -R "$APP_PATH" "$TMP_DMG_DIR/"
+
+          hdiutil create \
+            -volname "djtoolkit $VERSION" \
+            -srcfolder "$TMP_DMG_DIR" \
+            -ov -format UDZO \
+            "$DMG_NAME"
+
+          rm -rf "$TMP_DMG_DIR"
+          echo "Created: $DMG_NAME ($(du -sh "$DMG_NAME" | cut -f1))"
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload .dmg to release (macOS)
+        if: runner.os == 'macOS'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            "$DMG_NAME" \
+            --clobber
+
+      # ── Windows: use tauri-action as before (no signing issues) ──
+      - name: Build Tauri app (Windows)
+        if: runner.os == 'Windows'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Windows code signing (optional)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
