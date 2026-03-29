@@ -53,12 +53,21 @@ export async function PUT(request: NextRequest, { params }: Params) {
   if (body.result !== undefined) updates.result = body.result;
   if (body.error !== undefined) updates.error = body.error;
 
+  // Scope update to caller's ownership (service client bypasses RLS)
   const supabase = createServiceClient();
-  const { error } = await supabase
+  const query = supabase
     .from("agent_commands")
     .update(updates)
     .eq("id", id);
 
+  // Agent callers can only update commands targeted at their agent
+  if (user.agentId) {
+    query.eq("agent_id", user.agentId);
+  } else {
+    query.eq("user_id", user.userId);
+  }
+
+  const { error } = await query;
   if (error) return jsonError(error.message, 500);
   return new NextResponse(null, { status: 204 });
 }
