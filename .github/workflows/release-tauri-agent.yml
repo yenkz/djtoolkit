@@ -154,8 +154,10 @@ jobs:
           cp "$FPCALC" dist/fpcalc-${{ matrix.target-triple }}
           chmod +x dist/fpcalc-${{ matrix.target-triple }}
 
-          # Tar the _internal directory for the Tauri build job
-          tar czf dist/onedir-internal.tar.gz -C dist/djtoolkit _internal
+          # Tar the _internal contents (not the directory itself) for the Tauri build job.
+          # PyInstaller's .app-aware bootloader sets PYTHONHOME to Contents/Frameworks/
+          # and expects all modules there — so we'll extract these directly into Frameworks/.
+          tar czf dist/onedir-internal.tar.gz -C dist/djtoolkit/_internal .
 
           echo "Artifact contents:"
           ls -lh dist/djtoolkit-* dist/fpcalc-* dist/onedir-internal.tar.gz
@@ -261,11 +263,10 @@ jobs:
         working-directory: agent-app
         run: npm run tauri -- build --target ${{ matrix.target }}
 
-      # Inject the onedir _internal/ into Contents/Resources/ (where non-code
-      # files belong) and symlink from Contents/MacOS/_internal so PyInstaller's
-      # bootloader finds it. Then sign all Mach-O files individually.
-      # We do NOT re-seal the .app bundle — Contents/MacOS/ must only contain
-      # executables, and codesign refuses to seal a bundle with .py/.pyi files there.
+      # PyInstaller's bootloader detects it's inside a .app bundle and sets
+      # PYTHONHOME to Contents/Frameworks/, expecting all Python modules and
+      # native libs there. Extract the onedir _internal/ contents directly
+      # into Frameworks/, then sign all Mach-O files individually.
       - name: Inject onedir files and sign (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -274,38 +275,22 @@ jobs:
           APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
           echo "App bundle: $APP_PATH"
 
-          RESOURCES_DIR="$APP_PATH/Contents/Resources"
+          FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
           MACOS_DIR="$APP_PATH/Contents/MacOS"
 
-          # Extract _internal/ into Contents/Resources/
-          mkdir -p "$RESOURCES_DIR"
-          tar xzf agent-app/src-tauri/binaries/onedir-internal.tar.gz -C "$RESOURCES_DIR"
-          echo "Extracted _internal/ to $RESOURCES_DIR/_internal/"
-
-          # PyInstaller's bootloader detects it's inside a .app bundle and looks
-          # for libpython in Contents/Frameworks/ (macOS convention). Copy it there.
-          FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+          # Extract _internal/ contents into Contents/Frameworks/
           mkdir -p "$FRAMEWORKS_DIR"
-          LIBPYTHON_SRC=$(find "$RESOURCES_DIR/_internal" -name "libpython3*.dylib" -print -quit)
-          if [ -n "$LIBPYTHON_SRC" ]; then
-            cp "$LIBPYTHON_SRC" "$FRAMEWORKS_DIR/"
-            echo "Copied $(basename "$LIBPYTHON_SRC") to Contents/Frameworks/"
-          else
-            echo "WARNING: libpython3*.dylib not found in _internal/"
-          fi
+          tar xzf agent-app/src-tauri/binaries/onedir-internal.tar.gz -C "$FRAMEWORKS_DIR"
+          echo "Extracted onedir contents to $FRAMEWORKS_DIR"
+          echo "Contents/Frameworks (first 20):"
+          ls "$FRAMEWORKS_DIR" | head -20
 
-          # Symlink so PyInstaller's bootloader finds _internal/ relative to itself
-          ln -s ../Resources/_internal "$MACOS_DIR/_internal"
-          echo "Symlinked: $MACOS_DIR/_internal -> ../Resources/_internal"
-
-          # Sign all native libraries in _internal/ and Frameworks/
+          # Sign all native libraries in Frameworks/
           SIGNED=0
-          for dir in "$RESOURCES_DIR/_internal" "$FRAMEWORKS_DIR"; do
-            while IFS= read -r -d '' f; do
-              codesign --force --sign - "$f"
-              SIGNED=$((SIGNED + 1))
-            done < <(find "$dir" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
-          done
+          while IFS= read -r -d '' f; do
+            codesign --force --sign - "$f"
+            SIGNED=$((SIGNED + 1))
+          done < <(find "$FRAMEWORKS_DIR" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
           echo "Signed $SIGNED native libraries"
 
           # Re-sign executables (Tauri already signed them, but we want consistency)
