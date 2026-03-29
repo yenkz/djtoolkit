@@ -82,6 +82,18 @@ pub fn get_sidecar_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
     let path = exe_dir.join(binary_name);
     if path.exists() {
+        // macOS: strip the quarantine attribute that browsers add when downloading
+        // .dmg files. With quarantine, macOS 15 enforces strict library validation
+        // on the PyInstaller sidecar, blocking dlopen() of its embedded libpython
+        // with "different Team IDs". Removing quarantine lets ad-hoc signed code
+        // load ad-hoc signed libraries normally.
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("xattr")
+                .args(["-dr", "com.apple.quarantine"])
+                .arg(&path)
+                .output();
+        }
         return Ok(path);
     }
 
