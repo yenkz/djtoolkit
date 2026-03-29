@@ -303,3 +303,56 @@ fn is_process_alive(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_state_display() {
+        assert_eq!(DaemonState::Stopped.as_str(), "stopped");
+        assert_eq!(DaemonState::Starting.as_str(), "starting");
+        assert_eq!(DaemonState::Running.as_str(), "running");
+        assert_eq!(DaemonState::Paused.as_str(), "paused");
+    }
+
+    #[test]
+    fn manager_initial_state_is_stopped() {
+        let mgr = DaemonManager::new();
+        let state = mgr.state.lock().unwrap();
+        assert_eq!(*state, DaemonState::Stopped);
+    }
+
+    #[test]
+    fn config_dir_has_correct_leaf_name() {
+        let dir = get_config_dir();
+        let name = dir.file_name().unwrap().to_str().unwrap();
+        #[cfg(target_os = "windows")]
+        assert_eq!(name, "djtoolkit");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(name, ".djtoolkit");
+    }
+
+    #[test]
+    fn pid_file_is_inside_config_dir() {
+        let config_dir = get_config_dir();
+        let pid = pid_file();
+        assert_eq!(pid.parent().unwrap(), config_dir.as_path());
+        assert_eq!(pid.file_name().unwrap().to_str().unwrap(), "agent.pid");
+    }
+
+    #[test]
+    fn pause_file_is_inside_config_dir() {
+        let config_dir = get_config_dir();
+        let pause = pause_file();
+        assert_eq!(pause.parent().unwrap(), config_dir.as_path());
+        assert_eq!(pause.file_name().unwrap().to_str().unwrap(), "agent_paused");
+    }
+
+    #[test]
+    fn daemon_state_equality() {
+        assert_eq!(DaemonState::Stopped, DaemonState::Stopped);
+        assert_ne!(DaemonState::Stopped, DaemonState::Running);
+        assert_ne!(DaemonState::Running, DaemonState::Paused);
+    }
+}
+

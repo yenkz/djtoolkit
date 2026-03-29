@@ -112,3 +112,65 @@ pub fn save_config(config: &AppConfig) -> Result<(), String> {
 
     fs::write(config_path(), contents).map_err(|e| format!("Failed to write config: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_expected_values() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.cloud_url, "https://www.djtoolkit.net");
+        assert_eq!(cfg.poll_interval_sec, 30.0);
+        assert_eq!(cfg.max_concurrent_jobs, 2);
+        assert!(cfg.launch_at_startup);
+        assert!(cfg.api_key.is_empty());
+        assert!(cfg.slsk_username.is_empty());
+        assert!(!cfg.downloads_dir.is_empty(), "downloads_dir should not be empty");
+    }
+
+    #[test]
+    fn config_toml_roundtrip() {
+        let cfg = AppConfig {
+            cloud_url: "https://example.com".into(),
+            poll_interval_sec: 15.0,
+            max_concurrent_jobs: 4,
+            downloads_dir: "/tmp/test-downloads".into(),
+            launch_at_startup: false,
+            api_key: "test-api-key".into(),
+            slsk_username: "testuser".into(),
+        };
+        let serialized = toml::to_string_pretty(&cfg).unwrap();
+        let deserialized: AppConfig = toml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.cloud_url, cfg.cloud_url);
+        assert_eq!(deserialized.poll_interval_sec, cfg.poll_interval_sec);
+        assert_eq!(deserialized.max_concurrent_jobs, cfg.max_concurrent_jobs);
+        assert_eq!(deserialized.downloads_dir, cfg.downloads_dir);
+        assert_eq!(deserialized.launch_at_startup, cfg.launch_at_startup);
+        assert_eq!(deserialized.api_key, cfg.api_key);
+        assert_eq!(deserialized.slsk_username, cfg.slsk_username);
+    }
+
+    #[test]
+    fn partial_toml_fills_missing_fields_with_defaults() {
+        // Simulates a config written by an older version that is missing new fields.
+        let partial = r#"
+            cloud_url = "https://custom.example.com"
+            poll_interval_sec = 60.0
+        "#;
+        let cfg: AppConfig = toml::from_str(partial).unwrap();
+        assert_eq!(cfg.cloud_url, "https://custom.example.com");
+        assert_eq!(cfg.poll_interval_sec, 60.0);
+        assert_eq!(cfg.max_concurrent_jobs, 2);
+        assert!(cfg.launch_at_startup);
+        assert!(cfg.api_key.is_empty());
+    }
+
+    #[test]
+    fn config_path_is_inside_config_dir() {
+        use crate::daemon::get_config_dir;
+        let path = config_path();
+        assert_eq!(path.parent().unwrap(), get_config_dir().as_path());
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), "config.toml");
+    }
+}

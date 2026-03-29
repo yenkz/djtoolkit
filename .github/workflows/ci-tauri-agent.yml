@@ -6,12 +6,14 @@ on:
     paths:
       - "agent-app/**"
       - "djtoolkit/agent/**"
+      - "packaging/**"
       - ".github/workflows/ci-tauri-agent.yml"
   pull_request:
     branches: [master]
     paths:
       - "agent-app/**"
       - "djtoolkit/agent/**"
+      - "packaging/**"
       - ".github/workflows/ci-tauri-agent.yml"
 
 permissions:
@@ -83,3 +85,7 @@ jobs:
       - name: Build Rust
         working-directory: agent-app/src-tauri
         run: cargo build --target ${{ matrix.target }}
+
+      - name: Run Rust unit tests
+        working-directory: agent-app/src-tauri
+        run: cargo test --target ${{ matrix.target }}

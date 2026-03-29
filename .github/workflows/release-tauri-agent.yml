@@ -127,6 +127,26 @@ jobs:
       - name: Build sidecar binary
         run: uv run pyinstaller ${{ matrix.spec }} --clean --noconfirm
 
+      # Smoke-test the built binary before renaming / uploading.
+      # If Python fails to load (Team ID mismatch, missing dylib, etc.) the
+      # bootloader exits non-zero here and CI fails before a broken DMG is released.
+      - name: Smoke-test sidecar binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "=== djtoolkit --help (verifies Python loads and CLI boots) ==="
+          ./dist/${{ matrix.binary-name }} --help
+          echo "=== fpcalc --version (verifies fpcalc is present and executable) ==="
+          ./dist/fpcalc --version
+
+      - name: Smoke-test sidecar binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Write-Host "=== djtoolkit --help (verifies Python loads and CLI boots) ==="
+          .\dist\${{ matrix.binary-name }} --help
+          Write-Host "=== fpcalc --version ==="
+          .\dist\fpcalc.exe --version
+        shell: pwsh
+
       # Rename to Tauri sidecar convention: djtoolkit-{target-triple}
       - name: Rename sidecar (macOS)
         if: runner.os == 'macOS'
