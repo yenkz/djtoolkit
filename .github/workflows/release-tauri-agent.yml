@@ -123,23 +123,24 @@ jobs:
       - name: Install PyInstaller
         run: uv pip install pyinstaller
 
-      # uv uses python-build-standalone (not python.org Python.framework), so there is
-      # no Team ID to strip. This step is a no-op for python-build-standalone but is kept
-      # as a safety net in case the Python path ever changes back to a framework build.
-      - name: Re-sign Python.framework with ad-hoc before bundling (macOS)
+      # Re-sign all native binaries in the Python prefix with ad-hoc signatures.
+      # Both python.org Python.framework (Team ID: 4P42Z2F3DC) and python-build-standalone
+      # (Astral's Team ID) carry a real Team ID. macOS 15+ enforces that dlopen-ed libraries
+      # share the same Team ID as the loading process. Our sidecar is ad-hoc signed (no Team ID),
+      # so any embedded library with a real Team ID causes a mismatch at runtime.
+      # Replacing every .dylib/.so/Python binary with an ad-hoc signature (--force --sign -)
+      # removes the Team ID without corrupting the binary structure, allowing dlopen to succeed.
+      - name: Re-sign Python binaries with ad-hoc before bundling (macOS)
         if: runner.os == 'macOS'
         run: |
-          PYPREFIX=$(uv run python -c "import sysconfig; print(sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or '')")
-          PYFRAMEWORK="$PYPREFIX/Python.framework"
-          echo "Framework prefix: $PYPREFIX"
-          if [ -d "$PYFRAMEWORK" ]; then
-            echo "Re-signing all binaries in $PYFRAMEWORK"
-            find "$PYFRAMEWORK" -type f \( -name "*.dylib" -o -name "Python" \) | while read f; do
-              codesign --force --sign - "$f" && echo "  signed: $f" || echo "  skip: $f"
-            done
-          else
-            echo "No Python.framework found (non-framework Python — no re-signing needed)"
-          fi
+          PYTHON_REAL=$(uv run python -c "import os,sys; print(os.path.realpath(sys.executable))")
+          PYTHON_PREFIX=$(cd "$(dirname "$PYTHON_REAL")/.." && pwd)
+          echo "Python executable: $PYTHON_REAL"
+          echo "Python prefix: $PYTHON_PREFIX"
+          find "$PYTHON_PREFIX" -type f \( -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0 \
+            | while IFS= read -r -d '' f; do
+                codesign --force --sign - "$f" 2>/dev/null && echo "  signed: $f" || true
+              done
 
       - name: Build sidecar binary
         run: uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
