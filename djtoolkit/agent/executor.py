@@ -146,6 +146,8 @@ async def execute_job(
             return await execute_audio_analysis(payload, cfg)
         case "metadata":
             return await execute_metadata(payload, cfg)
+        case "folder_import":
+            return await execute_folder_import(payload, cfg, credentials)
         case _:
             raise ValueError(f"Unsupported job type: {job_type}")
 
@@ -460,3 +462,13 @@ async def execute_metadata(
         "local_path": str(new_path),
         "metadata_written": success,
     }
+
+
+# ─── Folder Import ─────────────────────────────────────────────────────────────
+
+async def execute_folder_import(
+    payload: dict, cfg: Config, credentials: dict,
+) -> dict[str, Any]:
+    """Scan a folder, insert tracks, queue fingerprint jobs."""
+    from djtoolkit.agent.jobs.folder_import import run
+    return await run(cfg, payload, credentials)
