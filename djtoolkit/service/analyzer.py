@@ -46,7 +46,7 @@ def download_audio(url: str, output_dir: str) -> str:
         "--audio-format", "mp3",
         "--audio-quality", "192K",
         "--output", output_template,
-        "--remote-components", "ejs:github",
+        "--js-runtimes", "deno",
     ]
 
     if _YTDLP_PROXY:
