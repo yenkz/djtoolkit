@@ -285,16 +285,22 @@ jobs:
           echo "Contents/Frameworks (first 20):"
           ls "$FRAMEWORKS_DIR" | head -20
 
-          # Sign only the injected native libraries in Frameworks/.
-          # Do NOT re-sign executables in Contents/MacOS/ — Tauri already signed
-          # them, and codesign on any bundle binary triggers full bundle validation
-          # which fails on .pyi/.py files in Frameworks/.
-          SIGNED=0
-          while IFS= read -r -d '' f; do
-            codesign --force --sign - "$f"
-            SIGNED=$((SIGNED + 1))
-          done < <(find "$FRAMEWORKS_DIR" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
-          echo "Signed $SIGNED native libraries in Frameworks/"
+          # Remove non-code files that cause codesign --deep to fail.
+          # .pyi = type stubs, .dist-info = package metadata, __pycache__ = bytecode cache.
+          # None are needed at runtime. This lets codesign --deep succeed.
+          echo "Cleaning non-code files from Frameworks..."
+          find "$FRAMEWORKS_DIR" -name "*.pyi" -delete
+          find "$FRAMEWORKS_DIR" -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
+          find "$FRAMEWORKS_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          echo "Cleaned"
+
+          # Sign the ENTIRE .app with --deep so all executables AND dylibs get
+          # the same ad-hoc identity in a single pass. This is critical: separate
+          # signing passes create different ad-hoc identities, and macOS 15 with
+          # quarantine flag rejects dlopen() across different identities.
+          echo "Signing .app with codesign --force --deep --sign -"
+          codesign --force --deep --sign - "$APP_PATH"
+          echo "Signed: $APP_PATH"
 
           # Verify sidecar and libpython share the same signing state
           LIBPYTHON=$(find "$FRAMEWORKS_DIR" -name "libpython3*.dylib" -print -quit)
