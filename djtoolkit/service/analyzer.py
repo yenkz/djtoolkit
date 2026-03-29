@@ -225,12 +225,23 @@ async def identify_samples(
                 if track:
                     matches = result.get("matches", [])
                     conf = _calc_confidence(matches)
+                    # Extract Apple Music preview URL from hub actions
+                    preview_url = ""
+                    for action in (track.get("hub", {}).get("actions") or []):
+                        if action.get("type") == "applemusicplay":
+                            preview_url = action.get("uri", "")
+                            break
+                    # Extract artwork URL
+                    images = track.get("images") or {}
+                    artwork_url = images.get("coverarthq") or images.get("coverart") or ""
                     results.append({
                         "artist": track.get("subtitle", ""),
                         "title": track.get("title", ""),
                         "timestamp": timestamp,
                         "confidence": conf,
                         "shazam_key": track.get("key", ""),
+                        "preview_url": preview_url,
+                        "artwork_url": artwork_url,
                     })
                     _log(f"  [{i+1}/{total}] {timestamp:.0f}s: {track.get('subtitle', '?')} - {track.get('title', '?')} (conf={conf:.2f})")
                 else:

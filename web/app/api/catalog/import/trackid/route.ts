@@ -86,6 +86,8 @@ interface CachedTrack {
   artists: string | null;
   duration_ms: number | null;
   search_string: string | null;
+  preview_url?: string | null;
+  artwork_url?: string | null;
 }
 
 const ANALYSIS_API = process.env.DJTOOLKIT_API_URL || "https://api.djtoolkit.net";
@@ -164,6 +166,8 @@ export async function POST(request: NextRequest) {
           artists: t.artists ?? undefined,
           duration_ms: t.duration_ms ?? undefined,
           search_string: t.search_string ?? undefined,
+          preview_url: t.preview_url ?? undefined,
+          artwork_url: t.artwork_url ?? undefined,
           already_owned: ownedSet.has(key),
         };
       });

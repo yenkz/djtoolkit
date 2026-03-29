@@ -176,6 +176,8 @@ async def _run_analysis(
                 "search_string": search_string,
                 "timestamp": t.get("timestamp", 0),
                 "confidence": t.get("confidence", 0),
+                "preview_url": t.get("preview_url") or None,
+                "artwork_url": t.get("artwork_url") or None,
                 "already_owned": False,
             })
 
@@ -187,6 +189,8 @@ async def _run_analysis(
                 "artists": t.get("artist"),
                 "duration_ms": int(t.get("duration", 0) * 1000) if t.get("duration") else None,
                 "search_string": build_search_string(t.get("artist", ""), t.get("title", "")) or None,
+                "preview_url": t.get("preview_url") or None,
+                "artwork_url": t.get("artwork_url") or None,
             }
             for t in filtered
         ]

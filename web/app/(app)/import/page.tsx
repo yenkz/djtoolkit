@@ -360,13 +360,25 @@ function TrackReviewRow({
   isOwned: boolean;
   onToggle: () => void;
 }) {
-  const { currentTrackId, isPlaying, play, pause } = usePreviewPlayer();
+  const { currentTrackId, isPlaying, play, playUrl, pause } = usePreviewPlayer();
   const previewTrack = track as unknown as PreviewTrack;
   const spotifyUri = previewTrack.spotify_uri;
+  const previewAudioUrl = previewTrack.preview_url;
+  const canPlay = !!(spotifyUri || previewAudioUrl);
   const isThisPlaying = currentTrackId === track.id && isPlaying;
   const isThisActive = currentTrackId === track.id;
   // Preview tracks don't have a numeric id yet — derive a stable one from _key
   const playId = track.id ?? Math.abs((previewTrack._key ?? "").split("").reduce((a: number, c: string) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0));
+
+  const handlePlay = () => {
+    if (!canPlay) return;
+    if (isThisPlaying) { pause(); return; }
+    if (spotifyUri) {
+      play(playId, spotifyUri);
+    } else if (previewAudioUrl) {
+      playUrl(playId, previewAudioUrl, { title: track.title ?? undefined, artist: track.artist ?? undefined });
+    }
+  };
 
   return (
     <div
@@ -387,7 +399,7 @@ function TrackReviewRow({
         checked={isSelected}
         onChange={() => onToggle()}
       />
-      <MiniArt name={track.artist ?? track.title ?? "??"} src={track.artwork_url} size={40} />
+      <MiniArt name={track.artist ?? track.title ?? "??"} src={previewTrack.artwork_url ?? track.artwork_url} size={40} />
       {/* Play/Pause preview button */}
       <div
         role="button"
@@ -395,17 +407,13 @@ function TrackReviewRow({
         aria-label={isThisPlaying ? "Pause preview" : "Play preview"}
         onClick={(e) => {
           e.stopPropagation();
-          if (!spotifyUri) return;
-          if (isThisPlaying) pause();
-          else play(playId, spotifyUri);
+          handlePlay();
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             e.stopPropagation();
-            if (!spotifyUri) return;
-            if (isThisPlaying) pause();
-            else play(playId, spotifyUri);
+            handlePlay();
           }
         }}
         style={{
@@ -417,8 +425,8 @@ function TrackReviewRow({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          cursor: spotifyUri ? "pointer" : "default",
-          opacity: spotifyUri ? 1 : 0.25,
+          cursor: canPlay ? "pointer" : "default",
+          opacity: canPlay ? 1 : 0.25,
           boxShadow: isThisActive ? "0 0 8px var(--led-green-dim, rgba(68,255,68,0.3))" : "none",
           transition: "all 0.2s",
           position: "relative",
@@ -432,7 +440,7 @@ function TrackReviewRow({
           </svg>
         ) : (
           <svg width="10" height="10" viewBox="0 0 24 24">
-            <path d="M6 3l12 9-12 9V3z" fill={spotifyUri ? "var(--led-green-dim, #6A8A6A)" : "var(--hw-text-muted)"} />
+            <path d="M6 3l12 9-12 9V3z" fill={canPlay ? "var(--led-green-dim, #6A8A6A)" : "var(--hw-text-muted)"} />
           </svg>
         )}
       </div>
