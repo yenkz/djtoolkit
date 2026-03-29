@@ -18,7 +18,6 @@ import subprocess
 import tempfile
 from typing import Callable, Awaitable
 
-from pydub import AudioSegment
 from shazamio import Shazam
 
 # ─── Types ────────────────────────────────────────────────────────────────────
@@ -107,6 +106,21 @@ def generate_sample_points(
     return points
 
 
+# ─── Segment Extraction ──────────────────────────────────────────────────────
+
+def _extract_segment(audio_path: str, start_sec: float, duration_sec: float, output_path: str):
+    """Extract a segment from an audio file using ffmpeg (zero RAM loading)."""
+    import subprocess as sp
+    sp.run([
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-ss", str(start_sec),
+        "-t", str(duration_sec),
+        "-i", audio_path,
+        "-ac", "1", "-ar", "16000", "-q:a", "5",
+        output_path,
+    ], capture_output=True, timeout=30)
+
+
 # ─── Segment Identification ──────────────────────────────────────────────────
 
 async def identify_samples(
@@ -118,9 +132,9 @@ async def identify_samples(
 ) -> list[dict]:
     """Identify tracks at each sample point via Shazam.
 
-    Extracts a short clip at each sample point and sends to Shazam.
+    Uses ffmpeg to extract each sample directly from the file — never loads
+    the entire audio into memory (critical for 4GB servers with long mixes).
     """
-    audio = AudioSegment.from_file(audio_path)
     shazam = Shazam()
     results: list[dict] = []
     total = len(sample_points)
@@ -130,12 +144,12 @@ async def identify_samples(
 
     try:
         for i, timestamp in enumerate(sample_points):
-            start_ms = int(timestamp * 1000)
-            end_ms = int((timestamp + sample_duration_sec) * 1000)
-            segment = audio[start_ms:end_ms]
-
             seg_path = os.path.join(tmp_dir, f"seg_{i:04d}.mp3")
-            segment.export(seg_path, format="mp3")
+            _extract_segment(audio_path, timestamp, sample_duration_sec, seg_path)
+
+            if not os.path.exists(seg_path):
+                _log(f"  [{i+1}/{total}] {timestamp:.0f}s: segment extraction failed")
+                continue
 
             pct = int(10 + 80 * (i + 1) / total)
             if on_progress:
