@@ -154,3 +154,50 @@ class AgentClient:
             return []
         except httpx.HTTPError:
             return []
+
+    # ── Agent commands ────────────────────────────────────────────────────
+
+    async def poll_commands(self, limit: int = 5) -> list[dict]:
+        """Fetch pending agent commands."""
+        try:
+            resp = await self._request(
+                "GET", "/agents/commands", params={"limit": str(limit)},
+            )
+            if resp.status_code == 200:
+                self._consecutive_errors = 0
+                return resp.json()
+            return []
+        except Exception:
+            return []
+
+    async def report_command_result(
+        self, cmd_id: str, *,
+        result: dict | None = None,
+        error: str | None = None,
+    ) -> bool:
+        """Report command completion or failure."""
+        body: dict = {
+            "status": "completed" if error is None else "failed",
+        }
+        if result is not None:
+            body["result"] = result
+        if error is not None:
+            body["error"] = error
+        try:
+            resp = await self._request(
+                "PUT", f"/agents/commands/{cmd_id}", json=body,
+            )
+            return resp.status_code == 204
+        except Exception:
+            return False
+
+    async def claim_command(self, cmd_id: str) -> bool:
+        """Mark a command as running."""
+        try:
+            resp = await self._request(
+                "PUT", f"/agents/commands/{cmd_id}",
+                json={"status": "running"},
+            )
+            return resp.status_code == 204
+        except Exception:
+            return False
