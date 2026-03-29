@@ -54,7 +54,7 @@ def download_audio(url: str, output_dir: str) -> str:
 
     cmd.append(url)
 
-    _log(f"Downloading audio from: {url}")
+    _log(f"yt-dlp command: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         stderr = result.stderr.strip()
