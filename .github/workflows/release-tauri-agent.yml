@@ -261,7 +261,12 @@ jobs:
         working-directory: agent-app
         run: npm run tauri -- build --target ${{ matrix.target }}
 
-      - name: Inject onedir files into .app bundle (macOS)
+      # Inject the onedir _internal/ into Contents/Resources/ (where non-code
+      # files belong) and symlink from Contents/MacOS/_internal so PyInstaller's
+      # bootloader finds it. Then sign all Mach-O files individually.
+      # We do NOT re-seal the .app bundle — Contents/MacOS/ must only contain
+      # executables, and codesign refuses to seal a bundle with .py/.pyi files there.
+      - name: Inject onedir files and sign (macOS)
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
@@ -269,58 +274,39 @@ jobs:
           APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
           echo "App bundle: $APP_PATH"
 
+          RESOURCES_DIR="$APP_PATH/Contents/Resources"
           MACOS_DIR="$APP_PATH/Contents/MacOS"
-          echo "Injecting onedir _internal/ into $MACOS_DIR"
 
-          tar xzf agent-app/src-tauri/binaries/onedir-internal.tar.gz -C "$MACOS_DIR"
+          # Extract _internal/ into Contents/Resources/
+          mkdir -p "$RESOURCES_DIR"
+          tar xzf agent-app/src-tauri/binaries/onedir-internal.tar.gz -C "$RESOURCES_DIR"
+          echo "Extracted _internal/ to $RESOURCES_DIR/_internal/"
 
-          echo "Contents/MacOS after injection:"
-          ls -la "$MACOS_DIR"
-          echo "_internal/ contents (first 20):"
-          ls "$MACOS_DIR/_internal/" | head -20
+          # Symlink so PyInstaller's bootloader finds _internal/ relative to itself
+          ln -s ../Resources/_internal "$MACOS_DIR/_internal"
+          echo "Symlinked: $MACOS_DIR/_internal -> ../Resources/_internal"
 
-      # Sign all Mach-O binaries in the bundle, then seal the .app.
-      # We can't use codesign --deep because _internal/ contains non-code
-      # items (.dist-info dirs, .py files) that --deep tries to parse as
-      # bundles and fails with "bundle format unrecognized".
-      - name: Re-sign .app bundle (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-
-          APP_PATH=$(find agent-app/src-tauri/target -name "djtoolkit.app" -type d -path "*/bundle/macos/*" | head -1)
-          echo "App bundle: $APP_PATH"
-
-          # 1. Sign all native libraries (.dylib, .so) in the bundle
+          # Sign all native libraries in _internal/
           SIGNED=0
           while IFS= read -r -d '' f; do
             codesign --force --sign - "$f"
             SIGNED=$((SIGNED + 1))
-          done < <(find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
+          done < <(find "$RESOURCES_DIR/_internal" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
           echo "Signed $SIGNED native libraries"
 
-          # 2. Sign executables in Contents/MacOS/
-          for exe in "$APP_PATH/Contents/MacOS/djtoolkit" \
-                     "$APP_PATH/Contents/MacOS/fpcalc" \
-                     "$APP_PATH/Contents/MacOS/agent-app"; do
+          # Re-sign executables (Tauri already signed them, but we want consistency)
+          for exe in "$MACOS_DIR/djtoolkit" "$MACOS_DIR/fpcalc" "$MACOS_DIR/agent-app"; do
             if [ -f "$exe" ]; then
               codesign --force --sign - "$exe"
               echo "Signed executable: $(basename "$exe")"
             fi
           done
 
-          # 3. Seal the top-level .app bundle (without --deep)
-          codesign --force --sign - "$APP_PATH"
-          echo "Sealed: $APP_PATH"
-
-          # Verify the sidecar and a key dylib share the same signing state
-          SIDECAR="$APP_PATH/Contents/MacOS/djtoolkit"
-          LIBPYTHON=$(find "$APP_PATH/Contents/MacOS/_internal" -name "libpython3*.dylib" -print -quit)
-
+          # Verify sidecar and libpython share the same signing state
+          LIBPYTHON=$(find "$RESOURCES_DIR/_internal" -name "libpython3*.dylib" -print -quit)
           echo ""
           echo "=== Sidecar signature ==="
-          codesign -dvv "$SIDECAR" 2>&1 | grep -E "Identifier=|TeamIdentifier=|Signature=" || true
-
+          codesign -dvv "$MACOS_DIR/djtoolkit" 2>&1 | grep -E "Identifier=|TeamIdentifier=|Signature=" || true
           if [ -n "$LIBPYTHON" ]; then
             echo ""
             echo "=== libpython signature ==="
