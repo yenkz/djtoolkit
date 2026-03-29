@@ -318,6 +318,7 @@ async def run_daemon(
     # ── Realtime subscription ────────────────────────────────────────────
     realtime_wake = asyncio.Event()
     realtime_connected = False
+    command_wake = asyncio.Event()
 
     async def _realtime_loop() -> None:
         """Subscribe to Supabase Realtime for instant job notifications.
@@ -366,6 +367,21 @@ async def run_daemon(
                 )
                 await channel.subscribe()
 
+                # Agent commands channel — instant wake for interactive requests
+                def _on_command_event(payload: Any) -> None:
+                    log.debug("Realtime: new agent_command event")
+                    command_wake.set()
+
+                cmd_channel = sb_client.channel("agent-commands")
+                cmd_channel.on_postgres_changes(
+                    RealtimePostgresChangesListenEvent.Insert,
+                    _on_command_event,
+                    table="agent_commands",
+                    schema="public",
+                    filter="status=eq.pending",
+                )
+                await cmd_channel.subscribe()
+
                 realtime_connected = True
                 retry_delay = 5.0
                 log.info("Realtime subscription active")
@@ -397,6 +413,50 @@ async def run_daemon(
                         await sb_client.auth.close()
                     except Exception:
                         pass
+
+    async def _command_poll_loop() -> None:
+        """Poll for agent commands (browse_folder, etc.) and execute inline."""
+        from djtoolkit.agent.commands.browse_folder import browse_folder
+
+        while not shutdown_event.is_set():
+            try:
+                commands = await client.poll_commands(limit=5)
+                for cmd in commands:
+                    cmd_id = cmd["id"]
+                    cmd_type = cmd.get("command_type", "")
+                    payload = cmd.get("payload") or {}
+
+                    await client.claim_command(cmd_id)
+
+                    try:
+                        match cmd_type:
+                            case "browse_folder":
+                                result = browse_folder(payload)
+                            case _:
+                                raise ValueError(f"Unknown command: {cmd_type}")
+
+                        await client.report_command_result(cmd_id, result=result)
+                        log.info("Command %s completed: %s", cmd_type, cmd_id[:8])
+
+                    except Exception as exc:
+                        log.warning("Command %s failed: %s", cmd_id[:8], exc)
+                        await client.report_command_result(cmd_id, error=str(exc))
+
+            except Exception as exc:
+                log.debug("Command poll error: %s", exc)
+
+            # Wait for Realtime wake or poll interval
+            try:
+                await asyncio.wait_for(
+                    asyncio.ensure_future(command_wake.wait()),
+                    timeout=30.0 if not realtime_connected else 120.0,
+                )
+                command_wake.clear()
+            except asyncio.TimeoutError:
+                pass
+
+            if shutdown_event.is_set():
+                break
 
     # ── Heartbeat loop ───────────────────────────────────────────────────
     async def _heartbeat_loop() -> None:
@@ -527,6 +587,7 @@ async def run_daemon(
             tg.create_task(_heartbeat_loop())
             tg.create_task(_poll_loop())
             tg.create_task(_realtime_loop())
+            tg.create_task(_command_poll_loop())
     except* AgentRevoked:
         log.error("API key revoked. Agent stopping.")
     finally:
