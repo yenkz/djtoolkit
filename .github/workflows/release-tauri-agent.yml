@@ -100,47 +100,39 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Poetry
-        run: pip install poetry
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: poetry install --no-interaction
+        run: uv sync --frozen
 
       - name: Install PyInstaller
-        run: poetry run pip install pyinstaller
+        run: uv run pip install pyinstaller
 
-      # Strip the Python.framework signature BEFORE PyInstaller embeds it.
+      # Re-sign Python.framework with ad-hoc BEFORE PyInstaller embeds it.
       #
-      # Problem: actions/setup-python installs python.org Python, whose Python.framework
-      # is signed with python.org's Team ID. PyInstaller packages it as raw bytes inside
-      # the onefile binary. At runtime the bootloader extracts it to /tmp and calls dlopen.
-      # macOS rejects the load: djtoolkit is ad-hoc signed (no Team ID) but Python.framework
-      # has python.org's Team ID — "different Team IDs" → fatal.
-      #
-      # Fix: strip the signature from Python.framework BEFORE PyInstaller bundles it.
-      # The embedded (and later-extracted) framework then has no Team ID, which is
-      # compatible with an ad-hoc-signed calling process.
-      - name: Strip Python.framework signature before bundling (macOS)
+      # v0.2.10 used --remove-signature which corrupts the __LINKEDIT segment and
+      # causes PyInstaller's install_name_tool to abort. The correct fix is
+      # --force --sign - which replaces the python.org Team ID signature with
+      # ad-hoc (no Team ID) while keeping the Mach-O structure valid. At runtime
+      # both djtoolkit and the extracted Python.framework have no Team ID → no mismatch.
+      - name: Re-sign Python.framework with ad-hoc before bundling (macOS)
         if: runner.os == 'macOS'
         run: |
-          PYLIB=$(python3 -c "import sysconfig,os; fw=sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or ''; ver=sysconfig.get_python_version(); print(os.path.join(fw,'Python.framework','Versions',ver,'Python'))")
-          echo "Python dylib: $PYLIB"
-          if [ -f "$PYLIB" ]; then
-            codesign --remove-signature "$PYLIB"
-            echo "Signature stripped."
+          PYPREFIX=$(uv run python -c "import sysconfig; print(sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or '')")
+          PYFRAMEWORK="$PYPREFIX/Python.framework"
+          echo "Framework prefix: $PYPREFIX"
+          if [ -d "$PYFRAMEWORK" ]; then
+            echo "Re-signing all binaries in $PYFRAMEWORK"
+            find "$PYFRAMEWORK" -type f \( -name "*.dylib" -o -name "Python" \) | while read f; do
+              codesign --force --sign - "$f" && echo "  signed: $f" || echo "  skip: $f"
+            done
           else
-            PYLIB2=$(python3 -c "import sys,os; print(os.path.join(sys.prefix,'Python'))")
-            echo "sysconfig miss — fallback: $PYLIB2"
-            if [ -f "$PYLIB2" ]; then
-              codesign --remove-signature "$PYLIB2"
-              echo "Stripped (fallback)."
-            else
-              echo "WARNING: could not locate Python dylib"
-            fi
+            echo "No Python.framework found (non-framework Python — no re-signing needed)"
           fi
 
       - name: Build sidecar binary
-        run: poetry run pyinstaller ${{ matrix.spec }} --clean --noconfirm
+        run: uv run pyinstaller ${{ matrix.spec }} --clean --noconfirm
 
       # Rename to Tauri sidecar convention: djtoolkit-{target-triple}
       - name: Rename sidecar (macOS)
