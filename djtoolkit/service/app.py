@@ -40,6 +40,22 @@ def create_app() -> FastAPI:
             content={"detail": f"Internal server error: {exc}"},
         )
 
+    @app.on_event("startup")
+    async def reset_stuck_jobs():
+        """Reset any jobs left in 'analyzing' state from a previous container."""
+        try:
+            from djtoolkit.db.supabase_client import get_client
+            client = get_client()
+            result = client.table("trackid_import_jobs").update({
+                "status": "failed",
+                "error": "Interrupted by server restart. Please retry.",
+                "step": "Interrupted",
+            }).eq("status", "analyzing").execute()
+            if result.data:
+                print(f"[startup] Reset {len(result.data)} stuck analyzing jobs", flush=True)
+        except Exception as e:
+            print(f"[startup] Failed to reset stuck jobs: {e}", flush=True)
+
     app.include_router(health_router)
     app.include_router(import_router)
     app.include_router(export_router)
