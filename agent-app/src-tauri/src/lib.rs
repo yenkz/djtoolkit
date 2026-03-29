@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod daemon;
+mod keychain;
 mod tray;
 
 use std::time::Duration;

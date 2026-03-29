@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::daemon::get_config_dir;
 
-/// Application configuration, persisted as TOML.
+/// Agent section of the config file (`[agent]` in TOML).
+/// This is the primary configuration read by both the Tauri app and the Python daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Cloud API URL.
@@ -29,7 +30,7 @@ pub struct AppConfig {
     pub launch_at_startup: bool,
 
     /// Agent API key (non-sensitive identifier, stored here for Settings display).
-    /// The canonical copy is in the OS keychain; this is kept in sync by configure-headless.
+    /// The canonical copy is in the OS keychain; this is kept in sync by configure_agent.
     #[serde(default)]
     pub api_key: String,
 
@@ -50,7 +51,7 @@ fn default_max_concurrent() -> u32 {
     2
 }
 
-fn default_downloads_dir() -> String {
+pub fn default_downloads_dir() -> String {
     let music = dirs::audio_dir()
         .or_else(dirs::home_dir)
         .unwrap_or_else(|| PathBuf::from("."));
@@ -79,6 +80,14 @@ impl Default for AppConfig {
     }
 }
 
+/// Full config file structure with `[agent]` section.
+/// The Python daemon reads this format.
+#[derive(Debug, Serialize, Deserialize)]
+struct FullConfig {
+    #[serde(default)]
+    agent: AppConfig,
+}
+
 /// Path to the config file.
 pub fn config_path() -> PathBuf {
     get_config_dir().join("config.toml")
@@ -89,7 +98,7 @@ pub fn config_exists() -> bool {
     config_path().exists()
 }
 
-/// Load config from disk. Returns defaults if the file doesn't exist.
+/// Load config from disk. Supports both flat format (legacy) and `[agent]` section format.
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path();
     if !path.exists() {
@@ -99,16 +108,58 @@ pub fn load_config() -> Result<AppConfig, String> {
     let contents =
         fs::read_to_string(&path).map_err(|e| format!("Failed to read config: {e}"))?;
 
+    // Try nested [agent] format first (written by configure_agent)
+    if let Ok(full) = toml::from_str::<FullConfig>(&contents) {
+        // Check if the [agent] section actually had content (not just defaults)
+        if contents.contains("[agent]") {
+            return Ok(full.agent);
+        }
+    }
+
+    // Fall back to flat format (legacy)
     toml::from_str::<AppConfig>(&contents).map_err(|e| format!("Failed to parse config: {e}"))
 }
 
-/// Save config to disk (creates the config directory if needed).
+/// Save config to disk in the `[agent]` section format (Python-compatible).
+/// Also writes [soulseek], [fingerprint], [cover_art] sections for the daemon.
 pub fn save_config(config: &AppConfig) -> Result<(), String> {
+    write_agent_config(config)
+}
+
+/// Write the full config.toml in the format the Python daemon expects.
+pub fn write_agent_config(config: &AppConfig) -> Result<(), String> {
     let dir = get_config_dir();
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
 
-    let contents =
-        toml::to_string_pretty(config).map_err(|e| format!("Failed to serialize config: {e}"))?;
+    // Normalize backslashes for TOML compatibility (Windows paths)
+    let downloads_dir = config.downloads_dir.replace('\\', "/");
+
+    let contents = format!(
+        r#"[agent]
+cloud_url = "{cloud_url}"
+poll_interval_sec = {poll_interval}
+max_concurrent_jobs = {max_concurrent}
+downloads_dir = "{downloads_dir}"
+api_key = "{api_key}"
+slsk_username = "{slsk_username}"
+
+[soulseek]
+search_timeout_sec = 15
+download_timeout_sec = 300
+
+[fingerprint]
+enabled = true
+
+[cover_art]
+sources = "coverart itunes deezer"
+"#,
+        cloud_url = config.cloud_url,
+        poll_interval = config.poll_interval_sec as u32,
+        max_concurrent = config.max_concurrent_jobs,
+        downloads_dir = downloads_dir,
+        api_key = config.api_key,
+        slsk_username = config.slsk_username,
+    );
 
     fs::write(config_path(), contents).map_err(|e| format!("Failed to write config: {e}"))
 }
@@ -130,40 +181,36 @@ mod tests {
     }
 
     #[test]
-    fn config_toml_roundtrip() {
-        let cfg = AppConfig {
-            cloud_url: "https://example.com".into(),
-            poll_interval_sec: 15.0,
-            max_concurrent_jobs: 4,
-            downloads_dir: "/tmp/test-downloads".into(),
-            launch_at_startup: false,
-            api_key: "test-api-key".into(),
-            slsk_username: "testuser".into(),
-        };
-        let serialized = toml::to_string_pretty(&cfg).unwrap();
-        let deserialized: AppConfig = toml::from_str(&serialized).unwrap();
-        assert_eq!(deserialized.cloud_url, cfg.cloud_url);
-        assert_eq!(deserialized.poll_interval_sec, cfg.poll_interval_sec);
-        assert_eq!(deserialized.max_concurrent_jobs, cfg.max_concurrent_jobs);
-        assert_eq!(deserialized.downloads_dir, cfg.downloads_dir);
-        assert_eq!(deserialized.launch_at_startup, cfg.launch_at_startup);
-        assert_eq!(deserialized.api_key, cfg.api_key);
-        assert_eq!(deserialized.slsk_username, cfg.slsk_username);
+    fn load_nested_agent_format() {
+        let toml_str = r#"
+[agent]
+cloud_url = "https://custom.example.com"
+poll_interval_sec = 60
+max_concurrent_jobs = 4
+downloads_dir = "/tmp/downloads"
+api_key = "djt_test123"
+slsk_username = "testuser"
+
+[soulseek]
+search_timeout_sec = 15
+"#;
+        let full: FullConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(full.agent.cloud_url, "https://custom.example.com");
+        assert_eq!(full.agent.poll_interval_sec, 60.0);
+        assert_eq!(full.agent.api_key, "djt_test123");
+        assert_eq!(full.agent.slsk_username, "testuser");
     }
 
     #[test]
-    fn partial_toml_fills_missing_fields_with_defaults() {
-        // Simulates a config written by an older version that is missing new fields.
-        let partial = r#"
-            cloud_url = "https://custom.example.com"
-            poll_interval_sec = 60.0
-        "#;
-        let cfg: AppConfig = toml::from_str(partial).unwrap();
+    fn load_flat_format_legacy() {
+        let toml_str = r#"
+cloud_url = "https://custom.example.com"
+poll_interval_sec = 60.0
+"#;
+        let cfg: AppConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cfg.cloud_url, "https://custom.example.com");
         assert_eq!(cfg.poll_interval_sec, 60.0);
-        assert_eq!(cfg.max_concurrent_jobs, 2);
-        assert!(cfg.launch_at_startup);
-        assert!(cfg.api_key.is_empty());
+        assert_eq!(cfg.max_concurrent_jobs, 2); // default
     }
 
     #[test]

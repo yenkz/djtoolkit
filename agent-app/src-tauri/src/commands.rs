@@ -1,11 +1,12 @@
 use std::fs;
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use tauri::State;
 
 use crate::config::{self, AppConfig};
 use crate::daemon::{self, DaemonManager};
+use crate::keychain;
 
 // ---------------------------------------------------------------------------
 // Daemon lifecycle
@@ -60,11 +61,12 @@ pub fn has_config() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Agent headless configuration (setup wizard)
+// Agent configuration (setup wizard) — pure Rust, no Python sidecar
 // ---------------------------------------------------------------------------
 
-/// Run `djtoolkit agent configure-headless` with a JSON payload on stdin.
-/// This sets up the agent's credentials and connection details.
+/// Configure the agent by storing credentials in the OS keychain and writing
+/// the config file. This replaces the Python `configure-headless` command to
+/// avoid PyInstaller + macOS 15 quarantine/signing issues.
 #[tauri::command]
 pub fn configure_agent(
     api_key: String,
@@ -74,60 +76,46 @@ pub fn configure_agent(
     supabase_anon_key: Option<String>,
     agent_email: Option<String>,
     agent_password: Option<String>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let sidecar = daemon::get_sidecar_path(&app)?;
+    // Validate
+    if api_key.is_empty() {
+        return Err("Missing required field: api_key".into());
+    }
+    if !api_key.starts_with("djt_") {
+        return Err("api_key must start with 'djt_'".into());
+    }
 
-    let mut payload = serde_json::json!({
-        "api_key": api_key,
-        "slsk_user": slsk_user,
-        "slsk_pass": slsk_pass,
-    });
+    // Store credentials in OS keychain
+    keychain::store(keychain::API_KEY, &api_key)?;
+    keychain::store(keychain::SLSK_USERNAME, &slsk_user)?;
+    keychain::store(keychain::SLSK_PASSWORD, &slsk_pass)?;
+
     if let Some(v) = supabase_url.filter(|s| !s.is_empty()) {
-        payload["supabase_url"] = serde_json::Value::String(v);
+        keychain::store(keychain::SUPABASE_URL, &v)?;
     }
     if let Some(v) = supabase_anon_key.filter(|s| !s.is_empty()) {
-        payload["supabase_anon_key"] = serde_json::Value::String(v);
+        keychain::store(keychain::SUPABASE_ANON_KEY, &v)?;
     }
     if let Some(v) = agent_email.filter(|s| !s.is_empty()) {
-        payload["agent_email"] = serde_json::Value::String(v);
+        keychain::store(keychain::AGENT_EMAIL, &v)?;
     }
     if let Some(v) = agent_password.filter(|s| !s.is_empty()) {
-        payload["agent_password"] = serde_json::Value::String(v);
+        keychain::store(keychain::AGENT_PASSWORD, &v)?;
     }
 
-    let mut child = Command::new(&sidecar)
-        .args(["agent", "configure-headless", "--stdin"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn configure command ({}): {e}", sidecar.display()))?;
-
-    // Write JSON to stdin and close it.
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        stdin
-            .write_all(payload.to_string().as_bytes())
-            .map_err(|e| format!("Failed to write to stdin: {e}"))?;
-        // stdin is closed when dropped
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for configure command: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Configure command failed: {stderr}"));
-    }
+    // Write config.toml (Python-compatible format)
+    let mut cfg = config::load_config().unwrap_or_default();
+    cfg.api_key = api_key;
+    cfg.slsk_username = slsk_user;
+    config::write_agent_config(&cfg)?;
 
     Ok(())
 }
 
 /// Re-authenticate from the Settings panel (no wizard).
-/// Only api_key + Supabase credentials are sent; configure-headless loads
-/// existing Soulseek credentials from the keychain so they are preserved.
+/// Stores api_key + optional Supabase/auth credentials. Preserves existing
+/// Soulseek credentials from the keychain.
 #[tauri::command]
 pub fn sign_in_from_settings(
     api_key: String,
@@ -135,65 +123,72 @@ pub fn sign_in_from_settings(
     supabase_anon_key: Option<String>,
     agent_email: Option<String>,
     agent_password: Option<String>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<(), String> {
-    let sidecar = daemon::get_sidecar_path(&app)?;
+    if api_key.is_empty() {
+        return Err("Missing required field: api_key".into());
+    }
+    if !api_key.starts_with("djt_") {
+        return Err("api_key must start with 'djt_'".into());
+    }
 
-    let mut payload = serde_json::json!({ "api_key": api_key });
+    // Store credentials in OS keychain
+    keychain::store(keychain::API_KEY, &api_key)?;
+
     if let Some(v) = supabase_url.filter(|s| !s.is_empty()) {
-        payload["supabase_url"] = serde_json::Value::String(v);
+        keychain::store(keychain::SUPABASE_URL, &v)?;
     }
     if let Some(v) = supabase_anon_key.filter(|s| !s.is_empty()) {
-        payload["supabase_anon_key"] = serde_json::Value::String(v);
+        keychain::store(keychain::SUPABASE_ANON_KEY, &v)?;
     }
     if let Some(v) = agent_email.filter(|s| !s.is_empty()) {
-        payload["agent_email"] = serde_json::Value::String(v);
+        keychain::store(keychain::AGENT_EMAIL, &v)?;
     }
     if let Some(v) = agent_password.filter(|s| !s.is_empty()) {
-        payload["agent_password"] = serde_json::Value::String(v);
+        keychain::store(keychain::AGENT_PASSWORD, &v)?;
     }
 
-    let mut child = Command::new(&sidecar)
-        .args(["agent", "configure-headless", "--stdin"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn configure command ({}): {e}", sidecar.display()))?;
+    // Preserve existing soulseek username from keychain or config
+    let slsk_username = keychain::get(keychain::SLSK_USERNAME)
+        .or_else(|| {
+            config::load_config()
+                .ok()
+                .map(|c| c.slsk_username)
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_default();
 
-    if let Some(mut stdin) = child.stdin.take() {
-        use std::io::Write;
-        stdin
-            .write_all(payload.to_string().as_bytes())
-            .map_err(|e| format!("Failed to write to stdin: {e}"))?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for configure command: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Configure command failed: {stderr}"));
-    }
+    // Write config.toml
+    let mut cfg = config::load_config().unwrap_or_default();
+    cfg.api_key = api_key;
+    cfg.slsk_username = slsk_username;
+    config::write_agent_config(&cfg)?;
 
     Ok(())
 }
 
 /// Update Soulseek credentials from the Settings panel without re-running the wizard.
-/// Reads the stored api_key from the config file and calls configure-headless with the
-/// new credentials + all existing config values.
 #[tauri::command]
 pub fn update_credentials(
     slsk_user: String,
     slsk_pass: String,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> Result<(), String> {
     let cfg = config::load_config()?;
     if cfg.api_key.is_empty() {
         return Err("Not signed in — please run the setup wizard first".into());
     }
-    configure_agent(cfg.api_key, slsk_user, slsk_pass, None, None, None, None, app)
+
+    // Store in keychain
+    keychain::store(keychain::SLSK_USERNAME, &slsk_user)?;
+    keychain::store(keychain::SLSK_PASSWORD, &slsk_pass)?;
+
+    // Update config.toml with new username
+    let mut cfg = cfg;
+    cfg.slsk_username = slsk_user;
+    config::write_agent_config(&cfg)?;
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +222,6 @@ pub fn get_log_content(lines: Option<usize>) -> Result<String, String> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Failed to read log file: {e}"))?;
 
-    // Take the last N lines.
     let start = if all_lines.len() > max_lines {
         all_lines.len() - max_lines
     } else {
