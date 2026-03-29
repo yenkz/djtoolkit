@@ -415,6 +415,94 @@ export async function deleteAgent(id: string): Promise<void> {
   await apiClient(`/agents/${id}`, { method: "DELETE" });
 }
 
+// ── Agent Commands ───────────────────────────────────────────────────────────
+
+export interface AgentCommand {
+  id: string;
+  command_type: string;
+  status: string;
+  payload: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export async function sendAgentCommand(
+  agentId: string,
+  commandType: string,
+  payload: Record<string, unknown>,
+): Promise<{ id: string }> {
+  const res = await apiClient("/agents/commands", {
+    method: "POST",
+    body: JSON.stringify({ agent_id: agentId, command_type: commandType, payload }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function getAgentCommandResult(
+  commandId: string,
+): Promise<AgentCommand> {
+  const res = await apiClient(`/agents/commands/${commandId}`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+// ── Folder Import ────────────────────────────────────────────────────────────
+
+export async function importFolder(
+  agentId: string,
+  path: string,
+  recursive = true,
+): Promise<{ id: string }> {
+  const res = await apiClient("/catalog/import/folder", {
+    method: "POST",
+    body: JSON.stringify({ agent_id: agentId, path, recursive }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export interface ReviewDecision {
+  track_id: number;
+  action: "keep" | "skip" | "replace";
+  duplicate_track_id?: number;
+}
+
+export async function reviewDuplicates(
+  decisions: ReviewDecision[],
+): Promise<{ kept: number; skipped: number; replaced: number; errors: number }> {
+  const res = await apiClient("/catalog/import/folder/review", {
+    method: "POST",
+    body: JSON.stringify({ decisions }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export interface FolderImportReport {
+  total: number;
+  fully_enriched: number;
+  missing: Record<string, number>;
+  tracks: Array<{
+    id: number;
+    title: string;
+    artist: string;
+    local_path: string;
+    acquisition_status: string;
+    missing_fields: string[];
+  }>;
+}
+
+export async function getFolderImportReport(
+  jobId: string,
+): Promise<FolderImportReport> {
+  const res = await apiClient(`/catalog/import/folder/${jobId}/report`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
 // ─── Onboarding API functions ─────────────────────────────────────────────────
 
 export async function importSpotifyPlaylistNoJobs(

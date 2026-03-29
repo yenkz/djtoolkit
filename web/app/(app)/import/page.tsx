@@ -11,6 +11,7 @@ import {
   confirmImport,
   getTrackIdJobStatus,
   fetchAgents,
+  importFolder,
   fetchPipelineStatus,
   registerAgent,
   disconnectSpotify,
@@ -20,7 +21,9 @@ import {
   type PreviewTrack,
   type TrackIdJobStatus,
   type ParseResult,
+  type Agent,
 } from "@/lib/api";
+import { FolderBrowser } from "@/components/folder-import/FolderBrowser";
 import { createClient } from "@/lib/supabase/client";
 import { usePreviewPlayer } from "@/lib/preview-player-context";
 import LCDDisplay from "@/components/ui/LCDDisplay";
@@ -623,6 +626,10 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [djParseResult, setDjParseResult] = useState<ParseResult | null>(null);
   const [djDraggingTarget, setDjDraggingTarget] = useState<"traktor" | "rekordbox" | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
+  const [folderImportJobId, setFolderImportJobId] = useState<string | null>(null);
 
   function formatElapsed(startMs: number): string {
     const sec = Math.floor((Date.now() - startMs) / 1000);
@@ -730,6 +737,20 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
         : "Select at least one source";
     onSourceChange(sourcesSelected > 0, summary);
   }, [sourcesSelected, totalTracks, trackIdValid, onSourceChange]);
+
+  useEffect(() => {
+    fetchAgents()
+      .then((list) => {
+        setAgents(list);
+        // Auto-select first online agent
+        const now = Date.now();
+        const live = list.find(
+          (a) => a.last_seen_at && now - new Date(a.last_seen_at).getTime() < 60_000,
+        );
+        if (live) setSelectedAgent(live.id);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleContinue() {
     if (sourcesSelected === 0) return;
@@ -1258,14 +1279,37 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
           comingSoon
         />
 
-        {/* ── Agent Import (coming soon placeholder) ── */}
+        {/* ── Local Folder ── */}
         <SourceCard
           icon={SRC_ICONS.agent}
-          title="Agent Import"
-          desc="Import from your local library via agent"
-          disabled
-          comingSoon
-        />
+          title="Local Folder"
+          desc="Browse and import audio files from your agent's machine"
+        >
+          <ActionButton
+            variant="outline"
+            onClick={() => setFolderBrowserOpen(true)}
+            disabled={!selectedAgent}
+          >
+            Browse Files
+          </ActionButton>
+          {!selectedAgent && (
+            <p className="mt-2 font-mono text-[10px]" style={{ color: "var(--hw-text-muted)" }}>
+              No agent connected — install the agent first
+            </p>
+          )}
+        </SourceCard>
+
+        {folderBrowserOpen && selectedAgent && (
+          <FolderBrowser
+            agentId={selectedAgent}
+            onClose={() => setFolderBrowserOpen(false)}
+            onSelect={async (path) => {
+              setFolderBrowserOpen(false);
+              const { id } = await importFolder(selectedAgent, path);
+              setFolderImportJobId(id);
+            }}
+          />
+        )}
       </div>
 
       {/* Loading overlay for import */}
