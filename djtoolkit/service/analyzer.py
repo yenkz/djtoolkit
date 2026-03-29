@@ -116,7 +116,8 @@ def _extract_segment(audio_path: str, start_sec: float, duration_sec: float, out
         "-ss", str(start_sec),
         "-t", str(duration_sec),
         "-i", audio_path,
-        "-ac", "1", "-ar", "16000", "-q:a", "5",
+        "-acodec", "libmp3lame",
+        "-b:a", "128k",
         output_path,
     ], capture_output=True, timeout=30)
 
