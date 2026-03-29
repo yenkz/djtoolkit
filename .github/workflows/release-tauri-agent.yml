@@ -108,11 +108,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Explicitly create the venv with python-build-standalone 3.11.
+      # Without this, uv may find and use a system python.org Python (e.g. 3.14)
+      # that satisfies requires-python >=3.11 and is available on the runner.
+      - name: Create virtual environment
+        run: uv venv --python 3.11
+
       - name: Install dependencies
         run: uv sync --frozen
 
+      # Install PyInstaller using the explicit Python interpreter, not the
+      # `pyinstaller` script, to prevent PATH resolution from picking up a
+      # system-installed pyinstaller from python.org Python.
       - name: Install PyInstaller
-        run: uv run pip install pyinstaller
+        run: uv run python -m pip install pyinstaller
 
       # uv uses python-build-standalone (not python.org Python.framework), so there is
       # no Team ID to strip. This step is a no-op for python-build-standalone but is kept
@@ -133,7 +142,7 @@ jobs:
           fi
 
       - name: Build sidecar binary
-        run: uv run pyinstaller ${{ matrix.spec }} --clean --noconfirm
+        run: uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
 
       # Smoke-test the built binary before renaming / uploading.
       # If Python fails to load (Team ID mismatch, missing dylib, etc.) the
