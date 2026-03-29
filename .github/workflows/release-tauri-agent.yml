@@ -282,16 +282,30 @@ jobs:
           tar xzf agent-app/src-tauri/binaries/onedir-internal.tar.gz -C "$RESOURCES_DIR"
           echo "Extracted _internal/ to $RESOURCES_DIR/_internal/"
 
+          # PyInstaller's bootloader detects it's inside a .app bundle and looks
+          # for libpython in Contents/Frameworks/ (macOS convention). Copy it there.
+          FRAMEWORKS_DIR="$APP_PATH/Contents/Frameworks"
+          mkdir -p "$FRAMEWORKS_DIR"
+          LIBPYTHON_SRC=$(find "$RESOURCES_DIR/_internal" -name "libpython3*.dylib" -print -quit)
+          if [ -n "$LIBPYTHON_SRC" ]; then
+            cp "$LIBPYTHON_SRC" "$FRAMEWORKS_DIR/"
+            echo "Copied $(basename "$LIBPYTHON_SRC") to Contents/Frameworks/"
+          else
+            echo "WARNING: libpython3*.dylib not found in _internal/"
+          fi
+
           # Symlink so PyInstaller's bootloader finds _internal/ relative to itself
           ln -s ../Resources/_internal "$MACOS_DIR/_internal"
           echo "Symlinked: $MACOS_DIR/_internal -> ../Resources/_internal"
 
-          # Sign all native libraries in _internal/
+          # Sign all native libraries in _internal/ and Frameworks/
           SIGNED=0
-          while IFS= read -r -d '' f; do
-            codesign --force --sign - "$f"
-            SIGNED=$((SIGNED + 1))
-          done < <(find "$RESOURCES_DIR/_internal" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
+          for dir in "$RESOURCES_DIR/_internal" "$FRAMEWORKS_DIR"; do
+            while IFS= read -r -d '' f; do
+              codesign --force --sign - "$f"
+              SIGNED=$((SIGNED + 1))
+            done < <(find "$dir" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
+          done
           echo "Signed $SIGNED native libraries"
 
           # Re-sign executables (Tauri already signed them, but we want consistency)
@@ -303,7 +317,7 @@ jobs:
           done
 
           # Verify sidecar and libpython share the same signing state
-          LIBPYTHON=$(find "$RESOURCES_DIR/_internal" -name "libpython3*.dylib" -print -quit)
+          LIBPYTHON=$(find "$FRAMEWORKS_DIR" -name "libpython3*.dylib" -print -quit)
           echo ""
           echo "=== Sidecar signature ==="
           codesign -dvv "$MACOS_DIR/djtoolkit" 2>&1 | grep -E "Identifier=|TeamIdentifier=|Signature=" || true
