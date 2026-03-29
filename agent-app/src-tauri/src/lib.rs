@@ -61,15 +61,14 @@ pub fn run() {
                 }
             }
 
-            // --- Deep link handler — focus main window and forward URL to all webviews ---
+            // --- Deep link handler — forward URL to all webviews ---
+            // Do NOT show/focus the main window here: the frontend manages its own
+            // visibility. Forcing it open here breaks the Settings re-auth flow by
+            // showing the wizard before configure-headless has written config.toml.
             #[cfg(desktop)]
             {
                 let dl_handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
-                    if let Some(w) = dl_handle.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
                     for url in event.urls() {
                         let _ = dl_handle.emit("deep-link-url", url.as_str().to_string());
                     }

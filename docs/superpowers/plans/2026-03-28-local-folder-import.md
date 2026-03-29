@@ -6,7 +6,7 @@
 
 **Architecture:** New `agent_commands` table for interactive request/response (browse). New `folder_import` pipeline job scans a folder, inserts tracks, and kicks off per-track chains (fingerprint → spotify_lookup → cover_art → audio_analysis → metadata). Duplicate fingerprints pause as `pending_review` for user decision. Files are renamed in place to `Artist - Title (Version).ext`.
 
-**Tech Stack:** Python 3.12, Supabase (PostgreSQL + Realtime), Next.js 14 (App Router), TypeScript, Tailwind CSS, mutagen, asyncio.
+**Tech Stack:** Python 3.12 (uv), Supabase (PostgreSQL + Realtime), Next.js 14 (App Router), TypeScript, Tailwind CSS, mutagen, asyncio.
 
 **Spec:** `docs/superpowers/specs/2026-03-28-local-folder-import-design.md`
 
@@ -1162,7 +1162,7 @@ def test_browse_file_entry_has_size(audio_folder: Path):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `poetry run pytest tests/test_browse_folder.py -v`
+Run: `uv run pytest tests/test_browse_folder.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'djtoolkit.agent.commands'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1229,7 +1229,7 @@ def browse_folder(payload: dict) -> dict:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `poetry run pytest tests/test_browse_folder.py -v`
+Run: `uv run pytest tests/test_browse_folder.py -v`
 Expected: All 5 tests PASS
 
 - [ ] **Step 5: Commit**
@@ -1517,7 +1517,7 @@ async def test_folder_import_empty_folder(tmp_path, mock_supabase):
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `poetry run pytest tests/test_folder_import_job.py -v`
+Run: `uv run pytest tests/test_folder_import_job.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'djtoolkit.agent.jobs.folder_import'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1643,7 +1643,7 @@ async def run(cfg: Config, payload: dict, credentials: dict) -> dict:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `poetry run pytest tests/test_folder_import_job.py -v`
+Run: `uv run pytest tests/test_folder_import_job.py -v`
 Expected: All tests PASS
 
 - [ ] **Step 5: Commit**
@@ -1802,7 +1802,7 @@ def test_target_filename_original_mix_dropped():
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `poetry run pytest tests/test_version_extraction.py -v`
+Run: `uv run pytest tests/test_version_extraction.py -v`
 Expected: FAIL — `ImportError: cannot import name '_extract_version'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1867,12 +1867,12 @@ def _target_filename(artist: str, title: str, suffix: str) -> str:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `poetry run pytest tests/test_version_extraction.py -v`
+Run: `uv run pytest tests/test_version_extraction.py -v`
 Expected: All 13 tests PASS
 
 - [ ] **Step 5: Run existing metadata writer tests to check for regressions**
 
-Run: `poetry run pytest tests/ -k "metadata or writer or mover" -v`
+Run: `uv run pytest tests/ -k "metadata or writer or mover" -v`
 Expected: All existing tests still PASS
 
 - [ ] **Step 6: Commit**
@@ -2328,10 +2328,10 @@ git commit -m "feat(ui): add Local Folder source card to import page"
 ### End-to-end test plan
 
 1. **Apply migrations** — `supabase db push`
-2. **Run Python tests** — `poetry run pytest tests/test_version_extraction.py tests/test_browse_folder.py tests/test_folder_import_job.py -v`
-3. **Run all existing tests** — `poetry run pytest` (regression check)
+2. **Run Python tests** — `uv run pytest tests/test_version_extraction.py tests/test_browse_folder.py tests/test_folder_import_job.py -v`
+3. **Run all existing tests** — `uv run pytest` (regression check)
 4. **Start web dev** — `cd web && npm run dev`
-5. **Start agent** — `poetry run djtoolkit agent run`
+5. **Start agent** — `uv run djtoolkit agent run`
 6. **Browse test** — open `https://localhost:3000/import`, click "Local Folder", verify folder browser modal opens, navigate directories, see audio files
 7. **Import test** — select a folder with 3-5 test audio files, click "Import This Folder", verify tracks appear in pipeline
 8. **Duplicate test** — re-import the same folder, verify duplicates show as `pending_review`, test Keep/Skip/Replace actions

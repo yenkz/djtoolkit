@@ -61,7 +61,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             target-triple: aarch64-apple-darwin
             spec: packaging/macos/djtoolkit.spec
             binary-name: djtoolkit
@@ -123,24 +123,75 @@ jobs:
       - name: Install PyInstaller
         run: uv pip install pyinstaller
 
-      # Re-sign all native binaries in the Python prefix with ad-hoc signatures.
-      # Both python.org Python.framework (Team ID: 4P42Z2F3DC) and python-build-standalone
-      # (Astral's Team ID) carry a real Team ID. macOS 15+ enforces that dlopen-ed libraries
-      # share the same Team ID as the loading process. Our sidecar is ad-hoc signed (no Team ID),
-      # so any embedded library with a real Team ID causes a mismatch at runtime.
-      # Replacing every .dylib/.so/Python binary with an ad-hoc signature (--force --sign -)
-      # removes the Team ID without corrupting the binary structure, allowing dlopen to succeed.
-      - name: Re-sign Python binaries with ad-hoc before bundling (macOS)
+      # Re-sign all native binaries with ad-hoc signatures before PyInstaller bundles them.
+      # python-build-standalone carries Astral's Team ID; python.org carries Apple's.
+      # macOS 15+ enforces that dlopen-ed libraries share the same Team ID as the loading
+      # process. Our PyInstaller onefile is ad-hoc signed (no Team ID), so any embedded
+      # library with a real Team ID causes PYI-30900 at runtime. We must re-sign BOTH the
+      # Python prefix (libpython3.11.dylib, etc.) AND venv site-packages (cryptography,
+      # cffi, etc.) to remove all Team IDs before bundling.
+      - name: Re-sign all native binaries with ad-hoc before bundling (macOS)
         if: runner.os == 'macOS'
         run: |
+          set -euo pipefail
+
           PYTHON_REAL=$(uv run python -c "import os,sys; print(os.path.realpath(sys.executable))")
           PYTHON_PREFIX=$(cd "$(dirname "$PYTHON_REAL")/.." && pwd)
+          VENV_SITE=$(uv run python -c "import site; print(site.getsitepackages()[0])")
+
           echo "Python executable: $PYTHON_REAL"
-          echo "Python prefix: $PYTHON_PREFIX"
-          find "$PYTHON_PREFIX" -type f \( -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0 \
-            | while IFS= read -r -d '' f; do
-                codesign --force --sign - "$f" 2>/dev/null && echo "  signed: $f" || true
-              done
+          echo "Python prefix:     $PYTHON_PREFIX"
+          echo "Venv site-packages: $VENV_SITE"
+
+          SIGNED=0
+          FAILED=0
+          FAIL_LIST=$(mktemp)
+
+          for dir in "$PYTHON_PREFIX" "$VENV_SITE"; do
+            if [ ! -d "$dir" ]; then
+              echo "SKIP: $dir does not exist"
+              continue
+            fi
+            echo "--- Signing binaries under: $dir ---"
+            while IFS= read -r -d '' f; do
+              if codesign --force --sign - "$f" 2>&1; then
+                echo "  [OK] $f"
+                SIGNED=$((SIGNED + 1))
+              else
+                echo "  [FAIL] $f"
+                echo "$f" >> "$FAIL_LIST"
+                FAILED=$((FAILED + 1))
+              fi
+            done < <(find "$dir" -type f \( -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
+          done
+
+          echo ""
+          echo "=== Re-signing summary: $SIGNED signed, $FAILED failed ==="
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "Failed files:"
+            cat "$FAIL_LIST"
+            rm -f "$FAIL_LIST"
+            exit 1
+          fi
+          rm -f "$FAIL_LIST"
+
+          # Verify libpython specifically — this is the dylib that causes PYI-30900
+          LIBPYTHON=$(find "$PYTHON_PREFIX" -name "libpython3*.dylib" -print -quit)
+          if [ -z "$LIBPYTHON" ]; then
+            echo "WARNING: libpython3*.dylib not found under $PYTHON_PREFIX"
+            echo "PyInstaller may use a statically-linked Python — continuing"
+          else
+            echo ""
+            echo "=== Verifying: $LIBPYTHON ==="
+            codesign -dvv "$LIBPYTHON" 2>&1 || true
+            TEAM_ID=$(codesign -dvv "$LIBPYTHON" 2>&1 | grep 'TeamIdentifier=' | cut -d= -f2)
+            if [ "$TEAM_ID" != "not set" ]; then
+              echo "ERROR: $LIBPYTHON still has TeamIdentifier=$TEAM_ID after re-signing"
+              exit 1
+            fi
+            echo "TeamIdentifier=not set — OK"
+          fi
 
       - name: Build sidecar binary
         run: uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
@@ -153,6 +204,10 @@ jobs:
         run: |
           echo "=== djtoolkit --help (verifies Python loads and CLI boots) ==="
           ./dist/${{ matrix.binary-name }} --help
+
+          echo ""
+          echo "=== DYLD library load diagnostics ==="
+          DYLD_PRINT_LIBRARIES=1 ./dist/${{ matrix.binary-name }} --help 2>&1 | head -50 || true
 
       - name: Smoke-test sidecar binary (Windows)
         if: runner.os == 'Windows'
@@ -204,7 +259,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
             target-triple: aarch64-apple-darwin
           - name: Windows x64

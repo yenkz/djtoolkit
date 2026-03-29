@@ -44,29 +44,74 @@ jobs:
       - name: Install PyInstaller
         run: uv run pip install pyinstaller
 
-      # Strip the Python.framework signature BEFORE PyInstaller embeds it.
-      # actions/setup-python's Python.framework is signed with python.org's Team ID.
-      # PyInstaller packages it inside the onefile binary. At runtime the bootloader
-      # extracts it and calls dlopen — macOS rejects the load because the ad-hoc-signed
-      # djtoolkit binary has no Team ID while the framework does ("different Team IDs").
-      # Stripping the signature makes the framework compatible with ad-hoc signing.
-      - name: Strip Python.framework signature before bundling
+      # Re-sign all native binaries with ad-hoc signatures before PyInstaller bundles them.
+      # actions/setup-python's Python.framework carries python.org's Team ID (4P42Z2F3DC).
+      # macOS 15+ enforces that dlopen-ed libraries share the same Team ID as the process.
+      # Our PyInstaller onefile is ad-hoc signed (no Team ID), so ALL embedded native
+      # binaries must also be ad-hoc signed. We re-sign both the Python framework and
+      # venv site-packages (cryptography, cffi, etc.) using --force --sign - (NOT
+      # --remove-signature, which can corrupt __LINKEDIT).
+      - name: Re-sign all native binaries with ad-hoc before bundling
         run: |
-          PYLIB=$(python3 -c "import sysconfig,os; fw=sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or ''; ver=sysconfig.get_python_version(); print(os.path.join(fw,'Python.framework','Versions',ver,'Python'))")
-          echo "Python dylib: $PYLIB"
-          if [ -f "$PYLIB" ]; then
-            codesign --remove-signature "$PYLIB"
-            echo "Signature stripped."
-          else
-            PYLIB2=$(python3 -c "import sys,os; print(os.path.join(sys.prefix,'Python'))")
-            echo "sysconfig miss — fallback: $PYLIB2"
-            if [ -f "$PYLIB2" ]; then
-              codesign --remove-signature "$PYLIB2"
-              echo "Stripped (fallback)."
-            else
-              echo "WARNING: could not locate Python dylib"
+          set -euo pipefail
+
+          # Locate Python.framework
+          PYPREFIX=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('PYTHONFRAMEWORKPREFIX') or '')")
+          PYFRAMEWORK="$PYPREFIX/Python.framework"
+          # Venv site-packages
+          VENV_SITE=$(.venv/bin/python -c "import site; print(site.getsitepackages()[0])")
+
+          echo "Python.framework: $PYFRAMEWORK"
+          echo "Venv site-packages: $VENV_SITE"
+
+          SIGNED=0
+          FAILED=0
+          FAIL_LIST=$(mktemp)
+
+          for dir in "$PYFRAMEWORK" "$VENV_SITE"; do
+            if [ ! -d "$dir" ]; then
+              echo "SKIP: $dir does not exist"
+              continue
             fi
+            echo "--- Signing binaries under: $dir ---"
+            while IFS= read -r -d '' f; do
+              if codesign --force --sign - "$f" 2>&1; then
+                echo "  [OK] $f"
+                SIGNED=$((SIGNED + 1))
+              else
+                echo "  [FAIL] $f"
+                echo "$f" >> "$FAIL_LIST"
+                FAILED=$((FAILED + 1))
+              fi
+            done < <(find "$dir" -type f \( -name "*.dylib" -o -name "*.so" -o -name "Python" \) -print0)
+          done
+
+          echo ""
+          echo "=== Re-signing summary: $SIGNED signed, $FAILED failed ==="
+
+          if [ "$FAILED" -gt 0 ]; then
+            echo "Failed files:"
+            cat "$FAIL_LIST"
+            rm -f "$FAIL_LIST"
+            exit 1
           fi
+          rm -f "$FAIL_LIST"
+
+          # Verify the framework's libpython and Python binary
+          for name in "libpython3*.dylib" "Python"; do
+            LIB=$(find "$PYFRAMEWORK" -name "$name" -print -quit 2>/dev/null)
+            if [ -n "$LIB" ]; then
+              echo ""
+              echo "=== Verifying: $LIB ==="
+              codesign -dvv "$LIB" 2>&1 || true
+              TEAM_ID=$(codesign -dvv "$LIB" 2>&1 | grep 'TeamIdentifier=' | cut -d= -f2)
+              if [ "$TEAM_ID" != "not set" ]; then
+                echo "ERROR: $LIB still has TeamIdentifier=$TEAM_ID after re-signing"
+                exit 1
+              fi
+              echo "TeamIdentifier=not set — OK"
+            fi
+          done
 
       - name: Build Setup Assistant
         env:
@@ -99,6 +144,18 @@ jobs:
           # Strip leading 'v' from tag for VERSION
           export VERSION="${VERSION#v}"
           bash packaging/macos/build.sh
+
+      # Smoke-test the built binary before packaging.
+      # If Python fails to load (Team ID mismatch, missing dylib, etc.) the
+      # bootloader exits non-zero here and CI fails before a broken DMG is released.
+      - name: Smoke-test built binary
+        run: |
+          echo "=== djtoolkit --help (verifies Python loads and CLI boots) ==="
+          ./dist/djtoolkit --help
+
+          echo ""
+          echo "=== DYLD library load diagnostics ==="
+          DYLD_PRINT_LIBRARIES=1 ./dist/djtoolkit --help 2>&1 | head -50 || true
 
       - name: Create Homebrew tarball
         env:
