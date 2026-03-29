@@ -112,7 +112,7 @@ jobs:
       # Without this, uv may find and use a system python.org Python (e.g. 3.14)
       # that satisfies requires-python >=3.11 and is available on the runner.
       - name: Create virtual environment
-        run: uv venv --python 3.11
+        run: uv venv --python 3.11 --clear
 
       - name: Install dependencies
         run: uv sync --frozen
