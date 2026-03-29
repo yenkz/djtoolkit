@@ -73,6 +73,14 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # Force uv to use its own managed Python (python-build-standalone) rather
+    # than any system python.org Python present on the runner. python.org
+    # Python.framework carries Apple's Team ID; python-build-standalone does not,
+    # so it bundles cleanly into a PyInstaller onefile without Team ID mismatches.
+    env:
+      UV_PYTHON: "3.11"
+      UV_PYTHON_PREFERENCE: "only-managed"
+
     steps:
       - uses: actions/checkout@v4
         with:
