@@ -94,9 +94,9 @@ def test_configure_headless_malformed_json():
 
 
 def test_configure_headless_missing_required_field():
-    """Missing required field → error."""
-    input_json = json.dumps({"api_key": "djt_xxx", "slsk_user": "user"})
-    # missing slsk_pass
+    """Missing required field (api_key) → error."""
+    input_json = json.dumps({"slsk_user": "user", "slsk_pass": "pass"})
+    # missing api_key
 
     result = runner.invoke(app, ["agent", "configure-headless", "--stdin"],
                            input=input_json)
@@ -104,7 +104,7 @@ def test_configure_headless_missing_required_field():
     assert result.exit_code == 1
     output = json.loads(result.stdout)
     assert output["status"] == "error"
-    assert "slsk_pass" in output["message"]
+    assert "api_key" in output["message"]
 
 
 def test_configure_headless_bad_api_key_prefix():
