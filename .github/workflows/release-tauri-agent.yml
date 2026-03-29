@@ -285,21 +285,16 @@ jobs:
           echo "Contents/Frameworks (first 20):"
           ls "$FRAMEWORKS_DIR" | head -20
 
-          # Sign all native libraries in Frameworks/
+          # Sign only the injected native libraries in Frameworks/.
+          # Do NOT re-sign executables in Contents/MacOS/ — Tauri already signed
+          # them, and codesign on any bundle binary triggers full bundle validation
+          # which fails on .pyi/.py files in Frameworks/.
           SIGNED=0
           while IFS= read -r -d '' f; do
             codesign --force --sign - "$f"
             SIGNED=$((SIGNED + 1))
           done < <(find "$FRAMEWORKS_DIR" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
-          echo "Signed $SIGNED native libraries"
-
-          # Re-sign executables (Tauri already signed them, but we want consistency)
-          for exe in "$MACOS_DIR/djtoolkit" "$MACOS_DIR/fpcalc" "$MACOS_DIR/agent-app"; do
-            if [ -f "$exe" ]; then
-              codesign --force --sign - "$exe"
-              echo "Signed executable: $(basename "$exe")"
-            fi
-          done
+          echo "Signed $SIGNED native libraries in Frameworks/"
 
           # Verify sidecar and libpython share the same signing state
           LIBPYTHON=$(find "$FRAMEWORKS_DIR" -name "libpython3*.dylib" -print -quit)
