@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { sendAgentCommand, getAgentCommandResult } from "@/lib/api";
-import { ActionButton } from "@/components/ui/ActionButton";
+import ActionButton from "@/components/ui/ActionButton";
 
 interface FileEntry {
   name: string;

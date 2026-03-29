@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { reviewDuplicates, type ReviewDecision } from "@/lib/api";
-import { ActionButton } from "@/components/ui/ActionButton";
+import ActionButton from "@/components/ui/ActionButton";
 
 interface PendingTrack {
   id: number;
