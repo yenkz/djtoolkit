@@ -33,8 +33,6 @@ a = Analysis(
         "librosa.core",
         "librosa.beat",
         "librosa.feature",
-        "numba",
-        "llvmlite",
         # crypto / auth
         "jose",
         "jose.jwt",
@@ -82,8 +80,13 @@ a = Analysis(
         "torch",
         # GUI / notebook
         "tkinter",
+        "_tkinter",
         "IPython",
         "jupyter",
+        # JIT deps — llvmlite bundles all of LLVM (~100MB); librosa falls back
+        # to pure Python implementations when numba is not importable.
+        "numba",
+        "llvmlite",
     ],
     noarchive=False,
 )
