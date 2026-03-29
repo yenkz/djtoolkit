@@ -291,11 +291,10 @@ export function FolderBrowser({ agentId, onSelect, onClose }: FolderBrowserProps
             {dirCount} folder{dirCount !== 1 ? "s" : ""}
           </span>
           <div style={{ display: "flex", gap: 8 }}>
-            <ActionButton variant="ghost" size="sm" onClick={onClose}>
+            <ActionButton variant="ghost" onClick={onClose}>
               Cancel
             </ActionButton>
             <ActionButton
-              size="sm"
               onClick={() => currentPath && onSelect(currentPath)}
               disabled={!currentPath || audioCount === 0}
             >
