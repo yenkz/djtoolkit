@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
+import { listen } from "@tauri-apps/api/event";
 import Button from "../components/Button";
 import Input from "../components/Input";
 
@@ -28,33 +29,48 @@ export default function SignInStep({ onCredentials, onNext, onBack }: SignInStep
   const [error, setError] = useState("");
   const [waiting, setWaiting] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
+  const unlistenFallbackRef = useRef<(() => void) | null>(null);
 
-  // Subscribe to deep links for the browser-based sign-in flow.
-  // When the web app redirects to djtoolkit://configure?api_key=... this fires,
-  // extracts the credentials, and advances the wizard automatically.
+  // Parse a djtoolkit:// deep link URL and advance the wizard.
+  const handleDeepLink = useCallback((url: string) => {
+    if (!url.startsWith("djtoolkit://configure")) return;
+    const params = new URLSearchParams(url.split("?")[1] || "");
+    const key = params.get("api_key") || "";
+    if (!key.startsWith("djt_")) return;
+    onCredentials({
+      apiKey: key,
+      supabaseUrl: params.get("supabase_url") || "",
+      supabaseAnonKey: params.get("supabase_anon_key") || "",
+      agentEmail: params.get("agent_email") || "",
+      agentPassword: params.get("agent_password") || "",
+    });
+    setWaiting(false);
+    onNext();
+  }, [onCredentials, onNext]);
+
+  // Subscribe to deep links via two channels:
+  // 1. The deep-link plugin API (macOS — the OS routes to the running app)
+  // 2. The generic "deep-link-url" Tauri event (Windows — the single-instance
+  //    plugin catches the second process and emits this event)
   useEffect(() => {
     onOpenUrl((urls) => {
-      const url = urls[0] || "";
-      if (!url.startsWith("djtoolkit://configure")) return;
-      const params = new URLSearchParams(url.split("?")[1] || "");
-      const key = params.get("api_key") || "";
-      if (!key.startsWith("djt_")) return;
-      onCredentials({
-        apiKey: key,
-        supabaseUrl: params.get("supabase_url") || "",
-        supabaseAnonKey: params.get("supabase_anon_key") || "",
-        agentEmail: params.get("agent_email") || "",
-        agentPassword: params.get("agent_password") || "",
-      });
-      setWaiting(false);
-      onNext();
+      handleDeepLink(urls[0] || "");
     }).then((unlisten) => {
       unlistenRef.current = unlisten;
     });
+
+    // Fallback for Windows single-instance forwarding
+    listen<string>("deep-link-url", (event) => {
+      handleDeepLink(event.payload);
+    }).then((unlisten) => {
+      unlistenFallbackRef.current = unlisten;
+    });
+
     return () => {
       unlistenRef.current?.();
+      unlistenFallbackRef.current?.();
     };
-  }, [onCredentials, onNext]);
+  }, [handleDeepLink]);
 
   const clearError = () => setError("");
 

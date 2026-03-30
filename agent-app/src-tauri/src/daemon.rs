@@ -214,11 +214,23 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
     const DETACH_FLAGS: u32 = 0x00000008 | 0x00000200 | 0x08000000;
 
+    // Redirect stdout+stderr to agent.log so we capture Python startup
+    // errors even if the logging module hasn't initialized yet.
+    let log_path = get_config_dir().join("agent.log");
+    let stdout_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Failed to open log file: {e}"))?;
+    let stderr_file = stdout_file
+        .try_clone()
+        .map_err(|e| format!("Failed to clone log handle: {e}"))?;
+
     let child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(stdout_file))
+        .stderr(Stdio::from(stderr_file))
         .creation_flags(DETACH_FLAGS)
         .spawn()
         .map_err(|e| format!("Failed to spawn daemon: {e}"))?;
