@@ -71,6 +71,48 @@ pub fn mark_onboarding_complete() -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Credential file for Python daemon interop
+// ---------------------------------------------------------------------------
+
+/// Write credentials.json so the Python daemon can read them.
+///
+/// The Rust `keyring` crate and Python `keyring` library use different
+/// target name formats on Windows (dot vs slash separator), so the Python
+/// daemon can't read Rust-stored credentials. This file serves as a
+/// cross-language bridge. The Python keychain.py has fallback logic to
+/// read from this file when keychain lookups fail.
+fn write_credentials_json(
+    api_key: &str,
+    slsk_user: &str,
+    slsk_pass: &str,
+    supabase_url: Option<&str>,
+    supabase_anon_key: Option<&str>,
+    agent_email: Option<&str>,
+    agent_password: Option<&str>,
+) -> Result<(), String> {
+    let mut map = serde_json::Map::new();
+    map.insert("agent-api-key".into(), serde_json::Value::String(api_key.to_string()));
+    map.insert("soulseek-username".into(), serde_json::Value::String(slsk_user.to_string()));
+    map.insert("soulseek-password".into(), serde_json::Value::String(slsk_pass.to_string()));
+    if let Some(v) = supabase_url.filter(|s| !s.is_empty()) {
+        map.insert("supabase-url".into(), serde_json::Value::String(v.to_string()));
+    }
+    if let Some(v) = supabase_anon_key.filter(|s| !s.is_empty()) {
+        map.insert("supabase-anon-key".into(), serde_json::Value::String(v.to_string()));
+    }
+    if let Some(v) = agent_email.filter(|s| !s.is_empty()) {
+        map.insert("agent-email".into(), serde_json::Value::String(v.to_string()));
+    }
+    if let Some(v) = agent_password.filter(|s| !s.is_empty()) {
+        map.insert("agent-password".into(), serde_json::Value::String(v.to_string()));
+    }
+    let json = serde_json::Value::Object(map);
+    let path = daemon::get_config_dir().join("credentials.json");
+    fs::write(&path, serde_json::to_string_pretty(&json).unwrap_or_default())
+        .map_err(|e| format!("Failed to write credentials.json: {e}"))
+}
+
+// ---------------------------------------------------------------------------
 // Agent configuration (setup wizard) — pure Rust, no Python sidecar
 // ---------------------------------------------------------------------------
 
@@ -95,6 +137,18 @@ pub fn configure_agent(
     if !api_key.starts_with("djt_") {
         return Err("api_key must start with 'djt_'".into());
     }
+
+    // Write credentials.json for Python daemon interop (before keychain
+    // stores which may move option values)
+    write_credentials_json(
+        &api_key,
+        &slsk_user,
+        &slsk_pass,
+        supabase_url.as_deref(),
+        supabase_anon_key.as_deref(),
+        agent_email.as_deref(),
+        agent_password.as_deref(),
+    )?;
 
     // Store credentials in OS keychain
     keychain::store(keychain::API_KEY, &api_key)?;
@@ -142,6 +196,25 @@ pub fn sign_in_from_settings(
         return Err("api_key must start with 'djt_'".into());
     }
 
+    // Preserve existing soulseek credentials (needed for credentials.json)
+    let slsk_username_for_json = keychain::get(keychain::SLSK_USERNAME)
+        .or_else(|| {
+            config::load_config().ok().map(|c| c.slsk_username).filter(|s| !s.is_empty())
+        })
+        .unwrap_or_default();
+    let slsk_password_for_json = keychain::get(keychain::SLSK_PASSWORD).unwrap_or_default();
+
+    // Write credentials.json for Python daemon interop
+    write_credentials_json(
+        &api_key,
+        &slsk_username_for_json,
+        &slsk_password_for_json,
+        supabase_url.as_deref(),
+        supabase_anon_key.as_deref(),
+        agent_email.as_deref(),
+        agent_password.as_deref(),
+    )?;
+
     // Store credentials in OS keychain
     keychain::store(keychain::API_KEY, &api_key)?;
 
@@ -158,20 +231,10 @@ pub fn sign_in_from_settings(
         keychain::store(keychain::AGENT_PASSWORD, &v)?;
     }
 
-    // Preserve existing soulseek username from keychain or config
-    let slsk_username = keychain::get(keychain::SLSK_USERNAME)
-        .or_else(|| {
-            config::load_config()
-                .ok()
-                .map(|c| c.slsk_username)
-                .filter(|s| !s.is_empty())
-        })
-        .unwrap_or_default();
-
     // Write config.toml
     let mut cfg = config::load_config().unwrap_or_default();
     cfg.api_key = api_key;
-    cfg.slsk_username = slsk_username;
+    cfg.slsk_username = slsk_username_for_json;
     config::write_agent_config(&cfg)?;
 
     Ok(())
