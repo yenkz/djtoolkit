@@ -144,10 +144,47 @@ fn extract_agent(app: &tauri::AppHandle, dest: &std::path::Path) -> Result<(), S
         return Err("Failed to extract agent bundle".into());
     }
 
-    // Make the binary executable
     let binary = dest.join("djtoolkit");
+
+    // Re-sign all native libraries and the bootloader with ad-hoc signatures.
+    // The CI-built signatures are from a different machine; macOS 15 requires
+    // signatures created locally to trust dlopen() between ad-hoc signed binaries.
+    let internal_dir = dest.join("_internal");
+    if internal_dir.exists() {
+        // Sign all dylibs in _internal/
+        if let Ok(output) = Command::new("find")
+            .args([
+                internal_dir.to_str().unwrap_or("."),
+                "-type",
+                "f",
+                "(",
+                "-name",
+                "*.dylib",
+                "-o",
+                "-name",
+                "*.so",
+                ")",
+            ])
+            .output()
+        {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let path = line.trim();
+                if !path.is_empty() {
+                    let _ = Command::new("codesign")
+                        .args(["--force", "--sign", "-", path])
+                        .output();
+                }
+            }
+        }
+    }
+
+    // Sign the bootloader binary
     if binary.exists() {
         let _ = Command::new("chmod").args(["+x"]).arg(&binary).status();
+        let _ = Command::new("codesign")
+            .args(["--force", "--sign", "-"])
+            .arg(&binary)
+            .output();
     }
 
     Ok(())
