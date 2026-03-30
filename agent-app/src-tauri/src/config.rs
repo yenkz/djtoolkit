@@ -98,6 +98,23 @@ pub fn config_exists() -> bool {
     config_path().exists()
 }
 
+/// Path to the onboarding sentinel file.
+fn onboarding_path() -> PathBuf {
+    get_config_dir().join("onboarding_done")
+}
+
+/// Returns `true` if the onboarding wizard has been completed at least once.
+pub fn onboarding_complete() -> bool {
+    onboarding_path().exists()
+}
+
+/// Create the sentinel file to mark onboarding as complete.
+pub fn mark_onboarding_complete() -> Result<(), String> {
+    let dir = get_config_dir();
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
+    fs::write(onboarding_path(), "").map_err(|e| format!("Failed to write sentinel: {e}"))
+}
+
 /// Load config from disk. Supports both flat format (legacy) and `[agent]` section format.
 pub fn load_config() -> Result<AppConfig, String> {
     let path = config_path();
@@ -219,5 +236,12 @@ poll_interval_sec = 60.0
         let path = config_path();
         assert_eq!(path.parent().unwrap(), get_config_dir().as_path());
         assert_eq!(path.file_name().unwrap().to_str().unwrap(), "config.toml");
+    }
+
+    #[test]
+    fn onboarding_path_is_inside_config_dir() {
+        let path = onboarding_path();
+        assert_eq!(path.parent().unwrap(), get_config_dir().as_path());
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), "onboarding_done");
     }
 }
