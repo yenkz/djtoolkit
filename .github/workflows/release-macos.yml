@@ -113,30 +113,6 @@ jobs:
             fi
           done
 
-      - name: Build Setup Assistant
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        run: |
-          # Write Config.xcconfig from secret (or fall back to CI placeholder)
-          # xcconfig treats // as comment-start, so escape https:// → https:/$()/
-          if [ -n "$SUPABASE_URL" ]; then
-            ESCAPED_URL=$(echo "$SUPABASE_URL" | sed 's|https://|https:/$()/|')
-            echo "SUPABASE_URL = ${ESCAPED_URL}" > setup-assistant/Config.xcconfig
-          else
-            cp setup-assistant/Config.xcconfig.ci setup-assistant/Config.xcconfig
-          fi
-          xcodebuild -project setup-assistant/DJToolkitSetup.xcodeproj \
-            -scheme DJToolkitSetup \
-            -configuration Release \
-            -archivePath build/DJToolkitSetup.xcarchive \
-            archive -quiet
-          xcodebuild -exportArchive \
-            -archivePath build/DJToolkitSetup.xcarchive \
-            -exportOptionsPlist setup-assistant/ExportOptions.plist \
-            -exportPath build/ -quiet
-          cp -R "build/DJToolkit Setup.app" dist/
-          echo "✓ Setup Assistant built"
-
       - name: Build installer
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
@@ -163,7 +139,7 @@ jobs:
         run: |
           VERSION="${VERSION#v}"
           TAR_NAME="djtoolkit-${VERSION}-arm64.tar.gz"
-          tar czf "${TAR_NAME}" -C dist djtoolkit "DJToolkit Setup.app"
+          tar czf "${TAR_NAME}" -C dist djtoolkit
           echo "TAR_NAME=${TAR_NAME}" >> "$GITHUB_ENV"
           echo "Created: ${TAR_NAME} ($(du -sh "${TAR_NAME}" | cut -f1))"
 
