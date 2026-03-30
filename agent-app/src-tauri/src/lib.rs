@@ -45,17 +45,28 @@ pub fn run() {
             commands::get_log_content,
             commands::open_downloads_dir,
             commands::sign_in_from_settings,
+            commands::is_onboarding_complete,
+            commands::mark_onboarding_complete,
         ])
         // ---- App setup ----
         .setup(|app| {
             let handle = app.handle().clone();
 
             // --- Detect first-launch vs returning user ---
-            if config::config_exists() {
+            if config::onboarding_complete() {
+                // Returning user: hide main window (menu bar mode)
                 if let Some(main_window) = app.get_webview_window("main") {
                     let _ = main_window.hide();
                 }
+                // Auto-start daemon if not already running
+                let manager = handle.state::<DaemonManager>();
+                let state = manager.state.lock().unwrap_or_else(|e| e.into_inner());
+                if matches!(*state, daemon::DaemonState::Stopped) {
+                    drop(state);
+                    let _ = daemon::start_daemon(&handle, &manager);
+                }
             } else {
+                // First launch: show wizard
                 if let Some(main_window) = app.get_webview_window("main") {
                     let _ = main_window.show();
                     let _ = main_window.set_focus();

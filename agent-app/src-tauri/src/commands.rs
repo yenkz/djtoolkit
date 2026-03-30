@@ -60,6 +60,16 @@ pub fn has_config() -> bool {
     config::config_exists()
 }
 
+#[tauri::command]
+pub fn is_onboarding_complete() -> bool {
+    config::onboarding_complete()
+}
+
+#[tauri::command]
+pub fn mark_onboarding_complete() -> Result<(), String> {
+    config::mark_onboarding_complete()
+}
+
 // ---------------------------------------------------------------------------
 // Agent configuration (setup wizard) — pure Rust, no Python sidecar
 // ---------------------------------------------------------------------------
