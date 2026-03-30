@@ -282,6 +282,13 @@ jobs:
         shell: bash
         run: |
           VERSION="${RELEASE_VERSION#agent-v}"
+          # Ensure semver (Tauri requires X.Y.Z, not X.Y)
+          case "$VERSION" in
+            *.*.*)  ;; # already 3-part
+            *.*)    VERSION="${VERSION}.0" ;; # 0.3 → 0.3.0
+            *)      VERSION="${VERSION}.0.0" ;; # 3 → 3.0.0
+          esac
+          echo "Patching version to: $VERSION"
           node -e "const p='agent-app/src-tauri/tauri.conf.json'; const j=JSON.parse(require('fs').readFileSync(p,'utf8')); j.version='${VERSION}'; require('fs').writeFileSync(p,JSON.stringify(j,null,2)+'\n');"
 
       - name: Regenerate icons
