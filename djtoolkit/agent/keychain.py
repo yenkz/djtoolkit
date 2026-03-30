@@ -73,9 +73,56 @@ def store_agent_credentials(
         store_secret(AGENT_PASSWORD, agent_password)
 
 
+def _load_credentials_json() -> dict[str, str | None]:
+    """Load credentials from credentials.json (written by the Tauri app).
+
+    This is the primary credential source on Windows because the Rust
+    ``keyring`` crate and Python ``keyring`` library use incompatible
+    target name formats in Windows Credential Manager, and PyInstaller
+    may not bundle keyring backends correctly.
+    """
+    import json
+    from djtoolkit.agent.paths import config_dir
+
+    _KEY_MAP = [
+        ("api_key", "agent-api-key"),
+        ("slsk_username", "soulseek-username"),
+        ("slsk_password", "soulseek-password"),
+        ("acoustid_key", "acoustid-key"),
+        ("supabase_url", "supabase-url"),
+        ("supabase_anon_key", "supabase-anon-key"),
+        ("agent_email", "agent-email"),
+        ("agent_password", "agent-password"),
+    ]
+
+    creds: dict[str, str | None] = {k: None for k, _ in _KEY_MAP}
+    creds_file = config_dir() / "credentials.json"
+    if creds_file.exists():
+        try:
+            file_creds = json.loads(creds_file.read_text())
+            for py_key, file_key in _KEY_MAP:
+                if file_key in file_creds and file_creds[file_key]:
+                    creds[py_key] = file_creds[file_key]
+        except (json.JSONDecodeError, OSError):
+            pass
+    return creds
+
+
 def load_agent_credentials() -> dict[str, str | None]:
-    """Load agent credentials from the keychain, falling back to credentials.json."""
-    creds = {
+    """Load agent credentials from credentials.json, then keychain.
+
+    On Windows, credentials.json is tried first because the Python
+    ``keyring`` library inside a PyInstaller bundle may not have the
+    correct backend, and even when it does, the Rust ``keyring`` crate
+    stores credentials under different target names.
+    """
+    # 1. Try credentials.json first (most reliable, especially on Windows)
+    creds = _load_credentials_json()
+    if creds.get("api_key"):
+        return creds
+
+    # 2. Fall back to system keychain (works on macOS, unreliable on Windows)
+    keychain_creds = {
         "api_key": get_secret(API_KEY),
         "slsk_username": get_secret(SLSK_USERNAME),
         "slsk_password": get_secret(SLSK_PASSWORD),
@@ -86,28 +133,10 @@ def load_agent_credentials() -> dict[str, str | None]:
         "agent_password": get_secret(AGENT_PASSWORD),
     }
 
-    # Fall back to credentials.json (written by the Tauri desktop app)
-    if not creds["api_key"]:
-        from djtoolkit.agent.paths import config_dir
-        import json
-        creds_file = config_dir() / "credentials.json"
-        if creds_file.exists():
-            try:
-                file_creds = json.loads(creds_file.read_text())
-                for py_key, file_key in [
-                    ("api_key", "agent-api-key"),
-                    ("slsk_username", "soulseek-username"),
-                    ("slsk_password", "soulseek-password"),
-                    ("acoustid_key", "acoustid-key"),
-                    ("supabase_url", "supabase-url"),
-                    ("supabase_anon_key", "supabase-anon-key"),
-                    ("agent_email", "agent-email"),
-                    ("agent_password", "agent-password"),
-                ]:
-                    if not creds[py_key] and file_key in file_creds:
-                        creds[py_key] = file_creds[file_key]
-            except (json.JSONDecodeError, OSError):
-                pass
+    # Merge: prefer keychain values, fill gaps from credentials.json
+    for key in creds:
+        if keychain_creds.get(key):
+            creds[key] = keychain_creds[key]
 
     return creds
 
