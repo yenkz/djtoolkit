@@ -26,6 +26,18 @@ pub fn run() {
             Some(vec![]),
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // On Windows, deep links launch a new process. The single-instance
+            // plugin catches this, forwards the URL to the existing instance,
+            // and exits the duplicate.
+            if let Some(url) = args.iter().find(|a| a.starts_with("djtoolkit://")) {
+                let _ = app.emit("deep-link-url", url.to_string());
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // ---- Managed state ----

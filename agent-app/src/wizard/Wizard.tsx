@@ -50,6 +50,13 @@ export default function Wizard() {
         agentPassword: data.agentPassword || null,
       });
       await invoke("mark_onboarding_complete");
+      // Start the daemon immediately so it registers with the cloud.
+      // Non-fatal — DoneStep has a Start button as fallback.
+      try {
+        await invoke("start_agent");
+      } catch {
+        // ignore — daemon may already be running or start may fail
+      }
       goNext();
     } catch (e) {
       setSoulseekError(String(e));
