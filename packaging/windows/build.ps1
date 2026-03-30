@@ -51,8 +51,7 @@ wix build packaging/windows/djtoolkit.wxs `
     -o "dist\$msiName" `
     -d Version=$Version `
     -d BinaryPath=$Binary `
-    -d FpcalcPath=$FpcalcPath `
-    -d SetupPath="dist\DJToolkit Setup.exe"
+    -d FpcalcPath=$FpcalcPath
 
 if (-not (Test-Path "dist\$msiName")) {
     Write-Error "MSI build failed"
