@@ -1711,11 +1711,11 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone }: S
       </p>
 
       <div className="flex flex-col gap-3.5">
-        {/* Homebrew (recommended) */}
+        {/* Desktop App (recommended) */}
         <SourceCard
           icon={SRC_ICONS.homebrew}
-          title="Homebrew"
-          desc="Automatic updates &middot; includes all dependencies"
+          title="Desktop App"
+          desc="Menu bar app with setup wizard and auto-updates. The app will guide you through setup automatically."
           active
         >
           <span
@@ -1731,44 +1731,67 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone }: S
           >
             recommended
           </span>
-          <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
+          <CopyBlock text="brew tap yenkz/djtoolkit && brew install --cask djtoolkit" />
+          <div className="mt-3 flex items-center gap-3">
+            <a
+              href="https://github.com/yenkz/djtoolkit/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ActionButton variant="outline">GitHub Releases</ActionButton>
+            </a>
+            <span
+              className="font-sans text-xs"
+              style={{ color: "var(--hw-text-dim)" }}
+            >
+              or{" "}
+              <code
+                className="font-mono"
+                style={{ fontSize: 11, color: "var(--hw-text-dim)" }}
+              >
+                curl -fsSL https://raw.githubusercontent.com/yenkz/djtoolkit/main/install.sh | bash
+              </code>
+            </span>
+          </div>
         </SourceCard>
 
-        {/* Direct download */}
+        {/* CLI (power users) */}
         <SourceCard
           icon={SRC_ICONS.download}
-          title="Direct download"
-          desc="macOS .dmg &middot; arm64 + x86_64"
+          title="CLI"
+          desc="Terminal-based install for power users."
         >
-          <a
-            href="https://github.com/yenkz/djtoolkit/releases/latest"
-            target="_blank"
-            rel="noopener noreferrer"
+          <span
+            className="font-mono text-[10px] font-bold uppercase inline-block mb-3"
+            style={{
+              color: "var(--hw-steel-text, #8A9AAA)",
+              background: "rgba(138,154,170,0.1)",
+              border: "1px solid rgba(138,154,170,0.2)",
+              padding: "3px 10px",
+              borderRadius: 4,
+              letterSpacing: 1,
+            }}
           >
-            <ActionButton variant="outline">GitHub Releases</ActionButton>
-          </a>
+            for power users
+          </span>
+          <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
         </SourceCard>
       </div>
 
-      {/* pip alternative */}
-      <div className="mt-6">
-        <div
-          className="font-mono text-[10px] font-bold uppercase mb-2.5"
-          style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}
-        >
-          Or install via pip
-        </div>
-        <CopyBlock text="pip install djtoolkit" />
-      </div>
-
-      {/* Configure + start */}
+      {/* CLI setup */}
       <div className="mt-7">
         <div
-          className="font-mono text-[10px] font-bold uppercase mb-2.5"
+          className="font-mono text-[10px] font-bold uppercase mb-1.5"
           style={{ color: "var(--hw-text-dim)", letterSpacing: 1.5 }}
         >
-          Configure &amp; start
+          CLI setup
         </div>
+        <p
+          className="font-sans text-xs mb-2.5"
+          style={{ color: "var(--hw-text-dim)" }}
+        >
+          If you installed the desktop app, skip this — the app handles setup automatically.
+        </p>
         {registering || !apiKey ? (
           <div className="font-sans text-sm py-2" style={{ color: "var(--hw-text-dim)" }}>
             Generating API key...
