@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import Wizard from "./wizard/Wizard";
 import LogViewer from "./logs/LogViewer";
 import SettingsPanel from "./settings/SettingsPanel";
+import { checkForUpdates } from "./updater";
 import "./App.css";
 
 function App() {
@@ -25,12 +26,11 @@ function App() {
         const done = await invoke<boolean>("is_onboarding_complete");
         if (!done) {
           navigate("/wizard", { replace: true });
-          // Ensure the window is visible and focused on first launch.
-          // The Rust setup hook also does this, but calling it from the
-          // frontend is more reliable on macOS (webview is fully ready here).
           const win = getCurrentWindow();
           await win.show();
           await win.setFocus();
+        } else {
+          checkForUpdates();
         }
       } catch {
         navigate("/wizard", { replace: true });
