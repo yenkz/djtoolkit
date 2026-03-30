@@ -1,6 +1,6 @@
 "use client";
 
-import { LED_COLORS, HARDWARE, FONTS, STATUS_LED, type StatusKey } from "@/lib/design-system/tokens";
+import { LED_COLORS, FONTS, STATUS_LED, type StatusKey } from "@/lib/design-system/tokens";
 
 interface StatusBadgeProps {
   status: string;

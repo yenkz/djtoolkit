@@ -11,7 +11,6 @@ import PadHousing from "@/components/ui/PadHousing";
 import JogWheel from "@/components/ui/JogWheel";
 import VUMeter from "@/components/ui/VUMeter";
 import TempoFader from "@/components/ui/TempoFader";
-import ActionButton from "@/components/ui/ActionButton";
 import { LED_COLORS, FONTS } from "@/lib/design-system/tokens";
 
 // ─── Responsive hook ───

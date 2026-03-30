@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { HARDWARE, LED_COLORS, STEEL, FONTS } from "@/lib/design-system/tokens";
 
 interface TempoFaderProps {

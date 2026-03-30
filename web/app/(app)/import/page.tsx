@@ -114,6 +114,7 @@ function MiniArt({ name, src, size = 40 }: { name: string; src?: string | null; 
 
   if (src) {
     return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt={name}
@@ -631,13 +632,13 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const trackIdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [showExportifyHint, setShowExportifyHint] = useState(false);
   const [djFile, setDjFile] = useState<File | null>(null);
-  const [djParseResult, setDjParseResult] = useState<ParseResult | null>(null);
+  const [_djParseResult, setDjParseResult] = useState<ParseResult | null>(null);
   const [djDraggingTarget, setDjDraggingTarget] = useState<"traktor" | "rekordbox" | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [_agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
-  const [folderImportJobId, setFolderImportJobId] = useState<string | null>(null);
+  const [_folderImportJobId, setFolderImportJobId] = useState<string | null>(null);
 
   function formatElapsed(startMs: number): string {
     const sec = Math.floor((Date.now() - startMs) / 1000);
@@ -997,6 +998,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                             &#9829;
                           </div>
                         ) : p.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={p.image_url} alt="" className="w-11 h-11 rounded flex-shrink-0 object-cover" />
                         ) : (
                           <MiniArt name={p.name} size={44} />
@@ -1438,7 +1440,7 @@ interface Step2Props {
   onComplete: () => void;
 }
 
-function Step2Review({ candidates, onSelectedChange, onBack, onComplete }: Step2Props) {
+function Step2Review({ candidates, onSelectedChange, onBack: _onBack, onComplete }: Step2Props) {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
@@ -1633,13 +1635,13 @@ interface Step3Props {
   onDone: () => void;
 }
 
-function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone }: Step3Props) {
+function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone: _onDone }: Step3Props) {
   const [agentConnected, setAgentConnected] = useState(false);
   const [agentName, setAgentName] = useState("");
   const [pendingJobs, setPendingJobs] = useState<number | null>(null);
   const [pollErrors, setPollErrors] = useState(0);
   const [registering, setRegistering] = useState(!apiKey);
-  const supabase = createClient();
+  const _supabase = createClient();
 
   useEffect(() => {
     if (apiKey) return;
@@ -1683,13 +1685,6 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone }: S
     }, 5000);
     return () => clearInterval(interval);
   }, [agentConnected, onAgentChange]);
-
-  async function handleDone() {
-    await supabase.auth.updateUser({
-      data: { onboarding_completed: true },
-    });
-    onDone();
-  }
 
   const statusState =
     agentConnected ? "connected" : pollErrors >= 3 ? "error" : "waiting";

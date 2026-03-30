@@ -44,8 +44,6 @@ export default function TrackCard({ track, onClick }: TrackCardProps) {
     usePreviewPlayer();
   const isThisPlaying =
     currentTrackId === track.id && isPlaying;
-  const isThisPaused =
-    currentTrackId === track.id && !isPlaying;
   const isThisActive = currentTrackId === track.id;
   const LED = LED_COLORS.green;
   const color = artistColor(track.artist);

@@ -58,6 +58,7 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
   const rafRef = useRef<number>(0);
 
   // Track which player mode is active: "spotify" | "audio" | null
+  const [mode, setMode] = useState<"spotify" | "audio" | null>(null);
   const modeRef = useRef<"spotify" | "audio" | null>(null);
 
   // ─── Cleanup helpers ──────────────────────────────────────────────────
@@ -148,6 +149,7 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
   const play = useCallback((trackId: number, spotifyUri: string) => {
     stopAudio();
     modeRef.current = "spotify";
+    setMode("spotify");
     setCurrentTrackId(trackId);
     setCurrentUri(spotifyUri);
     setIsPlaying(true);
@@ -157,6 +159,7 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
     stopSpotify();
     stopAudio();
     modeRef.current = "audio";
+    setMode("audio");
     setCurrentTrackId(trackId);
     setAudioUrl(url);
     setAudioMeta(meta ?? null);
@@ -206,14 +209,15 @@ export function PreviewPlayerProvider({ children }: { children: ReactNode }) {
     stopSpotify();
     stopAudio();
     modeRef.current = null;
+    setMode(null);
     setCurrentTrackId(null);
     setIsPlaying(false);
   }, [stopSpotify, stopAudio]);
 
   const LED = LED_COLORS.green;
 
-  const showSpotifyEmbed = modeRef.current === "spotify" && currentUri;
-  const showAudioPlayer = modeRef.current === "audio" && audioUrl;
+  const showSpotifyEmbed = mode === "spotify" && currentUri;
+  const showAudioPlayer = mode === "audio" && audioUrl;
   const showPlayer = showSpotifyEmbed || showAudioPlayer;
 
   return (

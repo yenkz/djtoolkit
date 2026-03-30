@@ -65,7 +65,7 @@ export default function CatalogPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(50);
-  const [statusFilter, setStatusFilter] = useState("");
+  const [statusFilter, _setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
