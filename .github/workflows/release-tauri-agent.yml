@@ -71,9 +71,10 @@ jobs:
           - name: macOS x86_64
             os: macos-15
             target-triple: x86_64-apple-darwin
-            # Built on ARM runner under Rosetta 2 (macos-13 Intel deprecated).
-            # All uv/python steps prefixed with `arch -x86_64` so uv downloads
-            # x86_64 Python and PyInstaller produces x86_64 binaries.
+            # Built on ARM runner via setup-python x64 (Rosetta 2).
+            # macos-13 Intel runners are deprecated. We use setup-python
+            # with architecture: x64 to get x86_64 Python, then pip
+            # instead of uv (the uv binary from setup-uv is ARM-only).
             spec: packaging/macos/djtoolkit-onedir.spec
             binary-name: djtoolkit
           - name: Windows x64
@@ -120,22 +121,53 @@ jobs:
           Remove-Item -Recurse "dist\fpcalc-tmp", "dist\fpcalc.zip"
         shell: pwsh
 
+      # ── Python toolchain: uv (arm64 + Windows) ──
       - name: Install uv
+        if: matrix.target-triple != 'x86_64-apple-darwin'
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
 
       - name: Create virtual environment
-        run: ${{ matrix.target-triple == 'x86_64-apple-darwin' && 'arch -x86_64' || '' }} uv venv --python 3.11 --clear
+        if: matrix.target-triple != 'x86_64-apple-darwin'
+        run: uv venv --python 3.11 --clear
 
       - name: Install dependencies
-        run: ${{ matrix.target-triple == 'x86_64-apple-darwin' && 'arch -x86_64' || '' }} uv sync --frozen
+        if: matrix.target-triple != 'x86_64-apple-darwin'
+        run: uv sync --frozen
 
       - name: Install PyInstaller
-        run: ${{ matrix.target-triple == 'x86_64-apple-darwin' && 'arch -x86_64' || '' }} uv pip install pyinstaller
+        if: matrix.target-triple != 'x86_64-apple-darwin'
+        run: uv pip install pyinstaller
 
       - name: Build sidecar binary
-        run: ${{ matrix.target-triple == 'x86_64-apple-darwin' && 'arch -x86_64' || '' }} uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
+        if: matrix.target-triple != 'x86_64-apple-darwin'
+        run: uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
+
+      # ── Python toolchain: setup-python x64 + pip (macOS x86_64) ──
+      # The setup-uv binary is ARM-only, so for x86_64 we use
+      # setup-python with architecture: x64 (runs under Rosetta 2)
+      # and pip for dependency management.
+      - name: Set up Python 3.11 (x86_64 via Rosetta)
+        if: matrix.target-triple == 'x86_64-apple-darwin'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          architecture: x64
+
+      - name: Install dependencies (x86_64)
+        if: matrix.target-triple == 'x86_64-apple-darwin'
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install pyinstaller
+          pip install .
+
+      - name: Build sidecar binary (x86_64)
+        if: matrix.target-triple == 'x86_64-apple-darwin'
+        run: |
+          source .venv/bin/activate
+          python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
 
       # Re-sign all native libraries with ad-hoc to strip any real Team IDs.
       # python-build-standalone's libpython3.11.dylib carries Astral's Team ID;
@@ -158,7 +190,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           echo "=== djtoolkit --help ==="
-          ${{ matrix.target-triple == 'x86_64-apple-darwin' && 'arch -x86_64' || '' }} ./dist/djtoolkit/djtoolkit --help
+          ./dist/djtoolkit/djtoolkit --help
 
       - name: Smoke-test sidecar binary (Windows)
         if: runner.os == 'Windows'
