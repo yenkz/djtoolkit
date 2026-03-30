@@ -118,12 +118,13 @@ function CodeBlock({ code }: { code: string }) {
 
 /* ── Wizard Steps ──────────────────────────────────────────────────────────── */
 
-const WIZARD_LABELS = ["Install", "Generate Key", "Configure", "Start"];
+const WIZARD_LABELS_APP = ["Install", "Done"];
+const WIZARD_LABELS_CLI = ["Install", "Generate Key", "Configure", "Start"];
 
-function WizardSteps({ step }: { step: number }) {
+function WizardSteps({ step, labels }: { step: number; labels: string[] }) {
   return (
     <div className="mb-6 flex items-center justify-center gap-1">
-      {WIZARD_LABELS.map((label, i) => {
+      {labels.map((label, i) => {
         const n = i + 1;
         const done = step > n;
         const active = step === n;
@@ -166,7 +167,7 @@ function WizardSteps({ step }: { step: number }) {
             </span>
 
             {/* arrow separator */}
-            {i < WIZARD_LABELS.length - 1 && (
+            {i < labels.length - 1 && (
               <span className="mx-1 text-xs text-hw-text-muted">&rarr;</span>
             )}
           </div>
@@ -185,12 +186,15 @@ function AgentWizard({
   cloudUrl: string;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState(1);
+  const [path, setPath] = useState<"app" | "cli" | null>(null);
+  const [step, setStep] = useState(0);
   const [machineName, setMachineName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [registering, setRegistering] = useState(false);
   const [polling, setPolling] = useState(false);
   const [agentOnline, setAgentOnline] = useState(false);
+
+  const labels = path === "cli" ? WIZARD_LABELS_CLI : WIZARD_LABELS_APP;
 
   async function handleRegister() {
     if (!machineName.trim()) {
@@ -245,21 +249,202 @@ function AgentWizard({
       <div
         className="relative z-10 w-full overflow-hidden rounded-[10px] border border-hw-border-light shadow-2xl"
         style={{
-          maxWidth: "clamp(380px, 45vw, 520px)",
+          maxWidth: "clamp(380px, 45vw, 560px)",
           background: "var(--hw-modal-bg)",
         }}
       >
         <div style={{ padding: "24px 28px" }}>
-          <WizardSteps step={step} />
+          {/* Show wizard steps only after path is chosen */}
+          {path !== null && <WizardSteps step={step} labels={labels} />}
 
-          {/* ── Step 1: Install ────────────────────────────────────── */}
-          {step === 1 && (
+          {/* ── Step 0: Choose path ────────────────────────────────── */}
+          {step === 0 && (
+            <div className="space-y-4">
+              <div className="mb-1">
+                <p className="text-base font-bold text-hw-text">How would you like to install?</p>
+                <p className="mt-1 text-sm text-hw-text-sec">
+                  Choose the installation method for your machine.
+                </p>
+              </div>
+
+              {/* Desktop App card */}
+              <button
+                onClick={() => { setPath("app"); setStep(1); }}
+                className="w-full rounded-[6px] border text-left transition-colors duration-150 hover:border-led-blue/40"
+                style={{
+                  padding: "16px 18px",
+                  borderColor: "var(--hw-card-border)",
+                  background: "var(--hw-card-bg)",
+                }}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-sm font-bold text-hw-text">Desktop App</span>
+                  <span
+                    className="font-mono uppercase"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "var(--led-green)",
+                      background: "rgba(68,255,68,0.08)",
+                      padding: "2px 8px",
+                      borderRadius: 3,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-xs text-hw-text-dim">
+                  Menu bar app with setup wizard and auto-updates. The app handles credentials and configuration automatically.
+                </p>
+              </button>
+
+              {/* CLI card */}
+              <button
+                onClick={() => { setPath("cli"); setStep(1); }}
+                className="w-full rounded-[6px] border text-left transition-colors duration-150 hover:border-led-blue/40"
+                style={{
+                  padding: "16px 18px",
+                  borderColor: "var(--hw-card-border)",
+                  background: "var(--hw-card-bg)",
+                }}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-sm font-bold text-hw-text">CLI</span>
+                  <span
+                    className="font-mono uppercase"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "var(--hw-steel-text, #8A9AAA)",
+                      background: "rgba(138,154,170,0.1)",
+                      padding: "2px 8px",
+                      borderRadius: 3,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    Power users
+                  </span>
+                </div>
+                <p className="text-xs text-hw-text-dim">
+                  Terminal-based setup. Requires manual configuration of credentials and service installation.
+                </p>
+              </button>
+
+              <div className="text-center">
+                <button
+                  onClick={onClose}
+                  className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Desktop App Step 1: Install ───────────────────────── */}
+          {path === "app" && step === 1 && (
             <div className="space-y-3">
               <p className="text-sm text-hw-text-sec">
-                Install the djtoolkit agent on your macOS machine:
+                Install the djtoolkit desktop app on your macOS machine:
               </p>
 
-              {/* Homebrew */}
+              {/* Homebrew cask */}
+              <div
+                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
+                style={{ padding: "16px 18px" }}
+              >
+                <div className="mb-2.5 flex items-center gap-2">
+                  <span className="text-sm font-bold text-hw-text">Homebrew</span>
+                  <span
+                    className="font-mono uppercase"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "var(--led-green)",
+                      background: "rgba(68,255,68,0.08)",
+                      padding: "2px 8px",
+                      borderRadius: 3,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    Recommended
+                  </span>
+                </div>
+                <CodeBlock code="brew tap yenkz/djtoolkit && brew install --cask djtoolkit" />
+              </div>
+
+              {/* curl script */}
+              <div
+                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
+                style={{ padding: "16px 18px" }}
+              >
+                <p className="mb-2 text-xs text-hw-text-dim">Or install via curl:</p>
+                <CodeBlock code="curl -fsSL https://raw.githubusercontent.com/yenkz/djtoolkit/main/install.sh | bash" />
+              </div>
+
+              {/* Manual download */}
+              <div
+                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
+                style={{ padding: "16px 18px" }}
+              >
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-sm font-bold text-hw-text">Manual download</span>
+                  <a
+                    href="https://github.com/yenkz/djtoolkit/releases/latest"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-[5px] border border-hw-border-light px-4 py-1.5 font-mono text-[11px] font-bold tracking-wide text-hw-text-dim transition-colors hover:border-led-blue/30 hover:text-led-blue"
+                  >
+                    GitHub Releases
+                  </a>
+                </div>
+                <p className="text-xs text-hw-text-dim">
+                  Download the .dmg from the latest release (arm64 + x86_64)
+                </p>
+              </div>
+
+              {/* Info box */}
+              <div
+                className="rounded-[5px] px-3.5 py-2.5 text-sm"
+                style={{
+                  background: "rgba(68,136,255,0.07)",
+                  border: "1px solid rgba(68,136,255,0.18)",
+                  color: "var(--hw-text-sec)",
+                }}
+              >
+                After installing, open the app — the setup wizard will guide you through connecting to your account automatically.
+              </div>
+
+              <button
+                onClick={onClose}
+                className="w-full rounded-[5px] bg-led-blue py-3 font-mono text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-led-blue/85"
+                style={{
+                  boxShadow: "0 4px 12px rgba(68,136,255,0.3)",
+                }}
+              >
+                Done
+              </button>
+
+              <div className="text-center">
+                <button
+                  onClick={() => { setPath(null); setStep(0); }}
+                  className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── CLI Step 1: Install ───────────────────────────────── */}
+          {path === "cli" && step === 1 && (
+            <div className="space-y-3">
+              <p className="text-sm text-hw-text-sec">
+                Install the djtoolkit CLI on your macOS machine:
+              </p>
+
+              {/* Homebrew formula */}
               <div
                 className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
                 style={{ padding: "16px 18px" }}
@@ -284,27 +469,6 @@ function AgentWizard({
                 <CodeBlock code="brew tap yenkz/djtoolkit && brew install djtoolkit" />
               </div>
 
-              {/* Direct download */}
-              <div
-                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
-                style={{ padding: "16px 18px" }}
-              >
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm font-bold text-hw-text">Direct download</span>
-                  <a
-                    href="https://github.com/yenkz/djtoolkit/releases/latest"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-[5px] border border-hw-border-light px-4 py-1.5 font-mono text-[11px] font-bold tracking-wide text-hw-text-dim transition-colors hover:border-led-blue/30 hover:text-led-blue"
-                  >
-                    GitHub Releases
-                  </a>
-                </div>
-                <p className="text-xs text-hw-text-dim">
-                  Download the .dmg from the latest release (arm64 + x86_64)
-                </p>
-              </div>
-
               {/* pip */}
               <div
                 className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
@@ -326,17 +490,17 @@ function AgentWizard({
 
               <div className="text-center">
                 <button
-                  onClick={onClose}
+                  onClick={() => { setPath(null); setStep(0); }}
                   className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
                 >
-                  Cancel
+                  Back
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Step 2: Generate Key ──────────────────────────────── */}
-          {step === 2 && (
+          {/* ── CLI Step 2: Generate Key ──────────────────────────── */}
+          {path === "cli" && step === 2 && (
             <div className="space-y-4">
               <p className="text-sm text-hw-text-sec">
                 Name this machine so you can identify it later:
@@ -370,17 +534,17 @@ function AgentWizard({
 
               <div className="text-center">
                 <button
-                  onClick={onClose}
+                  onClick={() => { setPath(null); setStep(0); }}
                   className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
                 >
-                  Cancel
+                  Back
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Step 3: Configure ─────────────────────────────────── */}
-          {step === 3 && (
+          {/* ── CLI Step 3: Configure ─────────────────────────────── */}
+          {path === "cli" && step === 3 && (
             <div className="space-y-4">
               {/* Warning box */}
               <div
@@ -419,17 +583,17 @@ function AgentWizard({
 
               <div className="text-center">
                 <button
-                  onClick={onClose}
+                  onClick={() => { setPath(null); setStep(0); }}
                   className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
                 >
-                  Cancel
+                  Back
                 </button>
               </div>
             </div>
           )}
 
-          {/* ── Step 4: Start & Verify ────────────────────────────── */}
-          {step === 4 && (
+          {/* ── CLI Step 4: Start & Verify ────────────────────────── */}
+          {path === "cli" && step === 4 && (
             <div className="space-y-4">
               <p className="text-sm text-hw-text-sec">
                 Start the agent on your machine:
@@ -583,11 +747,15 @@ export default function AgentsPage() {
       {!loading && agents.length > 0 && (
         <p className="text-[13px] text-hw-text-muted">
           Agents run on your machine and handle downloading, fingerprinting, and tagging.
-          Install via{" "}
+          Install the{" "}
+          <code className="font-mono text-xs" style={{ color: "var(--hw-steel-text, #8A9AAA)" }}>
+            brew install --cask djtoolkit
+          </code>{" "}
+          desktop app or the{" "}
           <code className="font-mono text-xs" style={{ color: "var(--hw-steel-text, #8A9AAA)" }}>
             brew install djtoolkit
           </code>{" "}
-          or download from GitHub.
+          CLI.
         </p>
       )}
 
