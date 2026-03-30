@@ -19,7 +19,7 @@ export default function DoneStep({
 
   useEffect(() => {
     invoke<string>("get_daemon_status").then((status) => {
-      setAgentRunning(status === "Running");
+      setAgentRunning(status === "Running" || status === "Starting");
     });
   }, []);
 
@@ -28,11 +28,16 @@ export default function DoneStep({
     setError("");
     try {
       await invoke("start_agent");
-      await getCurrentWindow().close();
     } catch (e) {
-      setError(String(e));
-      setStarting(false);
+      const msg = String(e);
+      // "already running" is not an error — just close
+      if (!msg.includes("already running")) {
+        setError(msg);
+        setStarting(false);
+        return;
+      }
     }
+    await getCurrentWindow().close();
   };
 
   const handleClose = async () => {
