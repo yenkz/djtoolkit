@@ -47,6 +47,12 @@
       "desktop": {
         "schemes": ["djtoolkit"]
       }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/yenkz/djtoolkit/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ0Q0FFQTFGNTBDRkNENEUKUldST3pjOVFIK3JLMVB1SFZkc1dpMW54S25ndXFEdlp1enRQbFhpZVoyVk96MFNXRnhWU2lWSUgK"
     }
   },
   "bundle": {

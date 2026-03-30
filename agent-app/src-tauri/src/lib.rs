@@ -27,6 +27,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // ---- Managed state ----
         .manage(DaemonManager::new())
         // ---- IPC commands ----
