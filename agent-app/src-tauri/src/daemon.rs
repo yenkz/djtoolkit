@@ -75,17 +75,32 @@ fn pause_file() -> PathBuf {
 pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
     {
-        let binary_name = "djtoolkit.exe";
-        let exe_dir = std::env::current_exe()
-            .map_err(|e| format!("Failed to get current exe path: {e}"))?
-            .parent()
-            .ok_or_else(|| "Failed to get exe parent directory".to_string())?
-            .to_path_buf();
-        let path = exe_dir.join(binary_name);
+        use tauri::Manager;
+        // The Python sidecar is bundled as a Tauri resource to avoid
+        // naming conflicts with the Tauri app (both would be djtoolkit.exe).
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+        let path = resource_dir.join("djtoolkit-sidecar.exe");
         if path.exists() {
             return Ok(path);
         }
-        return Err(format!("Sidecar not found at: {}", path.display()));
+        // Fallback: check exe directory (for dev builds)
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| format!("Failed to get exe path: {e}"))?
+            .parent()
+            .ok_or_else(|| "Failed to get exe directory".to_string())?
+            .to_path_buf();
+        let fallback = exe_dir.join("djtoolkit-sidecar.exe");
+        if fallback.exists() {
+            return Ok(fallback);
+        }
+        return Err(format!(
+            "Sidecar not found at: {} or {}",
+            path.display(),
+            fallback.display()
+        ));
     }
 
     #[cfg(not(target_os = "windows"))]

@@ -69,7 +69,8 @@
       "binaries/fpcalc"
     ],
     "resources": {
-      "binaries/djtoolkit-agent.tar.gz": "djtoolkit-agent.tar.gz"
+      "binaries/djtoolkit-agent.tar.gz": "djtoolkit-agent.tar.gz",
+      "binaries/djtoolkit-sidecar.exe": "djtoolkit-sidecar.exe"
     },
     "macOS": {
       "entitlements": null,

@@ -306,6 +306,24 @@ jobs:
         if: runner.os == 'macOS'
         run: chmod +x agent-app/src-tauri/binaries/*
 
+      # Tauri bundles both resources (tar.gz + exe) on all platforms.
+      # Create empty placeholders for the platform-irrelevant resource
+      # so the build doesn't fail on missing files.
+      - name: Prepare Windows sidecar resource
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item "agent-app/src-tauri/binaries/djtoolkit-${{ matrix.target-triple }}.exe" `
+                    "agent-app/src-tauri/binaries/djtoolkit-sidecar.exe"
+          # macOS tar.gz doesn't exist on Windows — create empty placeholder
+          New-Item -Path "agent-app/src-tauri/binaries/djtoolkit-agent.tar.gz" -ItemType File -Force
+
+      - name: Prepare macOS sidecar placeholder
+        if: runner.os == 'macOS'
+        run: |
+          # Windows sidecar doesn't exist on macOS — create empty placeholder
+          touch agent-app/src-tauri/binaries/djtoolkit-sidecar.exe
+
       - name: List sidecar binaries
         shell: bash
         run: ls -la agent-app/src-tauri/binaries/
