@@ -68,6 +68,11 @@ jobs:
             # outside the .app bundle, avoiding macOS 15 signing issues.
             spec: packaging/macos/djtoolkit-onedir.spec
             binary-name: djtoolkit
+          - name: macOS x86_64
+            os: macos-13
+            target-triple: x86_64-apple-darwin
+            spec: packaging/macos/djtoolkit-onedir.spec
+            binary-name: djtoolkit
           - name: Windows x64
             os: windows-latest
             target-triple: x86_64-pc-windows-msvc
