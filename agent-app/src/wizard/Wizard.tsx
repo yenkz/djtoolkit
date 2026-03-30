@@ -49,6 +49,7 @@ export default function Wizard() {
         agentEmail: data.agentEmail || null,
         agentPassword: data.agentPassword || null,
       });
+      await invoke("mark_onboarding_complete");
       goNext();
     } catch (e) {
       setSoulseekError(String(e));

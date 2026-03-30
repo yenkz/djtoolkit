@@ -22,8 +22,8 @@ function App() {
 
     (async () => {
       try {
-        const configured = await invoke<boolean>("has_config");
-        if (!configured) {
+        const done = await invoke<boolean>("is_onboarding_complete");
+        if (!done) {
           navigate("/wizard", { replace: true });
           // Ensure the window is visible and focused on first launch.
           // The Rust setup hook also does this, but calling it from the
