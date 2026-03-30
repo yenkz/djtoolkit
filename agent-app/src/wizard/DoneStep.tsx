@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import Button from "../components/Button";
@@ -15,8 +15,15 @@ export default function DoneStep({
 }: DoneStepProps) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
+  const [agentRunning, setAgentRunning] = useState(false);
 
-  const handleStart = async () => {
+  useEffect(() => {
+    invoke<string>("get_daemon_status").then((status) => {
+      setAgentRunning(status === "Running");
+    });
+  }, []);
+
+  const handleStartAndClose = async () => {
     setStarting(true);
     setError("");
     try {
@@ -47,6 +54,14 @@ export default function DoneStep({
         </div>
       </div>
 
+      <div className="done-menubar-info">
+        <span className="done-menubar-icon">&#9432;</span>
+        <span>
+          DJ Toolkit lives in your menu bar. After closing this window, look
+          for the icon in the top-right of your screen.
+        </span>
+      </div>
+
       <div className="done-options">
         <Toggle
           label="Launch at startup"
@@ -58,12 +73,18 @@ export default function DoneStep({
       {error && <p className="form-error">{error}</p>}
 
       <div className="wizard-actions">
-        <Button variant="secondary" onClick={handleClose}>
-          Close
-        </Button>
-        <Button onClick={handleStart} loading={starting}>
-          Start Agent
-        </Button>
+        {agentRunning ? (
+          <Button onClick={handleClose}>Done</Button>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={handleClose}>
+              Close without starting
+            </Button>
+            <Button onClick={handleStartAndClose} loading={starting}>
+              Start Agent &amp; Close
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -966,3 +966,25 @@ a:hover {
   background: rgba(233, 69, 96, 0.3);
   color: #fff;
 }
+
+/* Menu bar info box in DoneStep */
+.done-menubar-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(68, 136, 255, 0.06);
+  border: 1px solid rgba(68, 136, 255, 0.15);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.done-menubar-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--accent);
+  margin-top: 1px;
+}
