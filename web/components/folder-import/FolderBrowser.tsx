@@ -43,7 +43,7 @@ export function FolderBrowser({ agentId, onSelect, onClose }: FolderBrowserProps
 
         // Poll for result
         let attempts = 0;
-        while (attempts < 30) {
+        while (attempts < 60) {
           await new Promise((r) => setTimeout(r, 500));
           const cmd = await getAgentCommandResult(id);
           if (cmd.status === "completed" && cmd.result) {

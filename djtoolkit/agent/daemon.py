@@ -449,7 +449,7 @@ async def run_daemon(
             try:
                 await asyncio.wait_for(
                     asyncio.ensure_future(command_wake.wait()),
-                    timeout=30.0 if not realtime_connected else 120.0,
+                    timeout=5.0 if not realtime_connected else 120.0,
                 )
                 command_wake.clear()
             except asyncio.TimeoutError:
