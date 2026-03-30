@@ -346,3 +346,92 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
           gh release upload "$RELEASE_VERSION" latest.json \
             --repo "$GITHUB_REPOSITORY"
+
+  update-homebrew-cask:
+    name: Update Homebrew cask
+    needs: [build-tauri, create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DMGs and compute SHA256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${RELEASE_VERSION#agent-v}"
+          mkdir -p dmgs
+
+          gh release download "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.dmg" \
+            --dir dmgs/
+
+          ls -la dmgs/
+
+          SHA_ARM64=$(sha256sum dmgs/*aarch64*.dmg | cut -d' ' -f1)
+          SHA_X86_64=$(sha256sum dmgs/*x86_64*.dmg | cut -d' ' -f1)
+
+          echo "ARM64:  $SHA_ARM64"
+          echo "X86_64: $SHA_X86_64"
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "SHA_ARM64=$SHA_ARM64" >> "$GITHUB_ENV"
+          echo "SHA_X86_64=$SHA_X86_64" >> "$GITHUB_ENV"
+
+      - name: Update cask formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/yenkz/homebrew-djtoolkit.git" tap
+          mkdir -p tap/Casks
+
+          cat > tap/Casks/djtoolkit.rb << 'CASK'
+          cask "djtoolkit" do
+            arch arm: "aarch64", intel: "x86_64"
+            version "VERSION_PLACEHOLDER"
+            sha256 arm:   "SHA_ARM64_PLACEHOLDER",
+                   intel: "SHA_X86_64_PLACEHOLDER"
+
+            url "https://github.com/yenkz/djtoolkit/releases/download/agent-v#{version}/djtoolkit_#{version}_#{arch}.dmg",
+                verified: "github.com/yenkz/djtoolkit/"
+            name "DJ Toolkit"
+            desc "DJ library agent — download, tag, and organize music automatically"
+            homepage "https://www.djtoolkit.net"
+
+            depends_on macos: ">= :ventura"
+            app "djtoolkit.app"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-cr", "#{appdir}/djtoolkit.app"],
+                             sudo: false
+            end
+
+            uninstall quit: "net.djtoolkit.agent"
+
+            zap trash: [
+              "~/.djtoolkit",
+              "~/Library/Caches/net.djtoolkit.agent",
+              "~/Library/Preferences/net.djtoolkit.agent.plist",
+              "~/Library/Saved Application State/net.djtoolkit.agent.savedState",
+            ]
+
+            caveats <<~EOS
+              DJ Toolkit runs as a menu bar agent. After install, launch it
+              and complete the setup wizard. It will then live in your menu bar.
+            EOS
+          end
+          CASK
+
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" tap/Casks/djtoolkit.rb
+          sed -i "s/SHA_ARM64_PLACEHOLDER/${SHA_ARM64}/g" tap/Casks/djtoolkit.rb
+          sed -i "s/SHA_X86_64_PLACEHOLDER/${SHA_X86_64}/g" tap/Casks/djtoolkit.rb
+
+          echo "--- Generated cask ---"
+          cat tap/Casks/djtoolkit.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/djtoolkit.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "Update djtoolkit cask to ${VERSION}"
+          git push
