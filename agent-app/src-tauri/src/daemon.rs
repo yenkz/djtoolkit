@@ -179,22 +179,30 @@ pub fn start_daemon(app: &tauri::AppHandle, manager: &DaemonManager) -> Result<(
 
     *state = DaemonState::Starting;
 
-    let sidecar = get_sidecar_path(app)?;
-    let config_dir = get_config_dir();
-    fs::create_dir_all(&config_dir).map_err(|e| format!("Failed to create config dir: {e}"))?;
+    // Use a closure so we can reset state on ANY error.
+    let result = (|| -> Result<u32, String> {
+        let sidecar = get_sidecar_path(app)?;
+        let config_dir = get_config_dir();
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config dir: {e}"))?;
 
-    // Remove stale pause file so the daemon starts in active mode.
-    let _ = fs::remove_file(pause_file());
+        // Remove stale pause file so the daemon starts in active mode.
+        let _ = fs::remove_file(pause_file());
 
-    let child = spawn_detached(&sidecar, &["agent", "run"])?;
-    let pid = child;
+        spawn_detached(&sidecar, &["agent", "run"])
+    })();
 
-    // Write PID file.
-    fs::write(pid_file(), pid.to_string())
-        .map_err(|e| format!("Failed to write PID file: {e}"))?;
-
-    *state = DaemonState::Running;
-    Ok(())
+    match result {
+        Ok(pid) => {
+            let _ = fs::write(pid_file(), pid.to_string());
+            *state = DaemonState::Running;
+            Ok(())
+        }
+        Err(e) => {
+            *state = DaemonState::Stopped;
+            Err(e)
+        }
+    }
 }
 
 /// Spawn a detached process that survives the parent's exit.
@@ -226,17 +234,32 @@ fn spawn_detached(program: &PathBuf, args: &[&str]) -> Result<u32, String> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
 
-    // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-    const DETACH_FLAGS: u32 = 0x00000008 | 0x00000200 | 0x08000000;
+    // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+    // NOTE: DETACHED_PROCESS (0x8) must NOT be combined with
+    // CREATE_NO_WINDOW (0x08000000) — they are mutually exclusive
+    // per Microsoft docs. Combining them causes a visible CMD window
+    // on Windows 10.
+    const DETACH_FLAGS: u32 = 0x00000200 | 0x08000000;
 
     // Redirect stdout+stderr to agent.log so we capture Python startup
     // errors even if the logging module hasn't initialized yet.
     let log_path = get_config_dir().join("agent.log");
-    let stdout_file = fs::OpenOptions::new()
+    let mut log_file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_path)
         .map_err(|e| format!("Failed to open log file: {e}"))?;
+
+    // Write diagnostic before spawning so we can debug sidecar issues
+    use std::io::Write;
+    let _ = writeln!(
+        log_file,
+        "Tauri: spawning sidecar: {:?} {:?}",
+        program,
+        args
+    );
+
+    let stdout_file = log_file;
     let stderr_file = stdout_file
         .try_clone()
         .map_err(|e| format!("Failed to clone log handle: {e}"))?;
