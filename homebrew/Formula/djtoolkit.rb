@@ -12,16 +12,15 @@ class Djtoolkit < Formula
 
   def install
     bin.install "djtoolkit"
-    (share/"djtoolkit").install "DJToolkit Setup.app" if Dir.exist?("DJToolkit Setup.app")
   end
 
   def caveats
     <<~EOS
       Run the setup wizard to configure djtoolkit:
-        djtoolkit setup
+        djtoolkit agent configure
 
-      Or open the app directly:
-        open #{share}/djtoolkit/DJToolkit\\ Setup.app
+      Or install the desktop app for a GUI experience:
+        brew install --cask djtoolkit
     EOS
   end
 end
