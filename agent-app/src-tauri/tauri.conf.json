@@ -60,9 +60,11 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/djtoolkit",
       "binaries/fpcalc"
     ],
+    "resources": {
+      "binaries/djtoolkit-agent.tar.gz": "djtoolkit-agent.tar.gz"
+    },
     "macOS": {
       "entitlements": null,
       "minimumSystemVersion": "13.0",

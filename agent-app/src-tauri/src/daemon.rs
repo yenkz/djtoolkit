@@ -65,27 +65,92 @@ fn pause_file() -> PathBuf {
     get_config_dir().join("agent_paused")
 }
 
-/// Resolve the bundled sidecar binary path.
-/// Tauri strips the target-triple suffix when bundling externalBin entries, so the binary
-/// is placed in Contents/MacOS/ as plain `djtoolkit` (not `djtoolkit-aarch64-apple-darwin`).
-pub fn get_sidecar_path(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+/// Resolve the agent sidecar binary path.
+///
+/// macOS: The PyInstaller onedir output is extracted from a bundled tar to
+/// `~/.djtoolkit/agent/djtoolkit` on first use. Running outside the .app bundle
+/// avoids macOS 15's library validation issues with PyInstaller binaries.
+///
+/// Windows: The onefile binary is bundled as an externalBin in Contents/MacOS/.
+pub fn get_sidecar_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(target_os = "windows")]
-    let binary_name = "djtoolkit.exe";
-    #[cfg(not(target_os = "windows"))]
-    let binary_name = "djtoolkit";
-
-    let exe_dir = std::env::current_exe()
-        .map_err(|e| format!("Failed to get current exe path: {e}"))?
-        .parent()
-        .ok_or_else(|| "Failed to get exe parent directory".to_string())?
-        .to_path_buf();
-
-    let path = exe_dir.join(binary_name);
-    if path.exists() {
-        return Ok(path);
+    {
+        let binary_name = "djtoolkit.exe";
+        let exe_dir = std::env::current_exe()
+            .map_err(|e| format!("Failed to get current exe path: {e}"))?
+            .parent()
+            .ok_or_else(|| "Failed to get exe parent directory".to_string())?
+            .to_path_buf();
+        let path = exe_dir.join(binary_name);
+        if path.exists() {
+            return Ok(path);
+        }
+        return Err(format!("Sidecar not found at: {}", path.display()));
     }
 
-    Err(format!("Sidecar not found at: {}", path.display()))
+    #[cfg(not(target_os = "windows"))]
+    {
+        let agent_dir = get_config_dir().join("agent").join("djtoolkit");
+        let binary = agent_dir.join("djtoolkit");
+
+        if !binary.exists() {
+            extract_agent(app, &agent_dir)?;
+        }
+
+        if binary.exists() {
+            return Ok(binary);
+        }
+        Err(format!("Sidecar not found at: {}", binary.display()))
+    }
+}
+
+/// Extract the PyInstaller onedir agent from the bundled tar resource.
+/// Called once on first daemon start; subsequent starts reuse the extracted files.
+#[cfg(not(target_os = "windows"))]
+fn extract_agent(app: &tauri::AppHandle, dest: &std::path::Path) -> Result<(), String> {
+    use std::process::Command;
+    use tauri::Manager;
+
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("Failed to get resource dir: {e}"))?;
+    let tar_path = resource_dir.join("djtoolkit-agent.tar.gz");
+
+    if !tar_path.exists() {
+        return Err(format!(
+            "Agent bundle not found at: {}",
+            tar_path.display()
+        ));
+    }
+
+    // Create the parent directory (e.g., ~/.djtoolkit/agent/)
+    let parent = dest
+        .parent()
+        .ok_or_else(|| "Invalid destination path".to_string())?;
+    fs::create_dir_all(parent).map_err(|e| format!("Failed to create agent dir: {e}"))?;
+
+    // Extract: tar xzf djtoolkit-agent.tar.gz -C ~/.djtoolkit/agent/
+    // The tar contains a top-level `djtoolkit/` directory with the binary + _internal/
+    let status = Command::new("tar")
+        .args(["xzf"])
+        .arg(&tar_path)
+        .args(["-C"])
+        .arg(parent)
+        .status()
+        .map_err(|e| format!("Failed to run tar: {e}"))?;
+
+    if !status.success() {
+        return Err("Failed to extract agent bundle".into());
+    }
+
+    // Make the binary executable
+    let binary = dest.join("djtoolkit");
+    if binary.exists() {
+        let _ = Command::new("chmod").args(["+x"]).arg(&binary).status();
+    }
+
+    Ok(())
 }
 
 /// Start the daemon as a detached child process.

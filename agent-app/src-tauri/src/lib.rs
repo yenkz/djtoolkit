@@ -50,29 +50,6 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // --- macOS: strip quarantine from the entire .app bundle ---
-            // Downloaded .dmg files carry com.apple.quarantine. macOS 15 enforces
-            // strict library validation on quarantined processes, blocking the
-            // PyInstaller sidecar from loading its embedded libpython3.11.dylib.
-            // Strip quarantine from the entire bundle at startup so all binaries
-            // (sidecar, fpcalc) can run without library validation restrictions.
-            #[cfg(target_os = "macos")]
-            {
-                if let Ok(exe) = std::env::current_exe() {
-                    // exe = .app/Contents/MacOS/agent-app → .app/ is 3 levels up
-                    if let Some(app_dir) = exe
-                        .parent()
-                        .and_then(|p| p.parent())
-                        .and_then(|p| p.parent())
-                    {
-                        let _ = std::process::Command::new("xattr")
-                            .args(["-dr", "com.apple.quarantine"])
-                            .arg(app_dir)
-                            .output();
-                    }
-                }
-            }
-
             // --- Detect first-launch vs returning user ---
             if config::config_exists() {
                 if let Some(main_window) = app.get_webview_window("main") {
