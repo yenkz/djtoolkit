@@ -45,10 +45,13 @@ def config_dir() -> Path:
 
 
 def log_dir() -> Path:
-    """Return the agent log directory."""
-    if sys.platform == "win32":
-        return config_dir() / "logs"
-    return Path.home() / "Library" / "Logs" / "djtoolkit"
+    """Return the agent log directory.
+
+    Logs are written inside the config directory so the Tauri app's
+    log viewer (which reads from ``config_dir() / "agent.log"``) can
+    find them without a separate path lookup.
+    """
+    return config_dir()
 
 
 def default_downloads_dir() -> Path:
