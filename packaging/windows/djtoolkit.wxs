@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- packaging/windows/djtoolkit.wxs — WiX 4+ MSI installer for djtoolkit -->
+<!-- packaging/windows/djtoolkit.wxs — WiX 4+ MSI installer for djtoolkit CLI -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="djtoolkit"
            Version="$(var.Version)"
@@ -21,8 +21,6 @@
           <File Id="FpcalcExe" Source="$(var.FpcalcPath)" KeyPath="yes" />
         </Component>
 
-        <Directory Id="SetupDir" Name="setup" />
-
         <!-- Add install dir to PATH -->
         <Component Id="PathEntry" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
           <Environment Id="PATH"
@@ -34,77 +32,14 @@
                        System="yes" />
         </Component>
 
-        <!-- Register djtoolkit:// protocol -->
-        <Component Id="ProtocolHandler" Guid="D4E5F6A7-B8C9-0123-DEF0-234567890123">
-          <RegistryKey Root="HKCU" Key="Software\Classes\djtoolkit">
-            <RegistryValue Type="string" Value="URL:djtoolkit Protocol" />
-            <RegistryValue Name="URL Protocol" Type="string" Value="" />
-          </RegistryKey>
-          <RegistryKey Root="HKCU" Key="Software\Classes\djtoolkit\shell\open\command">
-            <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]setup\DJToolkit Setup.exe&quot; &quot;%1&quot;" />
-          </RegistryKey>
-        </Component>
-
-        <!-- Auto-start tray app on login -->
-        <Component Id="TrayAutoStart" Guid="A8D3F7E1-4B29-4C8A-9E5D-6F1A2B3C4D5E">
-          <RegistryValue Root="HKCU"
-                         Key="Software\Microsoft\Windows\CurrentVersion\Run"
-                         Name="DJToolkit Agent"
-                         Type="string"
-                         Value="&quot;[INSTALLFOLDER]setup\DJToolkit Setup.exe&quot; --tray"
-                         KeyPath="yes" />
-        </Component>
-
       </Directory>
     </StandardDirectory>
 
-    <ComponentGroup Id="SetupFiles" Directory="SetupDir">
-      <Files Include="$(var.SetupDir)\**" />
-    </ComponentGroup>
-
-    <Feature Id="MainFeature" Title="djtoolkit" Level="1">
+    <Feature Id="MainFeature" Title="djtoolkit CLI" Level="1">
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="FpcalcExecutable" />
-      <ComponentGroupRef Id="SetupFiles" />
       <ComponentRef Id="PathEntry" />
-      <ComponentRef Id="ProtocolHandler" />
-      <ComponentRef Id="TrayAutoStart" />
-      <ComponentRef Id="StartMenuShortcuts" />
     </Feature>
-
-    <!-- Launch Setup Assistant after first install (not upgrades/uninstall).
-         Uses cmd /c start to detach from the MSI installer session so the
-         WinUI app runs in the user's desktop context, not SYSTEM. -->
-    <CustomAction Id="LaunchSetup"
-                  Directory="INSTALLFOLDER"
-                  ExeCommand='cmd.exe /c start "" "[SetupDir]DJToolkit Setup.exe"'
-                  Return="asyncNoWait"
-                  Execute="commit"
-                  Impersonate="yes" />
-
-    <InstallExecuteSequence>
-      <Custom Action="LaunchSetup" After="InstallFinalize"
-              Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED AND NOT REMOVE" />
-    </InstallExecuteSequence>
-
-    <!-- Start Menu shortcuts -->
-    <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="DJToolkitMenuFolder" Name="djtoolkit">
-        <Component Id="StartMenuShortcuts" Guid="F1A2B3C4-D5E6-7890-ABCD-123456789ABC">
-          <Shortcut Id="SetupShortcut"
-                    Name="DJToolkit Setup"
-                    Target="[SetupDir]DJToolkit Setup.exe"
-                    WorkingDirectory="SetupDir" />
-          <Shortcut Id="TrayShortcut"
-                    Name="DJToolkit Agent (Tray)"
-                    Target="[SetupDir]DJToolkit Setup.exe"
-                    Arguments="--tray"
-                    WorkingDirectory="SetupDir" />
-          <RemoveFolder Id="RemoveMenuFolder" On="uninstall" />
-          <RegistryValue Root="HKCU" Key="Software\djtoolkit" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
-        </Component>
-      </Directory>
-    </StandardDirectory>
 
   </Package>
 </Wix>
