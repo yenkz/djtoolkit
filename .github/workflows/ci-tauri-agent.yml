@@ -73,6 +73,9 @@ jobs:
           echo '#!/bin/sh' > agent-app/src-tauri/binaries/djtoolkit-${{ matrix.target }}
           echo '#!/bin/sh' > agent-app/src-tauri/binaries/fpcalc-${{ matrix.target }}
           chmod +x agent-app/src-tauri/binaries/*
+          # Resource placeholders (real files built in release workflow)
+          touch agent-app/src-tauri/binaries/djtoolkit-agent.tar.gz
+          touch agent-app/src-tauri/binaries/djtoolkit-sidecar.exe
 
       - name: Create sidecar placeholders (Windows)
         if: runner.os == 'Windows'
@@ -80,6 +83,9 @@ jobs:
           New-Item -ItemType Directory -Path "agent-app/src-tauri/binaries" -Force | Out-Null
           "" | Out-File -FilePath "agent-app/src-tauri/binaries/djtoolkit-${{ matrix.target }}.exe"
           "" | Out-File -FilePath "agent-app/src-tauri/binaries/fpcalc-${{ matrix.target }}.exe"
+          # Resource placeholders (real files built in release workflow)
+          New-Item -Path "agent-app/src-tauri/binaries/djtoolkit-agent.tar.gz" -ItemType File -Force
+          New-Item -Path "agent-app/src-tauri/binaries/djtoolkit-sidecar.exe" -ItemType File -Force
         shell: pwsh
 
       - name: Build Rust
