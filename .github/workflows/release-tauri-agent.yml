@@ -271,3 +271,78 @@ jobs:
           tagName: ${{ env.RELEASE_VERSION }}
           releaseDraft: false
           prerelease: false
+
+  generate-update-manifest:
+    name: Generate update manifest
+    needs: [build-tauri, create-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${RELEASE_VERSION#agent-v}"
+          mkdir -p assets
+          gh release download "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.sig" \
+            --dir assets/ || true
+          ls -la assets/
+
+      - name: Build latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${RELEASE_VERSION#agent-v}"
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_VERSION}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          SIG_DARWIN_AARCH64=""
+          SIG_DARWIN_X86_64=""
+          SIG_WINDOWS_X86_64=""
+
+          for sig_file in assets/*.sig; do
+            [ -f "$sig_file" ] || continue
+            name=$(basename "$sig_file")
+            content=$(cat "$sig_file")
+            case "$name" in
+              *aarch64.app.tar.gz.sig)   SIG_DARWIN_AARCH64="$content" ;;
+              *x86_64.app.tar.gz.sig)    SIG_DARWIN_X86_64="$content" ;;
+              *x64-setup.nsis.zip.sig)   SIG_WINDOWS_X86_64="$content" ;;
+              *x64_en-US.msi.zip.sig)    SIG_WINDOWS_X86_64="$content" ;;
+            esac
+          done
+
+          cat > latest.json << MANIFEST
+          {
+            "version": "${VERSION}",
+            "notes": "djtoolkit Agent ${RELEASE_VERSION}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${SIG_DARWIN_AARCH64}",
+                "url": "${REPO_URL}/djtoolkit_${VERSION}_aarch64.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "${SIG_DARWIN_X86_64}",
+                "url": "${REPO_URL}/djtoolkit_${VERSION}_x86_64.app.tar.gz"
+              },
+              "windows-x86_64": {
+                "signature": "${SIG_WINDOWS_X86_64}",
+                "url": "${REPO_URL}/djtoolkit_${VERSION}_x64_en-US.msi.zip"
+              }
+            }
+          }
+          MANIFEST
+
+          echo "--- latest.json ---"
+          cat latest.json
+
+      - name: Upload manifest to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete-asset "$RELEASE_VERSION" latest.json \
+            --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          gh release upload "$RELEASE_VERSION" latest.json \
+            --repo "$GITHUB_REPOSITORY"
