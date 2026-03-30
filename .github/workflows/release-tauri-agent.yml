@@ -119,7 +119,23 @@ jobs:
       - name: Build sidecar binary
         run: uv run python -m PyInstaller ${{ matrix.spec }} --clean --noconfirm
 
-      # macOS onedir: smoke-test from the output directory (outside any .app)
+      # Re-sign all native libraries with ad-hoc to strip any real Team IDs.
+      # python-build-standalone's libpython3.11.dylib carries Astral's Team ID;
+      # PyInstaller's install_name_tool invalidates the original signatures but
+      # doesn't re-sign all collected dylibs. Ad-hoc signing strips the Team ID
+      # so all binaries have TeamIdentifier=not set, resolving the mismatch.
+      - name: Re-sign onedir binaries with ad-hoc (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          DIST="dist/djtoolkit"
+          SIGNED=0
+          while IFS= read -r -d '' f; do
+            codesign --force --sign - "$f"
+            SIGNED=$((SIGNED + 1))
+          done < <(find "$DIST/_internal" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
+          codesign --force --sign - "$DIST/djtoolkit"
+          echo "Re-signed $SIGNED libraries + bootloader"
+
       - name: Smoke-test sidecar binary (macOS)
         if: runner.os == 'macOS'
         run: |
