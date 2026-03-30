@@ -19,7 +19,8 @@ export default function DoneStep({
 
   useEffect(() => {
     invoke<string>("get_daemon_status").then((status) => {
-      setAgentRunning(status === "Running" || status === "Starting");
+      const s = status.toLowerCase();
+      setAgentRunning(s === "running" || s === "starting");
     });
   }, []);
 
