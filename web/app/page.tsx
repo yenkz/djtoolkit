@@ -57,7 +57,7 @@ function FilterButton({ label, active = false, color = "green", onClick }: {
         padding: "8px 16px",
         cursor: "pointer",
         background: lit ? `${c.on}15` : "var(--hw-raised)",
-        color: lit ? c.on : c.dim,
+        color: lit ? `var(--led-${color})` : `var(--led-${color}-dim)`,
         border: `1.5px solid ${lit ? c.on + "55" : "var(--hw-border-light)"}`,
         textShadow: lit ? c.glow : "none",
         boxShadow: lit ? `0 0 12px ${c.on}22, inset 0 0 8px ${c.on}11` : `inset 0 1px 0 rgba(255,255,255,0.04)`,
@@ -106,9 +106,9 @@ function PricingCard({ tier, price, desc, features, cta, color = "green", featur
       </LEDText>
       <div style={{ fontSize: "clamp(28px, 5vw, 40px)", fontWeight: 900, letterSpacing: -2, marginBottom: 4 }}>
         {price}
-        {price !== "FREE" && <span style={{ fontSize: 13, fontWeight: 400, color: "var(--hw-text-dim)" }}>/yr</span>}
+        {price !== "FREE" && <span style={{ fontSize: 13, fontWeight: 400, color: "var(--hw-text-sec)" }}>/yr</span>}
       </div>
-      <p style={{ fontSize: 12, color: "var(--hw-text-dim)", lineHeight: 1.55, marginBottom: 16 }}>{desc}</p>
+      <p style={{ fontSize: 12, color: "var(--hw-text-sec)", lineHeight: 1.55, marginBottom: 16 }}>{desc}</p>
       <Link href={href}>
         <FilterButton label={cta} color={color} active={featured} />
       </Link>
@@ -181,6 +181,7 @@ export default function LandingPage() {
         }
       `}</style>
 
+      <main>
       {/* ═══ NAV ═══ */}
       <nav style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 100,
@@ -409,6 +410,7 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+      </main>
     </div>
   );
 }

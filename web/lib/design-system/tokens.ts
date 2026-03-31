@@ -61,8 +61,8 @@ export const HARDWARE = {
   groove: "#0E0C0E",
   text: "#EBEED5",
   textSec: "#EBEED5aa",
-  textDim: "#EBEED577",
-  textMuted: "#EBEED544",
+  textDim: "#EBEED599",
+  textMuted: "#EBEED588",
 } as const;
 
 // Light palette

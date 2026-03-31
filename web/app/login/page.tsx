@@ -43,7 +43,7 @@ function ModeToggle({
               padding: "12px 0",
               cursor: "pointer",
               background: active ? `${c.on}12` : "transparent",
-              color: active ? c.on : c.dim,
+              color: active ? c.on : "var(--hw-text-dim)",
               border: `1.5px solid ${active ? c.on + "44" : HARDWARE.borderLight}`,
               borderRight: m.key === "login" ? "none" : undefined,
               textShadow: active ? c.glow : "none",
@@ -265,7 +265,7 @@ function SubmitButton({
           fontWeight: 700,
           letterSpacing: 2,
           textTransform: "uppercase",
-          color: h || p ? c.on : HARDWARE.textDim,
+          color: h || p ? "var(--led-green)" : "var(--hw-text-dim)",
           textShadow: h || p ? c.glow : "none",
           transition: "all 0.25s",
         }}
@@ -467,7 +467,7 @@ export default function LoginPage() {
         }
       `}</style>
 
-      <div className="auth-layout">
+      <main className="auth-layout">
         {/* ═══ LEFT: DECORATIVE PANEL ═══ */}
         <div
           className="auth-side-panel"
@@ -538,7 +538,7 @@ export default function LoginPage() {
               style={{
                 fontFamily: FONTS.mono,
                 fontSize: 10,
-                color: HARDWARE.textDim,
+                color: "var(--hw-text-dim)",
                 letterSpacing: 1,
                 lineHeight: 1.8,
                 maxWidth: 260,
@@ -756,7 +756,7 @@ export default function LoginPage() {
                 style={{
                   fontFamily: FONTS.mono,
                   fontSize: 8,
-                  color: HARDWARE.textDim,
+                  color: "var(--hw-text-dim)",
                   letterSpacing: 2,
                   textTransform: "uppercase",
                 }}
@@ -817,7 +817,7 @@ export default function LoginPage() {
                 style={{
                   fontFamily: FONTS.mono,
                   fontSize: 10,
-                  color: HARDWARE.textDim,
+                  color: "var(--hw-text-dim)",
                   letterSpacing: 0.5,
                 }}
               >
@@ -847,7 +847,7 @@ export default function LoginPage() {
                 style={{
                   fontFamily: FONTS.mono,
                   fontSize: 8,
-                  color: HARDWARE.textDim,
+                  color: "var(--hw-text-dim)",
                   letterSpacing: 0.5,
                   lineHeight: 1.6,
                 }}
@@ -887,7 +887,7 @@ export default function LoginPage() {
                 style={{
                   fontFamily: FONTS.mono,
                   fontSize: 7,
-                  color: HARDWARE.textDim,
+                  color: "var(--hw-text-dim)",
                   letterSpacing: 2,
                   textTransform: "uppercase",
                 }}
@@ -910,7 +910,7 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -37,6 +37,7 @@ export default function CDJPlayButton({
         onMouseUp={() => setPressed(false)}
         role="button"
         tabIndex={0}
+        aria-label={label ?? "Play"}
         style={{
           width: size,
           height: size,
@@ -114,7 +115,7 @@ export default function CDJPlayButton({
             fontWeight: 700,
             letterSpacing: 2,
             textTransform: "uppercase",
-            color: hovered || pressed ? LED.on : HARDWARE.textDim,
+            color: hovered || pressed ? "var(--led-green)" : "var(--hw-text-dim)",
             textShadow: hovered || pressed ? LED.glow : "none",
             transition: "all 0.25s",
           }}
