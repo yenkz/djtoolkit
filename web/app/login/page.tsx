@@ -835,7 +835,7 @@ export default function LoginPage() {
                   fontFamily: FONTS.mono,
                   fontSize: 10,
                   fontWeight: 700,
-                  color: LED_COLORS[isLogin ? "blue" : "green"].on,
+                  color: `var(--led-${isLogin ? "blue" : "green"})`,
                   textShadow: LED_COLORS[isLogin ? "blue" : "green"].glow,
                   cursor: "pointer",
                   letterSpacing: 1,
