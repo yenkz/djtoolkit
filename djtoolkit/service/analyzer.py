@@ -217,7 +217,8 @@ async def identify_samples(
 
             pct = int(10 + 80 * (i + 1) / total)
             if on_progress:
-                await on_progress(pct, f"Identifying sample {i + 1}/{total}…")
+                found = len(results)
+                await on_progress(pct, f"Identifying {i + 1}/{total} samples ({found} found)…")
 
             try:
                 result = await shazam.recognize(seg_path)
@@ -314,6 +315,9 @@ async def analyze_mix(
         if on_progress:
             await on_progress(10, "Preparing samples…")
         sample_points = generate_sample_points(audio_path, sample_interval_sec)
+
+        if on_progress:
+            await on_progress(10, f"Identifying 0/{len(sample_points)} samples…")
 
         raw_tracks = await identify_samples(
             audio_path, sample_points, cooldown_sec=cooldown_sec,

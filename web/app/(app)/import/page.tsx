@@ -650,15 +650,24 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   function friendlyStep(step: string): { label: string; detail: string } {
     const s = step.toLowerCase();
     if (s.includes("queue") || s.includes("submitted"))
-      return { label: "Queued", detail: "Waiting for TrackID.dev to start processing…" };
+      return { label: "Queued", detail: "Waiting for analysis to start…" };
     if (s.includes("download"))
-      return { label: "Downloading", detail: "Downloading audio from YouTube…" };
-    if (s.includes("fingerprint"))
-      return { label: "Fingerprinting", detail: "Analyzing audio fingerprint of the mix…" };
-    if (s.includes("match") || s.includes("identify"))
-      return { label: "Matching", detail: "Matching fingerprints against music database…" };
-    if (s.includes("rate limit") || s.includes("retrying"))
-      return { label: "Waiting", detail: "Rate limited by TrackID.dev, retrying soon…" };
+      return { label: "Downloading", detail: "Downloading audio…" };
+    if (s.includes("preparing"))
+      return { label: "Preparing", detail: "Generating sample points…" };
+    // "Identifying 12/60 samples (5 found)…"
+    const sampleMatch = step.match(/(\d+)\/(\d+)\s*samples?\s*\((\d+)\s*found\)/i);
+    if (sampleMatch) {
+      const [, current, total, found] = sampleMatch;
+      return {
+        label: `Identifying ${current}/${total}`,
+        detail: `${found} track${found === "1" ? "" : "s"} found so far`,
+      };
+    }
+    if (s.includes("identify"))
+      return { label: "Identifying", detail: "Matching audio against Shazam…" };
+    if (s.includes("dedup"))
+      return { label: "Finishing", detail: "Deduplicating results…" };
     if (s.includes("done"))
       return { label: step, detail: "" };
     return { label: step || "Processing", detail: "Analyzing your mix…" };
