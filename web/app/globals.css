@@ -15,18 +15,18 @@
   --hw-text-muted: #EBEED588;
   --sidebar-logo-color: #EBEED5;
 
-  /* LED colors — constant across themes */
+  /* LED colors — dark theme */
   --led-green: #44FF44;
-  --led-green-dim: #6A8A6A;
+  --led-green-dim: #7A9A7A;
   --led-green-mid: #44CC44;
   --led-red: #FF4444;
-  --led-red-dim: #8A6A6A;
+  --led-red-dim: #AA8A8A;
   --led-red-mid: #CC3333;
   --led-blue: #4488FF;
-  --led-blue-dim: #6A7A8A;
+  --led-blue-dim: #7D8D9D;
   --led-blue-mid: #3366CC;
   --led-orange: #FFA033;
-  --led-orange-dim: #8A7A5A;
+  --led-orange-dim: #9A8A6A;
   --led-orange-mid: #CC8833;
 
   /* Extended tokens — dark */

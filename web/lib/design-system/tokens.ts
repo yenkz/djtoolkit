@@ -7,7 +7,7 @@
 // LED color system — Pioneer-accurate with three intensity states
 export const LED_COLORS = {
   green: {
-    dim: "#6A8A6A",
+    dim: "#7A9A7A",
     mid: "#44CC44",
     on: "#44FF44",
     glow: "0 0 14px #44FF4466",
@@ -15,7 +15,7 @@ export const LED_COLORS = {
       "0 0 20px #44FF4499, 0 0 40px #44FF4433, 0 0 60px #44FF4422",
   },
   red: {
-    dim: "#8A6A6A",
+    dim: "#AA8A8A",
     mid: "#CC3333",
     on: "#FF4444",
     glow: "0 0 14px #FF444466",
@@ -23,7 +23,7 @@ export const LED_COLORS = {
       "0 0 20px #FF444499, 0 0 40px #FF444444, 0 0 60px #FF444422",
   },
   blue: {
-    dim: "#6A7A8A",
+    dim: "#7D8D9D",
     mid: "#3366CC",
     on: "#4488FF",
     glow: "0 0 14px #4488FF66",
@@ -31,7 +31,7 @@ export const LED_COLORS = {
       "0 0 20px #4488FF99, 0 0 40px #4488FF44, 0 0 60px #4488FF22",
   },
   orange: {
-    dim: "#8A7A5A",
+    dim: "#9A8A6A",
     mid: "#CC8833",
     on: "#FFA033",
     glow: "0 0 14px #FFA03366",
