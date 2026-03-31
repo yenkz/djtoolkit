@@ -630,6 +630,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [folderImportJobId, setFolderImportJobId] = useState<string | null>(null);
+  const [folderPath, setFolderPath] = useState("");
 
   function formatElapsed(startMs: number): string {
     const sec = Math.floor((Date.now() - startMs) / 1000);
@@ -1283,19 +1284,59 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
         <SourceCard
           icon={SRC_ICONS.agent}
           title="Local Folder"
-          desc="Browse and import audio files from your agent's machine"
+          desc="Import audio files from a folder on your agent's machine"
         >
-          <ActionButton
-            variant="outline"
-            onClick={() => setFolderBrowserOpen(true)}
-            disabled={!selectedAgent}
-          >
-            Browse Files
-          </ActionButton>
-          {!selectedAgent && (
-            <p className="mt-2 font-mono text-[10px]" style={{ color: "var(--hw-text-muted)" }}>
+          {!selectedAgent ? (
+            <p className="font-mono text-[10px]" style={{ color: "var(--hw-text-muted)" }}>
               No agent connected — install the agent first
             </p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="text"
+                  value={folderPath}
+                  onChange={(e) => setFolderPath(e.target.value)}
+                  placeholder="/Users/you/Music/DJ Sets"
+                  className="font-mono"
+                  style={{
+                    flex: 1,
+                    fontSize: 12,
+                    padding: "7px 12px",
+                    background: "var(--hw-input-bg)",
+                    border: "1px solid var(--hw-input-border)",
+                    borderRadius: 5,
+                    color: "var(--hw-text)",
+                    outline: "none",
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && folderPath.trim()) {
+                      importFolder(selectedAgent, folderPath.trim()).then(({ id }) =>
+                        setFolderImportJobId(id),
+                      );
+                    }
+                  }}
+                />
+                <ActionButton
+                  variant="outline"
+                  onClick={() => setFolderBrowserOpen(true)}
+                >
+                  Browse
+                </ActionButton>
+              </div>
+              <ActionButton
+                onClick={() => {
+                  if (folderPath.trim()) {
+                    importFolder(selectedAgent, folderPath.trim()).then(({ id }) =>
+                      setFolderImportJobId(id),
+                    );
+                  }
+                }}
+                disabled={!folderPath.trim()}
+              >
+                Import Folder
+              </ActionButton>
+            </div>
           )}
         </SourceCard>
 
@@ -1305,8 +1346,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             onClose={() => setFolderBrowserOpen(false)}
             onSelect={async (path) => {
               setFolderBrowserOpen(false);
-              const { id } = await importFolder(selectedAgent, path);
-              setFolderImportJobId(id);
+              setFolderPath(path);
             }}
           />
         )}
