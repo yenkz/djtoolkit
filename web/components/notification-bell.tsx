@@ -184,6 +184,7 @@ export default function NotificationBell() {
         {unreadCount > 0 && (
           <span
             className="absolute flex items-center justify-center font-mono"
+            aria-hidden="true"
             style={{
               top: 2,
               right: 2,

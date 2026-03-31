@@ -417,6 +417,7 @@ async def run_daemon(
     async def _command_poll_loop() -> None:
         """Poll for agent commands (browse_folder, etc.) and execute inline."""
         from djtoolkit.agent.commands.browse_folder import browse_folder
+        from djtoolkit.agent.commands.scan_folder import scan_folder
 
         while not shutdown_event.is_set():
             try:
@@ -432,6 +433,8 @@ async def run_daemon(
                         match cmd_type:
                             case "browse_folder":
                                 result = browse_folder(payload)
+                            case "scan_folder":
+                                result = scan_folder(payload)
                             case _:
                                 raise ValueError(f"Unknown command: {cmd_type}")
 

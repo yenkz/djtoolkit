@@ -268,20 +268,40 @@ pub fn update_credentials(
 // Log viewer
 // ---------------------------------------------------------------------------
 
+/// Return the platform-specific log directory (matches Python `agent/paths.py`).
+/// - macOS:   `~/Library/Logs/djtoolkit/`
+/// - Windows: `%APPDATA%/djtoolkit/logs/`
+/// - Linux:   `~/.djtoolkit/`
+fn get_log_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        home.join("Library").join("Logs").join("djtoolkit")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        daemon::get_config_dir().join("logs")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        daemon::get_config_dir()
+    }
+}
+
 /// Truncate `agent.log` so the viewer shows a clean slate.
 #[tauri::command]
 pub fn clear_log_file() -> Result<(), String> {
-    let log_path = daemon::get_config_dir().join("agent.log");
+    let log_path = get_log_dir().join("agent.log");
     if log_path.exists() {
         fs::write(&log_path, "").map_err(|e| format!("Failed to clear log file: {e}"))?;
     }
     Ok(())
 }
 
-/// Read the last N lines from `agent.log` in the config directory.
+/// Read the last N lines from `agent.log` in the log directory.
 #[tauri::command]
 pub fn get_log_content(lines: Option<usize>) -> Result<String, String> {
-    let log_path = daemon::get_config_dir().join("agent.log");
+    let log_path = get_log_dir().join("agent.log");
     if !log_path.exists() {
         return Ok(String::new());
     }
