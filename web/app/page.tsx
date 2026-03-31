@@ -12,6 +12,7 @@ import JogWheel from "@/components/ui/JogWheel";
 import VUMeter from "@/components/ui/VUMeter";
 import TempoFader from "@/components/ui/TempoFader";
 import { LED_COLORS, FONTS } from "@/lib/design-system/tokens";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 // ─── Responsive hook ───
 function useIsMobile() {
@@ -209,6 +210,7 @@ export default function LandingPage() {
                 </LEDText>
               </a>
             ))}
+            <ThemeToggle />
             <Link href={ctaHref}>
               <FilterButton label={user ? "DASHBOARD" : "SIGN IN"} color="green" />
             </Link>

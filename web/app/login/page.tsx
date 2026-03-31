@@ -10,6 +10,7 @@ import Logo from "@/components/ui/Logo";
 import LEDText from "@/components/ui/LEDText";
 import JogWheel from "@/components/ui/JogWheel";
 import VUMeter from "@/components/ui/VUMeter";
+import ThemeToggle from "@/components/ui/ThemeToggle";
 
 /* ═══ MODE TOGGLE (Login/Signup channel selector) ═══ */
 function ModeToggle({
@@ -628,6 +629,7 @@ export default function LoginPage() {
                 marginBottom: 40,
               }}
             >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
               <Logo
                 color={LED_COLORS[accentColor].dim}
                 w={32}
@@ -644,6 +646,8 @@ export default function LoginPage() {
               >
                 DJToolKit
               </LEDText>
+              </div>
+              <ThemeToggle />
             </div>
 
             {/* Mode toggle */}
