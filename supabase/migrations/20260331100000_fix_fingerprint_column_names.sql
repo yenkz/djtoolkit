@@ -1,8 +1,7 @@
--- Restore push notification inserts that were accidentally dropped
--- when chain_pipeline_job() was rewritten in the pending_review migration.
---
--- Restores: track_downloaded, track_failed, analysis_complete notifications.
--- Fixes: batch_complete check is now unconditional (was gated behind metadata/failed).
+-- Fix: fingerprint INSERT used wrong column names (chromaprint, duration_sec)
+-- and was missing required user_id.
+-- Actual fingerprints table columns: fingerprint, duration, user_id.
+-- This was broken since 20260327100000 and copied through subsequent rewrites.
 
 CREATE OR REPLACE FUNCTION public.chain_pipeline_job()
 RETURNS TRIGGER
