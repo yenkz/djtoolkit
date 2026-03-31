@@ -45,7 +45,7 @@ function ModeToggle({
               cursor: "pointer",
               background: active ? `${c.on}12` : "transparent",
               color: active ? `var(--led-${m.color})` : "var(--hw-text-dim)",
-              border: `1.5px solid ${active ? c.on + "44" : HARDWARE.borderLight}`,
+              border: `1.5px solid ${active ? c.on + "44" : "var(--hw-border-light)"}`,
               borderRight: m.key === "login" ? "none" : undefined,
               textShadow: active ? c.glow : "none",
               boxShadow: active
@@ -145,9 +145,9 @@ function AuthLEDInput({
           width: "100%",
           fontFamily: FONTS.mono,
           fontSize: "clamp(12px, 1.8vw, 14px)",
-          color: HARDWARE.text,
-          background: focused ? HARDWARE.groove : HARDWARE.raised,
-          border: `1.5px solid ${focused ? c.on + "55" : hovered ? c.dim + "44" : HARDWARE.borderLight}`,
+          color: "var(--hw-text)",
+          background: focused ? "var(--hw-groove)" : "var(--hw-raised)",
+          border: `1.5px solid ${focused ? c.on + "55" : hovered ? c.dim + "44" : "var(--hw-border-light)"}`,
           borderRadius: 3,
           padding: "12px 14px",
           outline: "none",
@@ -208,7 +208,7 @@ function SubmitButton({
           minWidth: 52,
           borderRadius: "50%",
           position: "relative",
-          background: `radial-gradient(circle, ${HARDWARE.raised} 0%, ${HARDWARE.groove} 100%)`,
+          background: "radial-gradient(circle, var(--hw-raised) 0%, var(--hw-groove) 100%)",
           boxShadow: `inset 0 2px 4px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4), ${rg}`,
           transform: p ? "scale(0.95)" : "scale(1)",
           transition: "all 0.2s",
@@ -436,7 +436,7 @@ export default function LoginPage() {
   if (!mounted) {
     return (
       <div
-        style={{ background: HARDWARE.body, minHeight: "100vh" }}
+        style={{ background: "var(--hw-body)", minHeight: "100vh" }}
       />
     );
   }
@@ -444,8 +444,8 @@ export default function LoginPage() {
   return (
     <div
       style={{
-        background: HARDWARE.body,
-        color: HARDWARE.text,
+        background: "var(--hw-body)",
+        color: "var(--hw-text)",
         fontFamily: FONTS.sans,
         minHeight: "100vh",
         display: "flex",
@@ -455,7 +455,7 @@ export default function LoginPage() {
     >
       <style>{`
         ::selection { background: ${LED_COLORS[accentColor].on}33; }
-        input::placeholder { color: ${HARDWARE.textDim}; font-family: ${FONTS.mono}; }
+        input::placeholder { color: var(--hw-text-dim); font-family: ${FONTS.mono}; }
         @keyframes auth-spin { to { transform: rotate(360deg); } }
         .auth-layout {
           display: grid;
@@ -480,8 +480,8 @@ export default function LoginPage() {
             padding: "60px 48px",
             position: "relative",
             overflow: "hidden",
-            background: `linear-gradient(135deg, ${HARDWARE.body} 0%, ${HARDWARE.surface} 100%)`,
-            borderRight: `1px solid ${HARDWARE.borderLight}`,
+            background: "linear-gradient(135deg, var(--hw-body) 0%, var(--hw-surface) 100%)",
+            borderRight: "1px solid var(--hw-border-light)",
           }}
         >
           {/* Ambient glow */}
@@ -753,7 +753,7 @@ export default function LoginPage() {
                 style={{
                   height: 1,
                   flex: 1,
-                  background: HARDWARE.borderLight,
+                  background: "var(--hw-border-light)",
                 }}
               />
               <span
@@ -771,7 +771,7 @@ export default function LoginPage() {
                 style={{
                   height: 1,
                   flex: 1,
-                  background: HARDWARE.borderLight,
+                  background: "var(--hw-border-light)",
                 }}
               />
             </div>
@@ -787,10 +787,10 @@ export default function LoginPage() {
                 gap: 10,
                 width: "100%",
                 padding: "12px 0",
-                background: HARDWARE.raised,
-                border: `1.5px solid ${HARDWARE.borderLight}`,
+                background: "var(--hw-raised)",
+                border: "1.5px solid var(--hw-border-light)",
                 borderRadius: 3,
-                color: HARDWARE.text,
+                color: "var(--hw-text)",
                 fontFamily: FONTS.mono,
                 fontSize: "clamp(9px, 1.3vw, 11px)",
                 fontWeight: 700,
@@ -800,15 +800,15 @@ export default function LoginPage() {
               }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLButtonElement).style.borderColor =
-                  HARDWARE.textDim;
+                  "var(--hw-text-dim)";
                 (e.currentTarget as HTMLButtonElement).style.background =
-                  HARDWARE.border;
+                  "var(--hw-border)";
               }}
               onMouseLeave={(e) => {
                 (e.currentTarget as HTMLButtonElement).style.borderColor =
-                  HARDWARE.borderLight;
+                  "var(--hw-border-light)";
                 (e.currentTarget as HTMLButtonElement).style.background =
-                  HARDWARE.raised;
+                  "var(--hw-raised)";
               }}
             >
               <GoogleIcon />
@@ -878,7 +878,7 @@ export default function LoginPage() {
             <div
               style={{
                 marginTop: 32,
-                borderTop: `1px solid ${HARDWARE.borderLight}`,
+                borderTop: "1px solid var(--hw-border-light)",
                 paddingTop: 16,
                 display: "flex",
                 alignItems: "center",
