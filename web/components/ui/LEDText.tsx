@@ -26,7 +26,7 @@ export default function LEDText({
       onMouseLeave={() => setHovered(false)}
       style={{
         ...style,
-        color: active ? c.on : c.dim,
+        color: active ? `var(--led-${color})` : `var(--led-${color}-dim)`,
         textShadow: active ? c.glow : "none",
         transition: "color 0.3s, text-shadow 0.3s",
         cursor: "default",

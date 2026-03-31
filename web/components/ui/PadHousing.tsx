@@ -35,7 +35,7 @@ export default function PadHousing({
           style={{
             fontFamily: FONTS.mono,
             fontSize: 8,
-            color: HARDWARE.textDim,
+            color: "var(--hw-text-dim)",
             letterSpacing: 2,
             textTransform: "uppercase",
             marginBottom: 10,
