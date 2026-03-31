@@ -248,6 +248,8 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
         className={`fixed inset-y-0 left-0 z-50 transition-transform duration-200 md:hidden ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
+        aria-hidden={!open}
+        {...(!open ? { inert: true } : {})}
       >
         <button
           onClick={() => setOpen(false)}

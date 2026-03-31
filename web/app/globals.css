@@ -11,8 +11,8 @@
   --hw-groove: #0E0C0E;
   --hw-text: #EBEED5;
   --hw-text-sec: #EBEED5aa;
-  --hw-text-dim: #EBEED577;
-  --hw-text-muted: #EBEED544;
+  --hw-text-dim: #EBEED599;
+  --hw-text-muted: #EBEED588;
   --sidebar-logo-color: #EBEED5;
 
   /* LED colors — constant across themes */
@@ -81,9 +81,9 @@
   --hw-border-light: #D5D1C4;
   --hw-groove: #E5E2D6;
   --hw-text: #1A1418;
-  --hw-text-sec: #1A141899;
-  --hw-text-dim: #1A141866;
-  --hw-text-muted: #1A141844;
+  --hw-text-sec: #1A1418b8;
+  --hw-text-dim: #1A1418a8;
+  --hw-text-muted: #1A14189e;
   --sidebar-logo-color: #2A2428;
 
   /* Extended tokens — light */
