@@ -1055,6 +1055,7 @@ export default function PipelineMonitorPage() {
               trackData.tracks.every((t) => selected.has(t.id))
             }
             onChange={toggleSelectAll}
+            aria-label="Select all tracks"
             style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--led-blue)" }}
           />
           {/* Artwork spacer */}
@@ -1449,6 +1450,7 @@ function TrackRow({
         type="checkbox"
         checked={isSelected}
         onChange={onToggleSelect}
+        aria-label={`Select ${track.title} by ${track.artist}`}
         style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--led-blue)" }}
       />
       {/* Artwork */}

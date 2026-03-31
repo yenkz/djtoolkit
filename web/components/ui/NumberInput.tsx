@@ -10,6 +10,7 @@ interface NumberInputProps {
   max?: number;
   step?: number;
   desc?: string;
+  "aria-label"?: string;
 }
 
 export default function NumberInput({
@@ -20,6 +21,7 @@ export default function NumberInput({
   max,
   step = 1,
   desc,
+  "aria-label": ariaLabel,
 }: NumberInputProps) {
   const [focused, setFocused] = useState(false);
 
@@ -72,6 +74,7 @@ export default function NumberInput({
       <input
         type="number"
         value={value}
+        aria-label={ariaLabel ?? label}
         onChange={(e) => {
           const parsed = parseFloat(e.target.value);
           if (!isNaN(parsed)) onChange(parsed);

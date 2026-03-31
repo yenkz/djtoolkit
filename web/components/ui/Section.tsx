@@ -12,7 +12,7 @@ interface SectionProps {
 export default function Section({ id, title, desc, children }: SectionProps) {
   return (
     <div id={id} className="mb-9" style={{ scrollMarginTop: 20 }}>
-      <h3
+      <h2
         className="font-mono uppercase"
         style={{
           fontSize: 18,
@@ -23,7 +23,7 @@ export default function Section({ id, title, desc, children }: SectionProps) {
         }}
       >
         {title}
-      </h3>
+      </h2>
       {desc && (
         <p
           className="font-sans"

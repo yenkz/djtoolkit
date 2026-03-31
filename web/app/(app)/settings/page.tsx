@@ -520,6 +520,7 @@ export default function SettingsPage() {
             <input
               readOnly
               value={email}
+              aria-label="Email"
               className="w-full font-mono"
               style={{
                 fontSize: 13,
@@ -539,6 +540,7 @@ export default function SettingsPage() {
               value={displayName}
               onChange={setDisplayName}
               placeholder="Your DJ name"
+              aria-label="Display name"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -644,7 +646,7 @@ export default function SettingsPage() {
             </div>
           </Field>
           <Field label="Grain overlay" desc="Subtle film grain texture over the UI">
-            <Toggle checked={grainEnabled} onChange={handleGrainToggle} />
+            <Toggle checked={grainEnabled} onChange={handleGrainToggle} aria-label="Grain overlay" />
           </Field>
         </Section>
 
@@ -657,7 +659,7 @@ export default function SettingsPage() {
           <Field label="Enable push notifications">
             {!pushSupported ? (
               <div className="flex items-center gap-2">
-                <Toggle checked={false} onChange={() => {}} disabled />
+                <Toggle checked={false} onChange={() => {}} disabled aria-label="Push notifications" />
                 <span
                   className="font-sans text-xs"
                   style={{ color: "var(--hw-text-dim)" }}
@@ -667,7 +669,7 @@ export default function SettingsPage() {
               </div>
             ) : pushPermission === "denied" ? (
               <div className="flex flex-col gap-2">
-                <Toggle checked={false} onChange={() => {}} disabled />
+                <Toggle checked={false} onChange={() => {}} disabled aria-label="Push notifications" />
                 <p
                   className="font-sans"
                   style={{
@@ -685,6 +687,7 @@ export default function SettingsPage() {
                 checked={pushEnabled}
                 onChange={handlePushToggle}
                 disabled={pushToggling}
+                aria-label="Push notifications"
               />
             )}
           </Field>
@@ -702,6 +705,7 @@ export default function SettingsPage() {
               onChange={setDownloadsDir}
               mono
               placeholder="~/Soulseek/downloads/complete"
+              aria-label="Downloads directory"
             />
           </Field>
           <Field label="Library directory">
@@ -710,6 +714,7 @@ export default function SettingsPage() {
               onChange={setLibraryDir}
               mono
               placeholder="~/Music/DJ/library"
+              aria-label="Library directory"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -724,10 +729,10 @@ export default function SettingsPage() {
           desc="Soulseek network credentials and toggle"
         >
           <Field label="Enabled">
-            <Toggle checked={slskEnabled} onChange={setSlskEnabled} />
+            <Toggle checked={slskEnabled} onChange={setSlskEnabled} aria-label="Soulseek enabled" />
           </Field>
           <Field label="Username">
-            <TextInput value={slskUser} onChange={setSlskUser} mono />
+            <TextInput value={slskUser} onChange={setSlskUser} mono aria-label="Soulseek username" />
           </Field>
           <Field label="Password">
             <TextInput
@@ -735,6 +740,7 @@ export default function SettingsPage() {
               onChange={setSlskPassword}
               mono
               type="password"
+              aria-label="Soulseek password"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -755,6 +761,7 @@ export default function SettingsPage() {
               step={0.01}
               min={0}
               max={1}
+              aria-label="Minimum score"
             />
           </Field>
           <Field label="Duration tolerance (ms)" desc="Plus/minus tolerance in milliseconds">
@@ -762,6 +769,7 @@ export default function SettingsPage() {
               value={durTolerance}
               onChange={setDurTolerance}
               step={100}
+              aria-label="Duration tolerance"
             />
           </Field>
           <Field label="Search timeout (sec)">
@@ -769,6 +777,7 @@ export default function SettingsPage() {
               value={searchTimeout}
               onChange={setSearchTimeout}
               step={1}
+              aria-label="Search timeout"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -792,6 +801,7 @@ export default function SettingsPage() {
               step={0.05}
               min={0.1}
               max={1}
+              aria-label="Confidence threshold"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -806,7 +816,7 @@ export default function SettingsPage() {
           desc="AcoustID fingerprinting for duplicate detection"
         >
           <Field label="Enabled">
-            <Toggle checked={fpEnabled} onChange={setFpEnabled} />
+            <Toggle checked={fpEnabled} onChange={setFpEnabled} aria-label="Fingerprint enabled" />
           </Field>
           <Field label="AcoustID API key">
             <TextInput
@@ -814,6 +824,7 @@ export default function SettingsPage() {
               onChange={setAcoustidKey}
               mono
               placeholder="Your AcoustID API key"
+              aria-label="AcoustID API key"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -828,13 +839,14 @@ export default function SettingsPage() {
           desc="Target loudness levels for processed audio"
         >
           <Field label="Enabled">
-            <Toggle checked={loudnormEnabled} onChange={setLoudnormEnabled} />
+            <Toggle checked={loudnormEnabled} onChange={setLoudnormEnabled} aria-label="Loudness normalization enabled" />
           </Field>
           <Field label="Target LUFS">
             <NumberInput
               value={targetLufs}
               onChange={setTargetLufs}
               step={0.5}
+              aria-label="Target LUFS"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -845,7 +857,7 @@ export default function SettingsPage() {
         {/* ─── COVER ART ────────────────────────────────────────────── */}
         <Section id="coverart" title="Cover Art">
           <Field label="Enabled">
-            <Toggle checked={coverartEnabled} onChange={setCoverartEnabled} />
+            <Toggle checked={coverartEnabled} onChange={setCoverartEnabled} aria-label="Cover art enabled" />
           </Field>
           <Field
             label="Sources priority"
@@ -923,6 +935,7 @@ export default function SettingsPage() {
               onChange={setExportOutputPath}
               mono
               placeholder="~/Music/exports"
+              aria-label="Export output path"
             />
           </Field>
           <div className="flex justify-end mt-4">
@@ -937,7 +950,7 @@ export default function SettingsPage() {
           desc="ML model settings for genre detection"
         >
           <Field label="Enabled">
-            <Toggle checked={analysisEnabled} onChange={setAnalysisEnabled} />
+            <Toggle checked={analysisEnabled} onChange={setAnalysisEnabled} aria-label="Audio analysis enabled" />
           </Field>
           <Field
             label="Essentia model path"
@@ -948,6 +961,7 @@ export default function SettingsPage() {
               onChange={setAnalysisModelPath}
               mono
               placeholder="~/.djtoolkit/models"
+              aria-label="Essentia model path"
             />
           </Field>
           <div className="flex justify-end mt-4">

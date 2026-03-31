@@ -10,6 +10,7 @@ interface TextInputProps {
   desc?: string;
   type?: string;
   placeholder?: string;
+  "aria-label"?: string;
 }
 
 export default function TextInput({
@@ -20,6 +21,7 @@ export default function TextInput({
   desc,
   type = "text",
   placeholder,
+  "aria-label": ariaLabel,
 }: TextInputProps) {
   const [focused, setFocused] = useState(false);
 
@@ -74,6 +76,7 @@ export default function TextInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={ariaLabel ?? label}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         className={`w-full transition-all duration-200 ${mono ? "font-mono" : "font-sans"}`}

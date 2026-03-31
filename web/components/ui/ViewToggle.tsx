@@ -37,7 +37,7 @@ export default function ViewToggle({ mode, onChange }: ViewToggleProps) {
             aria-pressed={active}
             className="flex items-center transition-all duration-150"
             style={{
-              padding: "6px 10px",
+              padding: "8px 12px",
               cursor: "pointer",
               color: active ? "var(--led-blue)" : "var(--hw-text-muted)",
               background: active

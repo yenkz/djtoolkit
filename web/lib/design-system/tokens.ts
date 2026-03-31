@@ -75,9 +75,9 @@ export const HARDWARE_LIGHT = {
   borderLight: "#D5D1C4",
   groove: "#E5E2D6",
   text: "#1A1418",
-  textSec: "#1A141899",
-  textDim: "#1A141866",
-  textMuted: "#1A141844",
+  textSec: "#1A1418b8",
+  textDim: "#1A1418a8",
+  textMuted: "#1A14189e",
 } as const;
 
 // Rubber / silicone pad surface

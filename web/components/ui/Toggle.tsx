@@ -6,9 +6,10 @@ interface ToggleProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  "aria-label"?: string;
 }
 
-export default function Toggle({ checked, onChange, disabled = false }: ToggleProps) {
+export default function Toggle({ checked, onChange, disabled = false, "aria-label": ariaLabel }: ToggleProps) {
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (disabled) return;
@@ -24,6 +25,7 @@ export default function Toggle({ checked, onChange, disabled = false }: TogglePr
     <div
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
       tabIndex={disabled ? -1 : 0}
       onClick={() => !disabled && onChange(!checked)}

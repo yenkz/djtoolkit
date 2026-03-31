@@ -812,6 +812,7 @@ export default function CatalogPage() {
                       selected.size === filteredTracks.length
                     }
                     onChange={toggleSelectAll}
+                    aria-label="Select all tracks"
                     style={{
                       width: 14,
                       height: 14,
@@ -1013,6 +1014,7 @@ export default function CatalogPage() {
                   setPerPage(Number(e.target.value));
                   setPage(1);
                 }}
+                aria-label="Tracks per page"
                 className="font-mono"
                 style={{
                   fontSize: 10,

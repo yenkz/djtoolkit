@@ -86,6 +86,20 @@
   --hw-text-muted: #1A14189e;
   --sidebar-logo-color: #2A2428;
 
+  /* LED colors — darkened for contrast on light backgrounds */
+  --led-green: #0D7A3E;
+  --led-green-dim: #4A7A4A;
+  --led-green-mid: #1A9E50;
+  --led-red: #CC3333;
+  --led-red-dim: #8A4A4A;
+  --led-red-mid: #AA2222;
+  --led-blue: #2266CC;
+  --led-blue-dim: #556A80;
+  --led-blue-mid: #1A55AA;
+  --led-orange: #9E5C00;
+  --led-orange-dim: #7A6040;
+  --led-orange-mid: #885200;
+
   /* Extended tokens — light */
   --hw-card-bg: #FFFFFF;
   --hw-card-border: #D0CDBE;

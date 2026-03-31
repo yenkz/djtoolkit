@@ -100,6 +100,7 @@ export default function TrackListRow({
             type="checkbox"
             checked={selected}
             onChange={(e) => onSelect?.(e.target.checked)}
+            aria-label={`Select ${track.title} by ${track.artist}`}
             style={{
               width: 14,
               height: 14,
