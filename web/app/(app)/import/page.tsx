@@ -607,6 +607,7 @@ interface Step1Props {
 }
 
 function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
+  const router = useRouter();
   const [playlists, setPlaylists] = useState<
     { id: string; name: string; track_count?: number | null; owner?: string; image_url?: string; is_owner?: boolean }[]
   >([]);
@@ -629,7 +630,6 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
-  const [folderImportJobId, setFolderImportJobId] = useState<string | null>(null);
   const [folderPath, setFolderPath] = useState("");
 
   function formatElapsed(startMs: number): string {
@@ -1311,9 +1311,10 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && folderPath.trim()) {
-                      importFolder(selectedAgent, folderPath.trim()).then(({ id }) =>
-                        setFolderImportJobId(id),
-                      );
+                      importFolder(selectedAgent, folderPath.trim()).then(() => {
+                        toast.success("Folder import started — tracks will appear in the pipeline");
+                        router.push("/pipeline");
+                      });
                     }
                   }}
                 />
@@ -1327,9 +1328,10 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
               <ActionButton
                 onClick={() => {
                   if (folderPath.trim()) {
-                    importFolder(selectedAgent, folderPath.trim()).then(({ id }) =>
-                      setFolderImportJobId(id),
-                    );
+                    importFolder(selectedAgent, folderPath.trim()).then(() => {
+                      toast.success("Folder import started — tracks will appear in the pipeline");
+                      router.push("/pipeline");
+                    });
                   }
                 }}
                 disabled={!folderPath.trim()}
