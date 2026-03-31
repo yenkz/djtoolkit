@@ -12,6 +12,8 @@ import {
   getTrackIdJobStatus,
   fetchAgents,
   importFolder,
+  sendAgentCommand,
+  getAgentCommandResult,
   fetchPipelineStatus,
   registerAgent,
   disconnectSpotify,
@@ -631,6 +633,13 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
+  const [folderScanning, setFolderScanning] = useState(false);
+  const [folderScanResult, setFolderScanResult] = useState<{
+    path: string;
+    files: { name: string; size_bytes: number; extension: string; rel_path: string }[];
+    total_count: number;
+  } | null>(null);
+  const [folderImporting, setFolderImporting] = useState(false);
 
   function formatElapsed(startMs: number): string {
     const sec = Math.floor((Date.now() - startMs) / 1000);
@@ -1290,6 +1299,69 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             <p className="font-mono text-[10px]" style={{ color: "var(--hw-text-muted)" }}>
               No agent connected — install the agent first
             </p>
+          ) : folderScanResult ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="font-mono" style={{ fontSize: 11, color: "var(--hw-text-secondary)" }}>
+                Found <strong style={{ color: "var(--hw-text)" }}>{folderScanResult.total_count}</strong> audio file{folderScanResult.total_count !== 1 ? "s" : ""} in{" "}
+                <span style={{ color: "var(--hw-text-dim)" }}>{folderScanResult.path}</span>
+              </div>
+              <div
+                style={{
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  border: "1px solid var(--hw-border-light)",
+                  borderRadius: 5,
+                  background: "var(--hw-input-bg)",
+                }}
+              >
+                {folderScanResult.files.map((f) => (
+                  <div
+                    key={f.rel_path}
+                    className="font-mono"
+                    style={{
+                      fontSize: 11,
+                      padding: "4px 10px",
+                      borderBottom: "1px solid var(--hw-border)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      color: "var(--hw-text-dim)",
+                    }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      {f.rel_path}
+                    </span>
+                    <span style={{ marginLeft: 12, flexShrink: 0, color: "var(--hw-text-muted)", textTransform: "uppercase", fontSize: 10 }}>
+                      {f.extension}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <ActionButton
+                  variant="ghost"
+                  onClick={() => { setFolderScanResult(null); setFolderPath(""); }}
+                >
+                  Cancel
+                </ActionButton>
+                <ActionButton
+                  disabled={folderImporting || folderScanResult.total_count === 0}
+                  onClick={async () => {
+                    setFolderImporting(true);
+                    try {
+                      await importFolder(selectedAgent!, folderScanResult!.path);
+                      toast.success(`Importing ${folderScanResult!.total_count} tracks — duplicates will be flagged for review`);
+                      router.push("/pipeline");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Import failed");
+                    } finally {
+                      setFolderImporting(false);
+                    }
+                  }}
+                >
+                  {folderImporting ? "Importing..." : `Import ${folderScanResult.total_count} Tracks`}
+                </ActionButton>
+              </div>
+            </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -1309,12 +1381,28 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                     color: "var(--hw-text)",
                     outline: "none",
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && folderPath.trim()) {
-                      importFolder(selectedAgent, folderPath.trim()).then(() => {
-                        toast.success("Folder import started — tracks will appear in the pipeline");
-                        router.push("/pipeline");
-                      });
+                  onKeyDown={async (e) => {
+                    if (e.key === "Enter" && folderPath.trim() && selectedAgent) {
+                      setFolderScanning(true);
+                      try {
+                        const { id } = await sendAgentCommand(selectedAgent, "scan_folder", { path: folderPath.trim() });
+                        for (let i = 0; i < 60; i++) {
+                          await new Promise((r) => setTimeout(r, 500));
+                          const cmd = await getAgentCommandResult(id);
+                          if (cmd.status === "completed" && cmd.result) {
+                            setFolderScanResult(cmd.result as typeof folderScanResult);
+                            break;
+                          }
+                          if (cmd.status === "failed") {
+                            toast.error(cmd.error ?? "Scan failed");
+                            break;
+                          }
+                        }
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Scan failed");
+                      } finally {
+                        setFolderScanning(false);
+                      }
                     }
                   }}
                 />
@@ -1326,17 +1414,32 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                 </ActionButton>
               </div>
               <ActionButton
-                onClick={() => {
-                  if (folderPath.trim()) {
-                    importFolder(selectedAgent, folderPath.trim()).then(() => {
-                      toast.success("Folder import started — tracks will appear in the pipeline");
-                      router.push("/pipeline");
-                    });
+                disabled={!folderPath.trim() || folderScanning}
+                onClick={async () => {
+                  if (!folderPath.trim() || !selectedAgent) return;
+                  setFolderScanning(true);
+                  try {
+                    const { id } = await sendAgentCommand(selectedAgent, "scan_folder", { path: folderPath.trim() });
+                    for (let i = 0; i < 60; i++) {
+                      await new Promise((r) => setTimeout(r, 500));
+                      const cmd = await getAgentCommandResult(id);
+                      if (cmd.status === "completed" && cmd.result) {
+                        setFolderScanResult(cmd.result as typeof folderScanResult);
+                        break;
+                      }
+                      if (cmd.status === "failed") {
+                        toast.error(cmd.error ?? "Scan failed");
+                        break;
+                      }
+                    }
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Scan failed");
+                  } finally {
+                    setFolderScanning(false);
                   }
                 }}
-                disabled={!folderPath.trim()}
               >
-                Import Folder
+                {folderScanning ? "Scanning..." : "Scan Folder"}
               </ActionButton>
             </div>
           )}

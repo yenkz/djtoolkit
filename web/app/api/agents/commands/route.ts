@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     return jsonError("command_type is required", 400);
   }
 
-  const validCommands = ["browse_folder"];
+  const validCommands = ["browse_folder", "scan_folder"];
   if (!validCommands.includes(command_type)) {
     return jsonError(`Invalid command_type: ${command_type}`, 400);
   }
