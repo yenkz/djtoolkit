@@ -23,6 +23,12 @@ class SupabaseAdapter:
     def __init__(self, client: "Client"):
         self._client = client
 
+    def reconnect(self):
+        """Replace the internal client with a fresh connection."""
+        from djtoolkit.db.supabase_client import reset_client, get_client
+        reset_client()
+        self._client = get_client()
+
     # ── Import/Export service ──
 
     def save_tracks(self, tracks: list[Track], user_id: str) -> dict:

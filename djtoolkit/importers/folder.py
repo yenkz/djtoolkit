@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import httpx
+
 from djtoolkit.config import Config
 from djtoolkit.fingerprint.chromaprint import calc as calc_fingerprint
 from djtoolkit.models.track import Track
@@ -83,57 +85,67 @@ def import_folder(folder: Path, cfg: Config, adapter: "SupabaseAdapter", user_id
             # Fingerprint first to check duplicates
             fp_data = calc_fingerprint(path, cfg)
 
-            if fp_data:
-                existing = adapter.find_fingerprint_match(fp_data["fingerprint"], user_id)
-                if existing:
-                    stats["skipped_duplicate"] += 1
-                    progress.update(task, advance=1, dupes=stats["skipped_duplicate"])
-                    continue
+            # Retry wrapper — handles HTTP/2 connection resets from Supabase
+            for _attempt in range(3):
+                try:
+                    if fp_data:
+                        existing = adapter.find_fingerprint_match(fp_data["fingerprint"], user_id)
+                        if existing:
+                            stats["skipped_duplicate"] += 1
+                            progress.update(task, advance=1, dupes=stats["skipped_duplicate"])
+                            break
 
-            tags = _read_tags(path)
-            artist = tags.get("artist") or path.parent.name
-            title = tags.get("title") or path.stem
+                    tags = _read_tags(path)
+                    artist = tags.get("artist") or path.parent.name
+                    title = tags.get("title") or path.stem
 
-            track_obj = Track(
-                title=title,
-                artist=artist,
-                artists=[artist],
-                album=tags.get("album") or "",
-                year=tags.get("year"),
-                genres=tags.get("genres") or "",
-                file_path=str(path),
-                source="folder",
-            )
-            # Set source_id to the file path to prevent duplicate imports
-            track_obj.source_id = str(path)
+                    track_obj = Track(
+                        title=title,
+                        artist=artist,
+                        artists=[artist],
+                        album=tags.get("album") or "",
+                        year=tags.get("year"),
+                        genres=tags.get("genres") or "",
+                        file_path=str(path),
+                        source="folder",
+                    )
+                    # Set source_id to the file path to prevent duplicate imports
+                    track_obj.source_id = str(path)
 
-            result = adapter.save_tracks([track_obj], user_id)
-            if not result["track_ids"]:
-                stats["skipped_duplicate"] += 1
-                progress.update(task, advance=1, dupes=stats["skipped_duplicate"])
-                continue
-            track_id = result["track_ids"][0]
+                    result = adapter.save_tracks([track_obj], user_id)
+                    if not result["track_ids"]:
+                        stats["skipped_duplicate"] += 1
+                        progress.update(task, advance=1, dupes=stats["skipped_duplicate"])
+                        break
+                    track_id = result["track_ids"][0]
 
-            # Set acquisition_status and other fields not covered by to_db_row()
-            in_library = path.resolve().is_relative_to(library_dir)
-            adapter.update_track(track_id, {
-                "acquisition_status": "available",
-                "in_library": bool(in_library),
-                "search_string": build_search_string(artist, title),
-            })
+                    # Set acquisition_status and other fields not covered by to_db_row()
+                    in_library = path.resolve().is_relative_to(library_dir)
+                    adapter.update_track(track_id, {
+                        "acquisition_status": "available",
+                        "in_library": bool(in_library),
+                        "search_string": build_search_string(artist, title),
+                    })
 
-            # Store fingerprint if we have it
-            if fp_data:
-                fp_id = adapter.insert_fingerprint(
-                    user_id=user_id,
-                    track_id=track_id,
-                    fingerprint=fp_data["fingerprint"],
-                    acoustid=None,
-                    duration=fp_data["duration"],
-                )
-                adapter.mark_fingerprinted(track_id, {"fingerprint_id": fp_id})
+                    # Store fingerprint if we have it
+                    if fp_data:
+                        fp_id = adapter.insert_fingerprint(
+                            user_id=user_id,
+                            track_id=track_id,
+                            fingerprint=fp_data["fingerprint"],
+                            acoustid=None,
+                            duration=fp_data["duration"],
+                        )
+                        adapter.mark_fingerprinted(track_id, {"fingerprint_id": fp_id})
 
-            stats["inserted"] += 1
-            progress.update(task, advance=1, inserted=stats["inserted"], dupes=stats["skipped_duplicate"])
+                    stats["inserted"] += 1
+                    progress.update(task, advance=1, inserted=stats["inserted"], dupes=stats["skipped_duplicate"])
+                    break
+                except httpx.RemoteProtocolError:
+                    adapter.reconnect()
+            else:
+                # All retries exhausted — skip this file
+                stats["skipped_no_audio"] += 1
+                progress.update(task, advance=1)
 
     return stats

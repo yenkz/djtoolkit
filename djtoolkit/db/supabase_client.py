@@ -9,6 +9,12 @@ import os
 _client = None
 
 
+def reset_client():
+    """Clear the singleton so the next get_client() creates a fresh connection."""
+    global _client
+    _client = None
+
+
 def get_client():
     """Return a singleton Supabase client.
 
