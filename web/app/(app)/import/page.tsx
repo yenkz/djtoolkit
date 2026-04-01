@@ -1409,7 +1409,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                           await new Promise((r) => setTimeout(r, 500));
                           const cmd = await getAgentCommandResult(id);
                           if (cmd.status === "completed" && cmd.result) {
-                            setFolderScanResult(cmd.result as typeof folderScanResult);
+                            setFolderScanResult(cmd.result as NonNullable<typeof folderScanResult>);
                             break;
                           }
                           if (cmd.status === "failed") {
@@ -1443,7 +1443,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                       await new Promise((r) => setTimeout(r, 500));
                       const cmd = await getAgentCommandResult(id);
                       if (cmd.status === "completed" && cmd.result) {
-                        setFolderScanResult(cmd.result as typeof folderScanResult);
+                        setFolderScanResult(cmd.result as NonNullable<typeof folderScanResult>);
                         break;
                       }
                       if (cmd.status === "failed") {
