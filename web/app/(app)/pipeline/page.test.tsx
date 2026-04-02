@@ -15,13 +15,17 @@ const mockBulkAction = vi.fn();
 const mockBulkCreateJobs = vi.fn();
 const mockRetryTrack = vi.fn();
 const mockFetchTrackJobs = vi.fn();
+const mockFetchTracksWithFailedJobs = vi.fn();
+const mockRetryPipelineJobs = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   fetchPipelineMonitorStatus: (...args: unknown[]) => mockFetchStatus(...args),
   fetchPipelineTracks: (...args: unknown[]) => mockFetchTracks(...args),
+  fetchTracksWithFailedJobs: (...args: unknown[]) => mockFetchTracksWithFailedJobs(...args),
   bulkPipelineAction: (...args: unknown[]) => mockBulkAction(...args),
   bulkCreateJobs: (...args: unknown[]) => mockBulkCreateJobs(...args),
   retryPipelineTrack: (...args: unknown[]) => mockRetryTrack(...args),
+  retryPipelineJobs: (...args: unknown[]) => mockRetryPipelineJobs(...args),
   fetchTrackJobs: (...args: unknown[]) => mockFetchTrackJobs(...args),
 }));
 

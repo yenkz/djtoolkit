@@ -1793,6 +1793,7 @@ function JobFailureRow({
           }}
         >
           {track.artwork_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={track.artwork_url}
               alt=""
