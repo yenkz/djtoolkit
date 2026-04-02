@@ -63,7 +63,7 @@ def generate_plist(binary_path: str | None = None) -> str:
     <array>
         <string>{binary}</string>
         <string>agent</string>
-        <string>run</string>
+        <string>tray</string>
     </array>
     <key>KeepAlive</key>
     <true/>

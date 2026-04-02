@@ -37,7 +37,7 @@ def install() -> Path | None:
         displayName=DISPLAY_NAME,
         startType=win32service.SERVICE_AUTO_START,
         exeName=binary,
-        exeArgs="agent service-entry",
+        exeArgs="agent tray",
     )
 
     # Set recovery: restart on all failures with 60s delay
