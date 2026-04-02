@@ -2,11 +2,12 @@
 -- notification to /pipeline?filter=job_failures when failures are present.
 
 -- ── pipeline_status RPC ───────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION pipeline_status(p_user_id UUID)
+CREATE OR REPLACE FUNCTION public.pipeline_status(p_user_id UUID)
 RETURNS JSON
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
+SET search_path = ''
 AS $$
   SELECT json_build_object(
     'candidate',   count(*) FILTER (WHERE acquisition_status = 'candidate'),
@@ -19,12 +20,12 @@ AS $$
     'paused',      count(*) FILTER (WHERE acquisition_status = 'paused'),
     'job_failures',  (
       SELECT count(DISTINCT track_id)
-      FROM pipeline_jobs
+      FROM public.pipeline_jobs
       WHERE user_id = p_user_id
         AND status = 'failed'
     )
   )
-  FROM tracks
+  FROM public.tracks
   WHERE user_id = p_user_id;
 $$;
 
