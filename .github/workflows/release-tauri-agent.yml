@@ -144,6 +144,7 @@ jobs:
 
       - name: Build sidecar binary
         if: matrix.target-triple != 'x86_64-apple-darwin'
+        shell: bash
         run: |
           export VENV_SITE_PACKAGES=$(uv run python -c "import site; print(site.getsitepackages()[0])")
           echo "VENV_SITE_PACKAGES=$VENV_SITE_PACKAGES"
