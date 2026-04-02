@@ -4,16 +4,18 @@ on:
   push:
     tags:
       - "agent-v*"
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag (e.g. agent-v0.1.0)"
+        description: "Version tag (e.g. v0.2.0 or agent-v0.3.1)"
         required: true
 
 permissions:
   contents: write
 
 env:
+  # The git tag that triggered this run (e.g. v0.2.0 or agent-v0.3.1)
   RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
@@ -281,7 +283,7 @@ jobs:
       - name: Patch app version from tag
         shell: bash
         run: |
-          VERSION="${RELEASE_VERSION#agent-v}"
+          VERSION="${RELEASE_VERSION#agent-v}"; VERSION="${VERSION#v}"
           # Ensure semver (Tauri requires X.Y.Z, not X.Y)
           case "$VERSION" in
             *.*.*)  ;; # already 3-part
@@ -352,7 +354,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${RELEASE_VERSION#agent-v}"
+          VERSION="${RELEASE_VERSION#agent-v}"; VERSION="${VERSION#v}"
           mkdir -p assets
           gh release download "$RELEASE_VERSION" \
             --repo "$GITHUB_REPOSITORY" \
@@ -364,7 +366,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${RELEASE_VERSION#agent-v}"
+          VERSION="${RELEASE_VERSION#agent-v}"; VERSION="${VERSION#v}"
           REPO_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_VERSION}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -427,7 +429,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${RELEASE_VERSION#agent-v}"
+          VERSION="${RELEASE_VERSION#agent-v}"; VERSION="${VERSION#v}"
           mkdir -p dmgs
 
           gh release download "$RELEASE_VERSION" \
@@ -446,6 +448,7 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "SHA_ARM64=$SHA_ARM64" >> "$GITHUB_ENV"
           echo "SHA_X86_64=$SHA_X86_64" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=$RELEASE_VERSION" >> "$GITHUB_ENV"
 
       - name: Update cask formula
         env:
@@ -461,7 +464,7 @@ jobs:
             sha256 arm:   "SHA_ARM64_PLACEHOLDER",
                    intel: "SHA_X86_64_PLACEHOLDER"
 
-            url "https://github.com/yenkz/djtoolkit/releases/download/agent-v#{version}/djtoolkit_#{version}_#{arch}.dmg",
+            url "https://github.com/yenkz/djtoolkit/releases/download/RELEASE_TAG_PLACEHOLDER/djtoolkit_#{version}_#{arch}.dmg",
                 verified: "github.com/yenkz/djtoolkit/"
             name "DJ Toolkit"
             desc "DJ library agent — download, tag, and organize music automatically"
@@ -495,6 +498,7 @@ jobs:
           sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" tap/Casks/djtoolkit.rb
           sed -i "s/SHA_ARM64_PLACEHOLDER/${SHA_ARM64}/g" tap/Casks/djtoolkit.rb
           sed -i "s/SHA_X86_64_PLACEHOLDER/${SHA_X86_64}/g" tap/Casks/djtoolkit.rb
+          sed -i "s|RELEASE_TAG_PLACEHOLDER|${RELEASE_TAG}|g" tap/Casks/djtoolkit.rb
 
           echo "--- Generated cask ---"
           cat tap/Casks/djtoolkit.rb
