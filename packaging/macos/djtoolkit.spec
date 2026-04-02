@@ -3,7 +3,7 @@
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files, collect_all
 
 # Detect fpcalc location based on arch
 if os.uname().machine == "arm64":
@@ -16,15 +16,27 @@ if not os.path.exists(FPCALC_PATH):
         f"fpcalc not found at {FPCALC_PATH}. Install with: brew install chromaprint"
     )
 
+# collect_all returns (datas, binaries, hiddenimports) — use it for packages
+# that collect_submodules fails to detect (e.g. typer in CI)
+typer_datas, typer_binaries, typer_imports = collect_all("typer")
+click_datas, click_binaries, click_imports = collect_all("click")
+rich_datas, rich_binaries, rich_imports = collect_all("rich")
+
 a = Analysis(
     ["../../djtoolkit/__main__.py"],
     pathex=[],
     binaries=[
         (FPCALC_PATH, "bin"),
+        *typer_binaries,
+        *click_binaries,
+        *rich_binaries,
     ],
     datas=[
         *collect_data_files("librosa"),
         *collect_data_files("aioslsk"),
+        *typer_datas,
+        *click_datas,
+        *rich_datas,
     ],
     hiddenimports=[
         *collect_submodules("djtoolkit"),
@@ -42,10 +54,10 @@ a = Analysis(
         "keyring",
         "keyring.backends",
         "keyring.backends.macOS",
-        # typer / click / rich — collect all submodules
-        *collect_submodules("typer"),
-        *collect_submodules("click"),
-        *collect_submodules("rich"),
+        # typer / click / rich
+        *typer_imports,
+        *click_imports,
+        *rich_imports,
         # httpx
         "httpx",
         "httpcore",
