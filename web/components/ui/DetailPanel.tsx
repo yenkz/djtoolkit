@@ -16,6 +16,7 @@ interface DetailPanelTrack {
   artwork_url?: string;
   local_path?: string;
   enriched_audio?: boolean;
+  cover_art_written?: boolean;
 }
 
 interface DetailPanelProps {
@@ -255,47 +256,79 @@ export default function DetailPanel({ track: t, onClose, onAnalyze }: DetailPane
             >
               Analysis
             </span>
-            {t.enriched_audio ? (
-              <span
-                style={{
-                  fontFamily: FONTS.mono,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: LED_COLORS.green.on,
-                }}
-              >
-                Complete
-              </span>
-            ) : onAnalyze ? (
+            <span
+              style={{
+                fontFamily: FONTS.mono,
+                fontSize: 11,
+                fontWeight: 600,
+                color: t.enriched_audio ? LED_COLORS.green.on : LED_COLORS.orange.dim,
+              }}
+            >
+              {t.enriched_audio ? "Complete" : "Pending"}
+            </span>
+          </div>
+
+          {/* Cover art status */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "8px 0",
+              borderBottom: `1px solid ${HARDWARE.border}`,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: FONTS.mono,
+                fontSize: 10,
+                color: HARDWARE.textDim,
+                letterSpacing: 1,
+                textTransform: "uppercase",
+                fontWeight: 700,
+              }}
+            >
+              Cover Art
+            </span>
+            <span
+              style={{
+                fontFamily: FONTS.mono,
+                fontSize: 11,
+                fontWeight: 600,
+                color: t.cover_art_written ? LED_COLORS.green.on : LED_COLORS.orange.dim,
+              }}
+            >
+              {t.cover_art_written ? "Embedded" : "Missing"}
+            </span>
+          </div>
+
+          {/* Analyze button — shown when anything is missing */}
+          {onAnalyze && (!t.enriched_audio || !t.cover_art_written) && (
+            <div style={{ padding: "12px 0" }}>
               <button
                 type="button"
                 onClick={() => onAnalyze(t.id)}
                 style={{
                   fontFamily: FONTS.mono,
-                  fontSize: 10,
+                  fontSize: 11,
                   fontWeight: 700,
-                  padding: "4px 10px",
+                  padding: "8px 16px",
                   borderRadius: 4,
                   background: LED_COLORS.orange.on,
                   color: "#fff",
                   border: "none",
                   cursor: "pointer",
+                  width: "100%",
                 }}
               >
-                Analyze
+                Analyze{!t.enriched_audio && !t.cover_art_written
+                  ? ""
+                  : !t.enriched_audio
+                    ? " — BPM/Key"
+                    : " — Cover Art"}
               </button>
-            ) : (
-              <span
-                style={{
-                  fontFamily: FONTS.mono,
-                  fontSize: 11,
-                  color: LED_COLORS.orange.dim,
-                }}
-              >
-                Not analyzed
-              </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </>

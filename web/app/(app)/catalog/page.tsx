@@ -56,6 +56,7 @@ function toComponentTrack(t: Track) {
     preview_url: t.preview_url,
     spotify_uri: t.spotify_uri,
     enriched_audio: !!t.enriched_audio,
+    cover_art_written: !!t.cover_art_written,
   };
 }
 
@@ -1099,14 +1100,18 @@ export default function CatalogPage() {
           onAnalyze={async (trackId) => {
             try {
               const result = await analyzeTracksBulk([trackId]);
-              if (result.created > 0) {
-                toast.success("Analysis job queued");
+              const total = result.created + result.cover_art_created;
+              if (total > 0) {
+                const parts: string[] = [];
+                if (result.created > 0) parts.push("analysis");
+                if (result.cover_art_created > 0) parts.push("cover art");
+                toast.success(`${parts.join(" + ")} job${total !== 1 ? "s" : ""} queued`);
               } else {
-                toast.info("Track already analyzed or queued");
+                toast.info("Track already fully processed");
               }
               load();
             } catch {
-              toast.error("Failed to queue analysis");
+              toast.error("Failed to queue jobs");
             }
           }}
         />

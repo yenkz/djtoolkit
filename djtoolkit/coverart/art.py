@@ -220,14 +220,14 @@ def _http_get_json(url: str, timeout: int = 10) -> Optional[dict]:
 
 # ─── Art sources ──────────────────────────────────────────────────────────────
 
-def _source_coverart_recording(artist: str, title: str) -> Optional[bytes]:
+def _source_coverart_recording(artist: str, title: str) -> tuple[Optional[bytes], Optional[str]]:
     """MusicBrainz recording search — better than release-group search for singles."""
     query = urllib.parse.quote(f'artist:"{artist}" AND recording:"{title}"')
     data = _http_get_json(
         f"https://musicbrainz.org/ws/2/recording/?query={query}&fmt=json&limit=3"
     )
     if not data:
-        return None
+        return None, None
     for recording in data.get("recordings", []):
         for release in recording.get("releases", [])[:2]:
             rg_id = release.get("release-group", {}).get("id")
@@ -239,11 +239,11 @@ def _source_coverart_recording(artist: str, title: str) -> Optional[bytes]:
                 if mbid:
                     img = _http_get_bytes(url)
                     if img:
-                        return img
-    return None
+                        return img, url
+    return None, None
 
 
-def _source_coverart(artist: str, album: str, title: str = "") -> Optional[bytes]:
+def _source_coverart(artist: str, album: str, title: str = "") -> tuple[Optional[bytes], Optional[str]]:
     """Cover Art Archive via MusicBrainz release-group search.
 
     Falls back to recording search by track title when release-group search finds nothing
@@ -258,44 +258,58 @@ def _source_coverart(artist: str, album: str, title: str = "") -> Optional[bytes
             mbid = groups[0].get("id")
             if mbid:
                 for size in ("1200", "500"):
-                    img = _http_get_bytes(
-                        f"https://coverartarchive.org/release-group/{mbid}/front-{size}"
-                    )
+                    url = f"https://coverartarchive.org/release-group/{mbid}/front-{size}"
+                    img = _http_get_bytes(url)
                     if img:
-                        return img
+                        return img, url
     # Fallback: recording search by track title (catches singles not in release-groups)
     if title and title != album:
         time.sleep(0.3)
         return _source_coverart_recording(artist, title)
-    return None
+    return None, None
 
 
-def _source_itunes(artist: str, album: str) -> Optional[bytes]:
+def _source_itunes(artist: str, album: str) -> tuple[Optional[bytes], Optional[str]]:
     """iTunes Search API — scales artwork URL up to 3000×3000."""
     query = urllib.parse.quote(f"{artist} {album}")
     data = _http_get_json(
         f"https://itunes.apple.com/search?term={query}&entity=album&limit=5"
     )
     if not data or not data.get("results"):
-        return None
+        return None, None
     art_url = data["results"][0].get("artworkUrl100")
     if not art_url:
-        return None
+        return None, None
     art_url = art_url.replace("100x100bb", "3000x3000bb")
-    return _http_get_bytes(art_url)
+    img = _http_get_bytes(art_url)
+    return (img, art_url) if img else (None, None)
 
 
-def _source_deezer(artist: str, title: str) -> Optional[bytes]:
+def _source_deezer(artist: str, title: str) -> tuple[Optional[bytes], Optional[str]]:
     """Deezer Search API — free, no auth. Searches by track title (great for singles)."""
     query = urllib.parse.quote(f"{artist} {title}")
     data = _http_get_json(f"https://api.deezer.com/search?q={query}&limit=5")
     if not data or not data.get("data"):
-        return None
+        return None, None
     for result in data["data"]:
         url = result.get("album", {}).get("cover_xl")
         if url:
-            return _http_get_bytes(url)
-    return None
+            img = _http_get_bytes(url)
+            if img:
+                return img, url
+    return None, None
+
+
+class _SpotifyResult:
+    """Container for Spotify source results."""
+    __slots__ = ("image", "artwork_url", "spotify_uri", "preview_url")
+
+    def __init__(self, image: Optional[bytes] = None, artwork_url: Optional[str] = None,
+                 spotify_uri: Optional[str] = None, preview_url: Optional[str] = None):
+        self.image = image
+        self.artwork_url = artwork_url
+        self.spotify_uri = spotify_uri
+        self.preview_url = preview_url
 
 
 def _source_spotify(
@@ -305,20 +319,23 @@ def _source_spotify(
     spotify_uri: Optional[str] = None,
     artist: str = "",
     title: str = "",
-) -> tuple[Optional[bytes], Optional[str]]:
-    """Fetch album artwork from Spotify. Returns ``(image_bytes, spotify_uri)``.
+) -> _SpotifyResult:
+    """Fetch album artwork from Spotify.
+
+    Returns a ``_SpotifyResult`` with image bytes, artwork URL, spotify_uri,
+    and preview_url.
 
     When ``spotify_uri`` is provided, does a direct track lookup.
     When missing, searches by artist+title and picks the best match.
-    Returns the resolved URI so callers can persist it back to the DB.
 
     Uses the Spotify Web API (Client Credentials flow).
     Picks the largest image from ``album.images``.
     Requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env.
     """
+    empty = _SpotifyResult()
     if not client_id or not client_secret:
         log.debug("Spotify source skipped — SPOTIFY_CLIENT_ID/SECRET not set")
-        return None, None
+        return empty
     try:
         import spotipy
         from spotipy.oauth2 import SpotifyClientCredentials
@@ -342,23 +359,29 @@ def _source_spotify(
                 log.debug("Spotify search matched: %s → %s", q, spotify_uri)
             else:
                 log.debug("Spotify search returned no results for: %s", q)
-                return None, None
+                return empty
 
         if not spotify_uri:
-            return None, None
+            return empty
 
         track = sp.track(spotify_uri)
+        preview_url = track.get("preview_url")
         images = track.get("album", {}).get("images", [])
         if not images:
-            return None, spotify_uri
+            return _SpotifyResult(spotify_uri=spotify_uri, preview_url=preview_url)
         best = max(images, key=lambda x: x.get("width", 0))
-        return _http_get_bytes(best["url"]), spotify_uri
+        art_url = best["url"]
+        img = _http_get_bytes(art_url)
+        return _SpotifyResult(
+            image=img, artwork_url=art_url if img else None,
+            spotify_uri=spotify_uri, preview_url=preview_url,
+        )
     except Exception as exc:
         log.debug("Spotify source failed: %s", exc)
-        return None, None
+        return empty
 
 
-def _source_lastfm(artist: str, album: str, api_key: str) -> Optional[bytes]:
+def _source_lastfm(artist: str, album: str, api_key: str) -> tuple[Optional[bytes], Optional[str]]:
     """Last.fm album.getinfo — requires LASTFM_API_KEY."""
     url = (
         "http://ws.audioscrobbler.com/2.0/"
@@ -367,12 +390,27 @@ def _source_lastfm(artist: str, album: str, api_key: str) -> Optional[bytes]:
     )
     data = _http_get_json(url)
     if not data or "album" not in data:
-        return None
+        return None, None
     for size in ("mega", "extralarge", "large"):
-        for img in data["album"].get("image", []):
-            if img.get("size") == size and img.get("#text"):
-                return _http_get_bytes(img["#text"])
-    return None
+        for img_entry in data["album"].get("image", []):
+            if img_entry.get("size") == size and img_entry.get("#text"):
+                art_url = img_entry["#text"]
+                img = _http_get_bytes(art_url)
+                if img:
+                    return img, art_url
+    return None, None
+
+
+class FetchArtResult:
+    """Container for _fetch_art results."""
+    __slots__ = ("image", "spotify_uri", "artwork_url", "preview_url")
+
+    def __init__(self, image: Optional[bytes] = None, spotify_uri: Optional[str] = None,
+                 artwork_url: Optional[str] = None, preview_url: Optional[str] = None):
+        self.image = image
+        self.spotify_uri = spotify_uri
+        self.artwork_url = artwork_url
+        self.preview_url = preview_url
 
 
 def _fetch_art(
@@ -385,11 +423,11 @@ def _fetch_art(
     spotify_client_id: str = "",
     spotify_client_secret: str = "",
     lastfm_api_key: str = "",
-) -> tuple[Optional[bytes], Optional[str]]:
+) -> FetchArtResult:
     """Try each configured source in order.
 
-    Returns ``(image_bytes, resolved_spotify_uri)``.  The URI is non-None when
-    the Spotify source discovered a URI via search (so callers can persist it).
+    Returns a ``FetchArtResult`` with image bytes, resolved spotify_uri,
+    artwork_url (for UI display), and preview_url (from Spotify when available).
 
     Applies two search passes:
       Pass 1 — cleaned artist + cleaned album
@@ -403,52 +441,65 @@ def _fetch_art(
     album_c = _clean_album(album)
     first = _first_artist(artist)
     found_uri: Optional[str] = None
+    found_artwork_url: Optional[str] = None
+    found_preview_url: Optional[str] = None
 
     def _try(art: str, alb: str) -> Optional[bytes]:
-        nonlocal found_uri
+        nonlocal found_uri, found_artwork_url, found_preview_url
         for source in sources:
             try:
                 if source == "coverart":
                     # When album is known, try release-group search first (album art);
                     # when album is missing, go straight to recording search (single art).
-                    img = _source_coverart(art, alb, title) if alb else _source_coverart_recording(art, title)
+                    img, art_url = _source_coverart(art, alb, title) if alb else _source_coverart_recording(art, title)
                 elif source == "itunes":
-                    img = _source_itunes(art, alb) if alb else None
+                    img, art_url = _source_itunes(art, alb) if alb else (None, None)
                 elif source == "deezer":
-                    img = _source_deezer(art, title)
+                    img, art_url = _source_deezer(art, title)
                 elif source == "spotify":
-                    img, resolved = _source_spotify(
+                    sr = _source_spotify(
                         spotify_client_id, spotify_client_secret,
                         spotify_uri=spotify_uri, artist=art, title=title,
                     )
-                    if resolved and resolved != spotify_uri:
-                        found_uri = resolved
+                    img, art_url = sr.image, sr.artwork_url
+                    if sr.spotify_uri and sr.spotify_uri != spotify_uri:
+                        found_uri = sr.spotify_uri
+                    if sr.preview_url:
+                        found_preview_url = sr.preview_url
                 elif source == "lastfm":
-                    img = _source_lastfm(art, alb, lastfm_api_key) if lastfm_api_key and alb else None
+                    img, art_url = _source_lastfm(art, alb, lastfm_api_key) if lastfm_api_key and alb else (None, None)
                 else:
                     log.debug("unknown cover art source %r — skipping", source)
                     continue
             except Exception as exc:
                 log.debug("source %r raised: %s", source, exc)
                 img = None
+                art_url = None
             if img:
                 log.debug("fetched art from %r (%d bytes) [artist=%r album=%r]", source, len(img), art, alb)
+                found_artwork_url = art_url
                 return img
             time.sleep(0.3)
         return None
 
+    def _result(image: Optional[bytes]) -> FetchArtResult:
+        return FetchArtResult(
+            image=image, spotify_uri=found_uri,
+            artwork_url=found_artwork_url, preview_url=found_preview_url,
+        )
+
     # Pass 1: cleaned artist + cleaned album
     result = _try(artist_c, album_c)
     if result:
-        return result, found_uri
+        return _result(result)
 
     # Pass 2: first artist only — helps with "A & B feat. C" compound strings
     if first != artist_c:
         log.debug("retrying with first artist only: %r", first)
         result = _try(first, album_c)
-        return result, found_uri
+        return _result(result)
 
-    return None, found_uri
+    return _result(None)
 
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
@@ -589,17 +640,18 @@ def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
                 continue
 
             # Fetch art from configured sources
-            img_data, resolved_uri = _fetch_art(
+            art_result = _fetch_art(
                 artist, album, title, sources,
                 spotify_uri=track.spotify_uri,
                 spotify_client_id=spotify_client_id,
                 spotify_client_secret=spotify_client_secret,
                 lastfm_api_key=lastfm_api_key,
             )
+            img_data = art_result.image
 
             # Persist newly discovered spotify_uri back to DB
-            if resolved_uri and not track.spotify_uri:
-                adapter.update_track(track_id, {"spotify_uri": resolved_uri})
+            if art_result.spotify_uri and not track.spotify_uri:
+                adapter.update_track(track_id, {"spotify_uri": art_result.spotify_uri})
 
             if not img_data:
                 log.warning("no cover art found: %r / %r", artist, album)
@@ -626,10 +678,15 @@ def run(cfg: Config, adapter: "SupabaseAdapter", user_id: str) -> dict:
             # Embed
             try:
                 _embed(path, img_data)
-                adapter.update_track(track_id, {
+                update: dict = {
                     "cover_art_written": True,
                     "cover_art_embedded_at": datetime.now(timezone.utc).isoformat(),
-                })
+                }
+                if art_result.artwork_url:
+                    update["artwork_url"] = art_result.artwork_url
+                if art_result.preview_url:
+                    update["preview_url"] = art_result.preview_url
+                adapter.update_track(track_id, update)
                 stats["embedded"] += 1
             except Exception as exc:
                 log.error("embed failed for %s: %s", path, exc)

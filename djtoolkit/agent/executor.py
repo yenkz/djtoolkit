@@ -401,15 +401,19 @@ async def execute_cover_art(
     )
 
     loop = asyncio.get_running_loop()
-    art_bytes, resolved_uri = await loop.run_in_executor(None, fetch_fn)
+    art_result = await loop.run_in_executor(None, fetch_fn)
 
-    if not art_bytes:
+    if not art_result.image:
         return {"cover_art_written": False}
 
-    await loop.run_in_executor(None, _embed, local_path, art_bytes)
+    await loop.run_in_executor(None, _embed, local_path, art_result.image)
     result: dict[str, Any] = {"cover_art_written": True}
-    if resolved_uri and not spotify_uri:
-        result["spotify_uri"] = resolved_uri
+    if art_result.spotify_uri and not spotify_uri:
+        result["spotify_uri"] = art_result.spotify_uri
+    if art_result.artwork_url:
+        result["artwork_url"] = art_result.artwork_url
+    if art_result.preview_url:
+        result["preview_url"] = art_result.preview_url
     return result
 
 

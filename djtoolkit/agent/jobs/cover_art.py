@@ -22,7 +22,10 @@ log = logging.getLogger(__name__)
 
 
 async def run(cfg: Config, payload: dict) -> dict:
-    """Fetch + embed cover art. Returns {cover_art_written: bool}."""
+    """Fetch + embed cover art.
+
+    Returns {cover_art_written: bool, artwork_url?: str, preview_url?: str, spotify_uri?: str}.
+    """
     from djtoolkit.coverart.art import _fetch_art, _embed
 
     local_path = Path(payload.get("local_path", ""))
@@ -46,13 +49,17 @@ async def run(cfg: Config, payload: dict) -> dict:
     )
 
     loop = asyncio.get_running_loop()
-    art_bytes, resolved_uri = await loop.run_in_executor(None, fetch_fn)
+    art_result = await loop.run_in_executor(None, fetch_fn)
 
-    if not art_bytes:
+    if not art_result.image:
         return {"cover_art_written": False}
 
-    await loop.run_in_executor(None, _embed, local_path, art_bytes)
+    await loop.run_in_executor(None, _embed, local_path, art_result.image)
     result: dict = {"cover_art_written": True}
-    if resolved_uri and not spotify_uri:
-        result["spotify_uri"] = resolved_uri
+    if art_result.spotify_uri and not spotify_uri:
+        result["spotify_uri"] = art_result.spotify_uri
+    if art_result.artwork_url:
+        result["artwork_url"] = art_result.artwork_url
+    if art_result.preview_url:
+        result["preview_url"] = art_result.preview_url
     return result
