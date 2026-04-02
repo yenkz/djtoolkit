@@ -1159,10 +1159,11 @@ export default function CatalogPage() {
                 marginBottom: 20,
               }}
             >
-              Queue audio analysis for{" "}
+              Queue analysis for{" "}
               <strong>{analyzableSelected.length}</strong> track
               {analyzableSelected.length !== 1 ? "s" : ""}? BPM, key, energy,
-              and loudness will be detected and written to files.
+              and loudness will be detected. Missing cover art will also be
+              fetched and embedded.
             </p>
             <div className="flex justify-end gap-3">
               <button
