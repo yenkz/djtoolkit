@@ -522,7 +522,7 @@ export interface FolderImportProgress {
 
 export interface ImportJobStatus {
   id: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "claimed" | "running" | "done" | "completed" | "failed";
   result: FolderImportProgress | null;
 }
 

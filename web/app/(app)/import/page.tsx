@@ -833,7 +833,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             setImportProgress(status.result as FolderImportProgress);
           }
 
-          if (status.status === "completed" || (status.result as FolderImportProgress | null)?.stage === "complete") {
+          if (status.status === "done" || status.status === "completed" || (status.result as FolderImportProgress | null)?.stage === "complete") {
             setImportPhase("results");
             break;
           }
