@@ -9,6 +9,9 @@ const PIPELINE_STATUSES = [
   "queued", "downloading", "failed", "paused",
 ] as const;
 
+// job_failures comes from the RPC as a subquery on pipeline_jobs, not from tracks
+const JOB_FAILURE_KEY = "job_failures";
+
 export async function GET(request: NextRequest) {
   const rateLimitResponse = await rateLimit(request, limiters.read);
   if (rateLimitResponse) return rateLimitResponse;
@@ -50,12 +53,21 @@ export async function GET(request: NextRequest) {
     PIPELINE_STATUSES.forEach((s, i) => {
       counts[s] = countResults[i].count ?? 0;
     });
+
+    // Fallback: count job failures separately from pipeline_jobs
+    const { data: jfRows } = await supabase
+      .from("pipeline_jobs")
+      .select("track_id")
+      .eq("user_id", user.userId)
+      .eq("status", "failed");
+    counts[JOB_FAILURE_KEY] = new Set((jfRows ?? []).map((r) => r.track_id)).size;
   } else {
     const row = Array.isArray(rpcResult.data) ? rpcResult.data[0] : rpcResult.data;
     counts = {};
     for (const s of PIPELINE_STATUSES) {
       counts[s] = row?.[s] ?? 0;
     }
+    counts[JOB_FAILURE_KEY] = row?.[JOB_FAILURE_KEY] ?? 0;
   }
 
   if (agentsResult.error) {
