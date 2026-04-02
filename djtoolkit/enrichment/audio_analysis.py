@@ -18,6 +18,28 @@ Models:   https://essentia.upf.edu/models/
 
 from __future__ import annotations
 
+# Ensure numba is not required — librosa works without it but some versions
+# raise ImportError instead of falling back. Pre-install a stub so the import
+# chain doesn't break in PyInstaller builds where numba is excluded.
+import sys
+if "numba" not in sys.modules:
+    try:
+        import numba  # noqa: F401
+    except ImportError:
+        import types
+        _numba = types.ModuleType("numba")
+        _numba.__version__ = "0.0.0"  # type: ignore[attr-defined]
+        _numba.jit = lambda *a, **kw: (lambda f: f)  # type: ignore[attr-defined]
+        _numba.vectorize = lambda *a, **kw: (lambda f: f)  # type: ignore[attr-defined]
+        _numba.guvectorize = lambda *a, **kw: (lambda f: f)  # type: ignore[attr-defined]
+        _numba.prange = range  # type: ignore[attr-defined]
+        sys.modules["numba"] = _numba
+        # Also stub numba.core if needed
+        _core = types.ModuleType("numba.core")
+        _core.types = types.ModuleType("numba.core.types")  # type: ignore[attr-defined]
+        sys.modules["numba.core"] = _core
+        sys.modules["numba.core.types"] = _core.types
+
 import json
 import logging
 import numpy as np
