@@ -40,6 +40,13 @@ def _setup_signal_handlers(
     if sys.platform == "win32":
         return
 
+    # Signal handlers only work on the main thread. When running under
+    # `agent tray`, the daemon runs in a background thread — skip signals
+    # and let the tray handle shutdown via the shutdown_event.
+    import threading
+    if threading.current_thread() is not threading.main_thread():
+        return
+
     def _handle_signal(sig: signal.Signals) -> None:
         log.info("Received %s, shutting down gracefully…", sig.name)
         shutdown_event.set()
