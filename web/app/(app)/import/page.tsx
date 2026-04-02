@@ -1045,60 +1045,6 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
           )}
         </SourceCard>
 
-        {/* ── CSV Upload ── */}
-        <SourceCard
-          icon={SRC_ICONS.csv}
-          title="Exported Spotify Playlist (CSV)"
-          desc="Upload a CSV exported from exportify.app"
-          active={!!csvFile}
-        >
-          <div className="flex items-center gap-3">
-            <ActionButton
-              variant="outline"
-              onClick={() => document.getElementById("csv-upload")?.click()}
-            >
-              {csvFile ? "Change" : "Upload file"}
-            </ActionButton>
-            <input
-              id="csv-upload"
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleCsvFile(f);
-              }}
-            />
-          </div>
-          {csvFile && (
-            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
-              ✓ {csvFile.name} ({csvRowCount} tracks)
-            </div>
-          )}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              const f = e.dataTransfer.files[0];
-              if (f) handleCsvFile(f);
-            }}
-            className="text-center mt-3"
-            style={{
-              border: `1.5px dashed ${dragging ? "var(--led-blue)" : "var(--hw-border-light)"}`,
-              borderRadius: 6,
-              padding: 18,
-              background: dragging ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
-              transition: "all 0.2s",
-            }}
-          >
-            <span className="font-sans text-[13px]" style={{ color: dragging ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
-              Or drag &amp; drop CSV here
-            </span>
-          </div>
-        </SourceCard>
-
         {/* ── TrackID ── */}
         <SourceCard
           icon={SRC_ICONS.trackid}
@@ -1188,125 +1134,6 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             );
           })()}
         </SourceCard>
-
-        <SectionHeader label="DJ Software" />
-
-        {/* ── Traktor ── */}
-        <SourceCard
-          icon={SRC_ICONS.traktor}
-          title="Traktor"
-          desc="Import your Traktor NML collection"
-          active={!!djFile && djFile.name.endsWith(".nml")}
-        >
-          <div className="flex items-center gap-3">
-            <ActionButton
-              variant="outline"
-              onClick={() => document.getElementById("traktor-upload")?.click()}
-            >
-              {djFile?.name.endsWith(".nml") ? "Change" : "Upload .nml"}
-            </ActionButton>
-            <input
-              id="traktor-upload"
-              type="file"
-              accept=".nml"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) { setDjFile(f); setDjParseResult(null); }
-              }}
-            />
-          </div>
-          {djFile?.name.endsWith(".nml") && (
-            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
-              ✓ {djFile.name}
-            </div>
-          )}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDjDraggingTarget("traktor"); }}
-            onDragLeave={() => setDjDraggingTarget(null)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDjDraggingTarget(null);
-              const f = e.dataTransfer.files[0];
-              if (f && f.name.endsWith(".nml")) { setDjFile(f); setDjParseResult(null); }
-            }}
-            className="text-center mt-3"
-            style={{
-              border: `1.5px dashed ${djDraggingTarget === "traktor" ? "var(--led-blue)" : "var(--hw-border-light)"}`,
-              borderRadius: 6,
-              padding: 18,
-              background: djDraggingTarget === "traktor" ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
-              transition: "all 0.2s",
-            }}
-          >
-            <span className="font-sans text-[13px]" style={{ color: djDraggingTarget === "traktor" ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
-              Or drag &amp; drop .nml here
-            </span>
-          </div>
-        </SourceCard>
-
-        {/* ── Rekordbox ── */}
-        <SourceCard
-          icon={SRC_ICONS.rekordbox}
-          title="Rekordbox"
-          desc="Import your Rekordbox XML collection"
-          active={!!djFile && djFile.name.endsWith(".xml")}
-        >
-          <div className="flex items-center gap-3">
-            <ActionButton
-              variant="outline"
-              onClick={() => document.getElementById("rekordbox-upload")?.click()}
-            >
-              {djFile?.name.endsWith(".xml") ? "Change" : "Upload .xml"}
-            </ActionButton>
-            <input
-              id="rekordbox-upload"
-              type="file"
-              accept=".xml"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) { setDjFile(f); setDjParseResult(null); }
-              }}
-            />
-          </div>
-          {djFile?.name.endsWith(".xml") && (
-            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
-              ✓ {djFile.name}
-            </div>
-          )}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDjDraggingTarget("rekordbox"); }}
-            onDragLeave={() => setDjDraggingTarget(null)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDjDraggingTarget(null);
-              const f = e.dataTransfer.files[0];
-              if (f && f.name.endsWith(".xml")) { setDjFile(f); setDjParseResult(null); }
-            }}
-            className="text-center mt-3"
-            style={{
-              border: `1.5px dashed ${djDraggingTarget === "rekordbox" ? "var(--led-blue)" : "var(--hw-border-light)"}`,
-              borderRadius: 6,
-              padding: 18,
-              background: djDraggingTarget === "rekordbox" ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
-              transition: "all 0.2s",
-            }}
-          >
-            <span className="font-sans text-[13px]" style={{ color: djDraggingTarget === "rekordbox" ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
-              Or drag &amp; drop .xml here
-            </span>
-          </div>
-        </SourceCard>
-
-        {/* ── Serato (coming soon) ── */}
-        <SourceCard
-          icon={SRC_ICONS.serato}
-          title="Serato"
-          desc="Import your Serato library"
-          disabled
-          comingSoon
-        />
 
         {/* ── Local Folder ── */}
         <SourceCard
@@ -1474,6 +1301,89 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             }}
           />
         )}
+
+        {/* ── CSV Upload ── */}
+        <SourceCard
+          icon={SRC_ICONS.csv}
+          title="Exported Spotify Playlist (CSV)"
+          desc="Upload a CSV exported from exportify.app"
+          active={!!csvFile}
+        >
+          <div className="flex items-center gap-3">
+            <ActionButton
+              variant="outline"
+              onClick={() => document.getElementById("csv-upload")?.click()}
+            >
+              {csvFile ? "Change" : "Upload file"}
+            </ActionButton>
+            <input
+              id="csv-upload"
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleCsvFile(f);
+              }}
+            />
+          </div>
+          {csvFile && (
+            <div className="font-mono text-[11px] font-bold mt-2.5" style={{ color: "var(--hw-success-text)" }}>
+              ✓ {csvFile.name} ({csvRowCount} tracks)
+            </div>
+          )}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const f = e.dataTransfer.files[0];
+              if (f) handleCsvFile(f);
+            }}
+            className="text-center mt-3"
+            style={{
+              border: `1.5px dashed ${dragging ? "var(--led-blue)" : "var(--hw-border-light)"}`,
+              borderRadius: 6,
+              padding: 18,
+              background: dragging ? "color-mix(in srgb, var(--led-blue) 10%, transparent)" : "transparent",
+              transition: "all 0.2s",
+            }}
+          >
+            <span className="font-sans text-[13px]" style={{ color: dragging ? "var(--led-blue)" : "var(--hw-text-muted)" }}>
+              Or drag &amp; drop CSV here
+            </span>
+          </div>
+        </SourceCard>
+
+        <SectionHeader label="DJ Software" />
+
+        {/* ── Traktor (coming soon) ── */}
+        <SourceCard
+          icon={SRC_ICONS.traktor}
+          title="Traktor"
+          desc="Import your Traktor NML collection"
+          disabled
+          comingSoon
+        />
+
+        {/* ── Rekordbox (coming soon) ── */}
+        <SourceCard
+          icon={SRC_ICONS.rekordbox}
+          title="Rekordbox"
+          desc="Import your Rekordbox XML collection"
+          disabled
+          comingSoon
+        />
+
+        {/* ── Serato (coming soon) ── */}
+        <SourceCard
+          icon={SRC_ICONS.serato}
+          title="Serato"
+          desc="Import your Serato library"
+          disabled
+          comingSoon
+        />
       </div>
 
       {/* Loading overlay for import */}
