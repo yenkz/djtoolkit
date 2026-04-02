@@ -147,6 +147,39 @@ class RekordboxImporter(ImportAdapter):
 
 class RekordboxExporter(ExportAdapter):
     def export(self, tracks: list[Track]) -> bytes:
+        root = self._build_collection(tracks)
+        return self._to_bytes(root)
+
+    def export_with_playlists(
+        self, tracks: list[Track], playlists: list[tuple[str, list[Track]]]
+    ) -> bytes:
+        """Export tracks with playlist structure."""
+        root = self._build_collection(tracks)
+
+        # Build track ID lookup
+        collection = root.find("COLLECTION")
+        track_key_map: dict[str, str] = {}
+        if collection is not None:
+            for track_el in collection.findall("TRACK"):
+                tid = track_el.get("TrackID", "")
+                name = track_el.get("Name", "")
+                artist = track_el.get("Artist", "")
+                track_key_map[f"{artist}|{name}"] = tid
+
+        playlists_node = ET.SubElement(root, "PLAYLISTS")
+        root_node = ET.SubElement(playlists_node, "NODE", Type="0", Name="ROOT",
+                                  Count=str(len(playlists)))
+
+        for name, pl_tracks in playlists:
+            pl_node = ET.SubElement(root_node, "NODE", Name=name, Type="1",
+                                    KeyType="0", Entries=str(len(pl_tracks)))
+            for t in pl_tracks:
+                key = track_key_map.get(f"{t.artist}|{t.title}", "")
+                ET.SubElement(pl_node, "TRACK", Key=key)
+
+        return self._to_bytes(root)
+
+    def _build_collection(self, tracks: list[Track]) -> ET.Element:
         root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
         ET.SubElement(root, "PRODUCT", Name="djtoolkit", Version="1.0.0", Company="djtoolkit")
 
@@ -154,6 +187,9 @@ class RekordboxExporter(ExportAdapter):
         for i, track in enumerate(tracks, start=1):
             self._write_track(collection, track, track_id=track.source_id or str(i))
 
+        return root
+
+    def _to_bytes(self, root: ET.Element) -> bytes:
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ")
         return ET.tostring(root, encoding="unicode", xml_declaration=True).encode("utf-8")

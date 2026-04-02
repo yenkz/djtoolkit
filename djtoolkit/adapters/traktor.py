@@ -164,6 +164,35 @@ class TraktorImporter(ImportAdapter):
 
 class TraktorExporter(ExportAdapter):
     def export(self, tracks: list[Track]) -> bytes:
+        nml = self._build_nml(tracks)
+        return self._to_bytes(nml)
+
+    def export_with_playlists(
+        self, tracks: list[Track], playlists: list[tuple[str, list[Track]]]
+    ) -> bytes:
+        """Export tracks with playlist structure."""
+        import uuid as _uuid
+
+        nml = self._build_nml(tracks)
+
+        playlists_node = ET.SubElement(nml, "PLAYLISTS")
+        root_folder = ET.SubElement(playlists_node, "NODE", TYPE="FOLDER", NAME="$ROOT")
+        subnodes = ET.SubElement(root_folder, "SUBNODES", COUNT=str(len(playlists)))
+
+        for name, pl_tracks in playlists:
+            pl_node = ET.SubElement(subnodes, "NODE", TYPE="PLAYLIST", NAME=name)
+            playlist = ET.SubElement(pl_node, "PLAYLIST",
+                                     ENTRIES=str(len(pl_tracks)),
+                                     TYPE="LIST",
+                                     UUID=str(_uuid.uuid4()))
+            for t in pl_tracks:
+                entry = ET.SubElement(playlist, "ENTRY")
+                key = self._track_key(t)
+                ET.SubElement(entry, "PRIMARYKEY", TYPE="TRACK", KEY=key)
+
+        return self._to_bytes(nml)
+
+    def _build_nml(self, tracks: list[Track]) -> ET.Element:
         nml = ET.Element("NML", VERSION="19")
         ET.SubElement(nml, "HEAD", COMPANY="www.native-instruments.com", PROGRAM="djtoolkit")
         ET.SubElement(nml, "MUSICFOLDERS")
@@ -172,9 +201,20 @@ class TraktorExporter(ExportAdapter):
         for track in tracks:
             self._write_entry(collection, track)
 
+        return nml
+
+    def _to_bytes(self, nml: ET.Element) -> bytes:
         tree = ET.ElementTree(nml)
         ET.indent(tree, space="  ")
         return ET.tostring(nml, encoding="unicode", xml_declaration=True).encode("utf-8")
+
+    def _track_key(self, track: Track) -> str:
+        """Build Traktor PRIMARYKEY from track file path."""
+        if track.file_path:
+            from pathlib import PurePosixPath
+            p = PurePosixPath(track.file_path)
+            return "Macintosh HD" + "/:" + "/:".join(p.parts[1:-1]) + "/:" + p.name
+        return track.title
 
     def _write_entry(self, parent: ET.Element, track: Track) -> None:
         entry = ET.SubElement(parent, "ENTRY",
