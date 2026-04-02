@@ -12,6 +12,9 @@ import signal
 import sys
 from typing import Any
 
+# Suppress noisy Realtime client retry logs (SSL errors in PyInstaller builds)
+logging.getLogger("realtime").setLevel(logging.CRITICAL)
+
 from djtoolkit.agent.client import AgentClient, AgentRevoked
 from djtoolkit.agent.executor import execute_job, execute_download_batch, shutdown_slsk_client
 from djtoolkit.agent.keychain import load_agent_credentials
@@ -355,6 +358,7 @@ async def run_daemon(
         retry_delay = 5.0
         max_retry_delay = 60.0
 
+        attempt = 0
         while not shutdown_event.is_set():
             sb_client = None
             try:
@@ -398,6 +402,10 @@ async def run_daemon(
 
             except Exception as exc:
                 realtime_connected = False
+                attempt += 1
+                if attempt >= 3:
+                    log.info("Realtime unavailable — falling back to polling only")
+                    return
                 log.warning(
                     "Realtime connection failed: %s — retrying in %.0fs",
                     exc, retry_delay,
