@@ -667,8 +667,9 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
     setFolderScanning(true);
     try {
       const { id } = await sendAgentCommand(agentId, "scan_folder", { path });
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 500));
+      // Poll for up to 5 minutes (300 × 1s) — large folders can take a while
+      for (let i = 0; i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
         const cmd = await getAgentCommandResult(id);
         if (cmd.status === "completed" && cmd.result) {
           setFolderScanResult(cmd.result as NonNullable<typeof folderScanResult>);
@@ -680,7 +681,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
           return;
         }
       }
-      toast.error("Scan timed out");
+      toast.error("Scan timed out — folder may be too large");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Scan failed");
     } finally {
