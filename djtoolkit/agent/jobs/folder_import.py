@@ -232,7 +232,7 @@ async def run(
             ).in_("id", list(pending)).execute()
 
             for fj in (fp_jobs.data or []):
-                if fj["status"] in ("completed", "failed"):
+                if fj["status"] in ("done", "completed", "failed"):
                     pending.discard(fj["id"])
                     progress.done += 1
 
@@ -258,11 +258,9 @@ async def run(
 
     sb.auth.sign_out()
 
-    return {
-        "inserted": progress.inserted,
-        "skipped_existing": progress.total - progress.inserted - progress.duplicates - progress.errors,
-        "skipped_duplicate": progress.duplicates,
-        "errors": progress.errors,
-        "track_ids": track_ids,
-        "path": str(folder),
-    }
+    # Return the progress dict so the daemon's report_result preserves
+    # the stage/log/progress fields that the UI needs for rendering.
+    final = progress.to_dict()
+    final["track_ids"] = track_ids
+    final["path"] = str(folder)
+    return final
