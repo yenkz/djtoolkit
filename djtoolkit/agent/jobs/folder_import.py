@@ -179,11 +179,11 @@ async def run(
                 "in_library": in_library,
             }
 
-            result = sb.table("tracks").insert(row).select("id").single().execute()
+            result = sb.table("tracks").insert(row).execute()
             if not result.data:
                 continue
 
-            track_id = result.data["id"]
+            track_id = result.data[0]["id"]
             track_ids.append(track_id)
             progress.inserted += 1
             progress.add_log({"type": "insert", "track": track_label})
@@ -203,9 +203,9 @@ async def run(
                     "track_id": track_id,
                     "job_type": "fingerprint",
                     "payload": {"track_id": track_id, "local_path": str(audio_path)},
-                }).select("id").single().execute()
+                }).execute()
                 if fp_job.data:
-                    fingerprint_job_ids.append(fp_job.data["id"])
+                    fingerprint_job_ids.append(fp_job.data[0]["id"])
 
             progress.flush()
             log.info("Imported: %s (%s)", track_label, audio_path.name)
