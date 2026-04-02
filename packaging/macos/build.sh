@@ -27,6 +27,17 @@ chmod +x packaging/macos/scripts/preinstall
 chmod +x packaging/macos/scripts/postinstall
 
 # ── 3. PyInstaller — single-file executable ────────────────────────────────
+echo "=== Pre-build diagnostics ==="
+uv run python -c "
+import site, sys
+print('sys.prefix:', sys.prefix)
+print('sys.exec_prefix:', sys.exec_prefix)
+print('site.getsitepackages():', site.getsitepackages())
+print('sys.path:', sys.path)
+import typer; print('typer at:', typer.__file__)
+"
+export VENV_SITE_PACKAGES=$(uv run python -c "import site; print(site.getsitepackages()[0])")
+echo "VENV_SITE_PACKAGES=$VENV_SITE_PACKAGES"
 echo "Running PyInstaller..."
 uv run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
 
