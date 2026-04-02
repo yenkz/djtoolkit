@@ -42,15 +42,10 @@ a = Analysis(
         "keyring",
         "keyring.backends",
         "keyring.backends.macOS",
-        # typer / click internals
-        "typer",
-        "typer.main",
-        "click",
-        "rich",
-        "rich.console",
-        "rich.logging",
-        "rich.progress",
-        "rich.table",
+        # typer / click / rich — collect all submodules
+        *collect_submodules("typer"),
+        *collect_submodules("click"),
+        *collect_submodules("rich"),
         # httpx
         "httpx",
         "httpcore",
