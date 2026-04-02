@@ -30,6 +30,10 @@ a = Analysis(
     hiddenimports=[
         *collect_submodules("djtoolkit"),
         *collect_submodules("aioslsk"),
+        # Explicit agent commands — collect_submodules may miss these in CI
+        "djtoolkit.agent.commands",
+        "djtoolkit.agent.commands.browse_folder",
+        "djtoolkit.agent.commands.scan_folder",
         # librosa optional backends
         "librosa.core",
         "librosa.beat",
