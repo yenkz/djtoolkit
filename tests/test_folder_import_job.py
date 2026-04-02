@@ -26,11 +26,9 @@ def mock_supabase():
     select_chain = MagicMock()
     select_chain.eq.return_value = select_chain
     select_chain.execute.return_value = MagicMock(data=[])
-    # table mock: tracks.insert().select().single().execute() returns new track
+    # table mock: tracks.insert().execute() returns new track (list of dicts)
     insert_chain = MagicMock()
-    insert_chain.select.return_value = insert_chain
-    insert_chain.single.return_value = insert_chain
-    insert_chain.execute.return_value = MagicMock(data={"id": 42})
+    insert_chain.execute.return_value = MagicMock(data=[{"id": 42}])
     # pipeline_jobs insert
     pj_insert = MagicMock()
     pj_insert.execute.return_value = MagicMock(data={"id": "job-1"})
