@@ -534,6 +534,21 @@ export async function getImportJobStatus(
   return res.json();
 }
 
+// ── Folder Import Duplicates ────────────────────────────────────────────────
+
+export interface DuplicatePair {
+  new_track: { id: number; title: string; artist: string; local_path: string };
+  existing_track: { id: number; title: string; artist: string; local_path: string } | null;
+}
+
+export async function getFolderImportDuplicates(
+  jobId: string,
+): Promise<{ duplicates: DuplicatePair[] }> {
+  const res = await apiClient(`/catalog/import/folder/${jobId}/report?duplicates=true`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
 // ─── Onboarding API functions ─────────────────────────────────────────────────
 
 export async function importSpotifyPlaylistNoJobs(

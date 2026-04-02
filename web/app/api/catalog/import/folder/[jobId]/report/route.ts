@@ -41,6 +41,54 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
 
   const trackIds: number[] = (job.result as { track_ids?: number[] }).track_ids ?? [];
+
+  // ── Duplicates mode ──────────────────────────────────────────────────
+  if (request.nextUrl.searchParams.get("duplicates") === "true") {
+    if (trackIds.length === 0) {
+      return NextResponse.json({ duplicates: [] });
+    }
+
+    // Get tracks from this import that were marked as duplicate
+    const { data: dupTracks } = await supabase
+      .from("tracks")
+      .select("id, title, artist, local_path, fingerprint_id")
+      .in("id", trackIds)
+      .eq("user_id", user.userId)
+      .eq("acquisition_status", "duplicate");
+
+    if (!dupTracks || dupTracks.length === 0) {
+      return NextResponse.json({ duplicates: [] });
+    }
+
+    // Find matching existing tracks via fingerprint
+    const fpIds = dupTracks
+      .map((t) => t.fingerprint_id)
+      .filter((id): id is number => id != null);
+
+    const existingByFp: Record<number, { id: number; title: string; artist: string; local_path: string }> = {};
+    if (fpIds.length > 0) {
+      const { data: fpMatches } = await supabase
+        .from("tracks")
+        .select("id, title, artist, local_path, fingerprint_id")
+        .in("fingerprint_id", fpIds)
+        .eq("user_id", user.userId)
+        .neq("acquisition_status", "duplicate");
+
+      for (const t of fpMatches ?? []) {
+        if (t.fingerprint_id != null) {
+          existingByFp[t.fingerprint_id] = t;
+        }
+      }
+    }
+
+    const duplicates = dupTracks.map((t) => ({
+      new_track: { id: t.id, title: t.title, artist: t.artist, local_path: t.local_path },
+      existing_track: t.fingerprint_id ? existingByFp[t.fingerprint_id] ?? null : null,
+    }));
+
+    return NextResponse.json({ duplicates });
+  }
+
   if (trackIds.length === 0) {
     return NextResponse.json({ total: 0, fully_enriched: 0, missing: {}, tracks: [] });
   }
