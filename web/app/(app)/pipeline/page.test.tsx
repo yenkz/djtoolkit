@@ -63,7 +63,7 @@ function makeStatus(overrides: Partial<PipelineMonitorStatus> = {}): PipelineMon
   return {
     candidate: 0, searching: 0, found: 0, not_found: 0,
     queued: 0, downloading: 0, failed: 0, paused: 0,
-    agents: [],
+    job_failures: 0, agents: [],
     ...overrides,
   };
 }

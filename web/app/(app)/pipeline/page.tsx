@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import {
   fetchPipelineMonitorStatus,
   fetchPipelineTracks,
+  fetchTracksWithFailedJobs,
   retryPipelineTrack,
+  retryPipelineJobs,
   bulkPipelineAction,
   bulkCreateJobs,
   fetchTrackJobs,
@@ -14,6 +16,8 @@ import {
   type PipelineTrackList,
   type PipelineJob,
   type AcquisitionStatus,
+  type TrackWithFailedJobs,
+  type TrackWithFailedJobsList,
 } from "@/lib/api";
 import { createClient } from "@/lib/supabase/client";
 import LCDDisplay from "@/components/ui/LCDDisplay";
@@ -90,7 +94,9 @@ function relativeTime(iso: string): string {
 
 /* ── Filter options ──────────────────────────────────────────────────────── */
 
-const FILTER_OPTIONS: { value: AcquisitionStatus | ""; label: string }[] = [
+type FilterValue = AcquisitionStatus | "job_failures" | "";
+
+const FILTER_OPTIONS: { value: FilterValue; label: string }[] = [
   { value: "", label: "All" },
   { value: "candidate", label: "Candidate" },
   { value: "searching", label: "Searching" },
@@ -100,6 +106,7 @@ const FILTER_OPTIONS: { value: AcquisitionStatus | ""; label: string }[] = [
   { value: "not_found", label: "Not Found" },
   { value: "failed", label: "Failed" },
   { value: "paused", label: "Paused" },
+  { value: "job_failures", label: "Job Failures" },
 ];
 
 /* ── Sub-components ──────────────────────────────────────────────────────── */
@@ -163,14 +170,16 @@ type BulkAction =
   | "pause_candidates"
   | "resume_paused"
   | "queue_candidates"
-  | "delete_selected";
+  | "delete_selected"
+  | "retry_failed_jobs";
 
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 
 export default function PipelineMonitorPage() {
   const [status, setStatus] = useState<PipelineMonitorStatus | null>(null);
   const [trackData, setTrackData] = useState<PipelineTrackList | null>(null);
-  const [statusFilter, setStatusFilter] = useState<AcquisitionStatus | "">("");
+  const [statusFilter, setStatusFilter] = useState<FilterValue>("");
+  const [jobFailuresData, setJobFailuresData] = useState<TrackWithFailedJobsList | null>(null);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [sortBy, setSortBy] = useState("updated_at");
@@ -192,6 +201,15 @@ export default function PipelineMonitorPage() {
   const [detailTrack, setDetailTrack] = useState<PipelineTrack | null>(null);
   const [detailJobs, setDetailJobs] = useState<PipelineJob[] | null>(null);
 
+  /* ── Read ?filter= query param on mount ──────────────────────── */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const filter = params.get("filter");
+    if (filter && FILTER_OPTIONS.some((f) => f.value === filter)) {
+      setStatusFilter(filter as FilterValue);
+    }
+  }, []);
+
   /* ── Data loading ─────────────────────────────────────────────── */
 
   const loadStatus = useCallback(async () => {
@@ -206,15 +224,26 @@ export default function PipelineMonitorPage() {
   const loadTracks = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchPipelineTracks({
-        page,
-        per_page: perPage,
-        status: statusFilter || undefined,
-        sort_by: sortBy,
-        sort_dir: sortDir,
-        search: search || undefined,
-      });
-      setTrackData(data);
+      if (statusFilter === "job_failures") {
+        const data = await fetchTracksWithFailedJobs({
+          page,
+          per_page: perPage,
+          search: search || undefined,
+        });
+        setJobFailuresData(data);
+        setTrackData(null);
+      } else {
+        const data = await fetchPipelineTracks({
+          page,
+          per_page: perPage,
+          status: statusFilter || undefined,
+          sort_by: sortBy,
+          sort_dir: sortDir,
+          search: search || undefined,
+        });
+        setTrackData(data);
+        setJobFailuresData(null);
+      }
       setSelected(new Set());
     } catch {
       toast.error("Failed to load pipeline tracks");
@@ -532,11 +561,26 @@ export default function PipelineMonitorPage() {
       btn: "Delete",
       color: "var(--led-red)",
     },
+    retry_failed_jobs: {
+      title: "Retry All Failed Jobs",
+      desc: `Retry all ${status?.job_failures ?? 0} tracks with failed pipeline jobs?`,
+      btn: "Retry All",
+      color: "var(--led-orange)",
+    },
   };
 
   async function handleBulkAction(action: BulkAction) {
     setBulkActing(true);
     try {
+      if (action === "retry_failed_jobs") {
+        const result = await retryPipelineJobs({ filter_status: "failed" });
+        toast.success(`${result.retried} job${result.retried !== 1 ? "s" : ""} retried`);
+        loadStatus();
+        loadTracks();
+        setBulkActing(false);
+        setConfirmAction(null);
+        return;
+      }
       const result = await bulkPipelineAction(action);
       const count = result.updated ?? result.deleted ?? result.created ?? 0;
       const verbs: Record<string, string> = {
@@ -573,8 +617,9 @@ export default function PipelineMonitorPage() {
 
   /* ── Derived values ───────────────────────────────────────────── */
 
-  const totalPages = trackData
-    ? Math.ceil(trackData.total / trackData.per_page)
+  const activeData = statusFilter === "job_failures" ? jobFailuresData : trackData;
+  const totalPages = activeData
+    ? Math.ceil(activeData.total / activeData.per_page)
     : 0;
 
   const agent = status?.agents?.[0] ?? null;
@@ -663,7 +708,7 @@ export default function PipelineMonitorPage() {
       </div>
 
       {/* ── LCD stat bar ────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 md:grid-cols-7 gap-3 mb-6">
+      <div className="grid grid-cols-4 md:grid-cols-8 gap-3 mb-6">
         <LCDDisplay value={status?.candidate ?? 0} label="Candidates" />
         <LCDDisplay value={status?.searching ?? 0} label="Searching" />
         <LCDDisplay value={status?.found ?? 0} label="Found" />
@@ -671,15 +716,16 @@ export default function PipelineMonitorPage() {
         <LCDDisplay value={status?.not_found ?? 0} label="Not Found" />
         <LCDDisplay value={status?.failed ?? 0} label="Failed" />
         <LCDDisplay value={status?.paused ?? 0} label="Paused" />
+        <LCDDisplay value={status?.job_failures ?? 0} label="Job Failures" />
       </div>
 
       {/* ── Filter buttons ──────────────────────────────────────── */}
       <div className="flex flex-wrap gap-2 mb-4">
         {FILTER_OPTIONS.map((f) => {
           const count = f.value
-            ? (status?.[f.value] ?? 0)
-            : Object.values(status ?? {}).reduce(
-                (a, v) => a + (typeof v === "number" ? v : 0),
+            ? (status?.[f.value as keyof PipelineMonitorStatus] as number ?? 0)
+            : Object.entries(status ?? {}).reduce(
+                (a, [k, v]) => a + (typeof v === "number" && k !== "job_failures" ? v : 0),
                 0,
               );
           const isActive = statusFilter === f.value;
@@ -687,7 +733,7 @@ export default function PipelineMonitorPage() {
             <button
               key={f.value}
               onClick={() => {
-                setStatusFilter(f.value as AcquisitionStatus | "");
+                setStatusFilter(f.value as FilterValue);
                 setPage(1);
               }}
               className="font-mono uppercase"
@@ -716,6 +762,7 @@ export default function PipelineMonitorPage() {
 
       {/* ── Bulk action toolbar ─────────────────────────────────── */}
       {(failedCount > 0 ||
+        (status?.job_failures ?? 0) > 0 ||
         (status?.candidate ?? 0) > 0 ||
         (status?.paused ?? 0) > 0) && (
         <div
@@ -752,6 +799,13 @@ export default function PipelineMonitorPage() {
                 onClick={() => setConfirmAction("delete_failed")}
               />
             </>
+          )}
+          {(status?.job_failures ?? 0) > 0 && (
+            <BulkBtn
+              label={`Retry All Failed Jobs (${status?.job_failures ?? 0})`}
+              color="var(--led-orange)"
+              onClick={() => setConfirmAction("retry_failed_jobs")}
+            />
           )}
           {(status?.candidate ?? 0) > 0 && (
             <>
@@ -1181,7 +1235,42 @@ export default function PipelineMonitorPage() {
         </div>
 
         {/* Table body */}
-        {loading && !trackData ? (
+        {statusFilter === "job_failures" ? (
+          loading && !jobFailuresData ? (
+            <div style={{ padding: "40px 20px", textAlign: "center" }}>
+              <span className="font-mono" style={{ fontSize: 13, color: "var(--hw-text-dim)" }}>
+                Loading...
+              </span>
+            </div>
+          ) : !jobFailuresData || jobFailuresData.tracks.length === 0 ? (
+            <div style={{ padding: "40px 20px", textAlign: "center" }}>
+              <span style={{ fontSize: 14, color: "var(--hw-text-dim)" }}>
+                No job failures found.
+              </span>
+            </div>
+          ) : (
+            jobFailuresData.tracks.map((track) => (
+              <JobFailureRow
+                key={track.id}
+                track={track}
+                onRetryJob={async (jobId) => {
+                  try {
+                    await retryPipelineJobs({ job_ids: [jobId] });
+                    toast.success("Job queued for retry");
+                    loadStatus();
+                    loadTracks();
+                  } catch {
+                    toast.error("Retry failed");
+                  }
+                }}
+                onExpand={() => handleExpand(track.id)}
+                isExpanded={expandedTrackId === track.id}
+                expandedJobs={expandedTrackId === track.id ? expandedJobs : null}
+                expandedLoading={expandedTrackId === track.id && expandedLoading}
+              />
+            ))
+          )
+        ) : loading && !trackData ? (
           <div style={{ padding: "40px 20px", textAlign: "center" }}>
             <span
               className="font-mono"
@@ -1254,13 +1343,13 @@ export default function PipelineMonitorPage() {
       </div>
 
       {/* ── Pagination ──────────────────────────────────────────── */}
-      {trackData && totalPages > 0 && (
+      {activeData && totalPages > 0 && (
         <div
           className="flex items-center justify-between font-mono"
           style={{ fontSize: 12, color: "var(--hw-text-dim)" }}
         >
           <span>
-            Page {trackData.page} of {totalPages} ({trackData.total} tracks)
+            Page {activeData.page} of {totalPages} ({activeData.total} tracks)
           </span>
           <div className="flex items-center gap-3">
             {/* Per-page selector */}
@@ -1657,6 +1746,203 @@ function TrackRow({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── JobFailureRow ───────────────────────────────────────────────────────── */
+
+function JobFailureRow({
+  track,
+  onRetryJob,
+  onExpand,
+  isExpanded,
+  expandedJobs,
+  expandedLoading,
+}: {
+  track: TrackWithFailedJobs;
+  onRetryJob: (jobId: string) => void;
+  onExpand: () => void;
+  isExpanded: boolean;
+  expandedJobs: PipelineJob[] | null;
+  expandedLoading: boolean;
+}) {
+  return (
+    <div>
+      <div
+        className="grid items-center gap-3 px-4 py-2.5 cursor-pointer"
+        style={{
+          gridTemplateColumns: "44px 1fr 120px 1fr 80px",
+          borderBottom: "1px solid var(--hw-list-border, var(--hw-border))",
+          background: isExpanded
+            ? "color-mix(in srgb, var(--led-red) 3%, var(--hw-list-row-bg, var(--hw-surface)))"
+            : "var(--hw-list-row-bg, var(--hw-surface))",
+        }}
+        onClick={onExpand}
+      >
+        {/* Artwork */}
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 4,
+            overflow: "hidden",
+            background: "var(--hw-surface)",
+            border: "1px solid var(--hw-border)",
+            flexShrink: 0,
+          }}
+        >
+          {track.artwork_url ? (
+            <img
+              src={track.artwork_url}
+              alt=""
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 14,
+                color: "var(--hw-text-muted)",
+              }}
+            >
+              ♪
+            </div>
+          )}
+        </div>
+
+        {/* Track info */}
+        <div className="min-w-0">
+          <div
+            className="font-mono truncate"
+            style={{ fontSize: 13, fontWeight: 600, color: "var(--hw-text)" }}
+          >
+            {track.title || "Unknown Title"}
+          </div>
+          <div
+            className="font-mono truncate"
+            style={{ fontSize: 11, color: "var(--hw-text-dim)" }}
+          >
+            {track.artist || "Unknown Artist"}
+          </div>
+        </div>
+
+        {/* Track status badge */}
+        <StatusBadge status={track.acquisition_status} />
+
+        {/* Failed job pills */}
+        <div className="flex flex-wrap gap-1.5">
+          {track.failed_jobs.map((job) => (
+            <span
+              key={job.id}
+              className="font-mono inline-flex items-center gap-1"
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: 0.3,
+                color: "var(--led-red)",
+                background: "color-mix(in srgb, var(--led-red) 8%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--led-red) 25%, transparent)",
+                padding: "2px 8px",
+                borderRadius: 3,
+              }}
+              title={job.error ?? "Unknown error"}
+            >
+              {job.job_type.replace("_", " ")}
+            </span>
+          ))}
+        </div>
+
+        {/* Retry buttons */}
+        <div className="flex gap-1">
+          {track.failed_jobs.map((job) => (
+            <button
+              key={job.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetryJob(job.id);
+              }}
+              className="font-mono"
+              title={`Retry ${job.job_type}`}
+              style={{
+                fontSize: 10,
+                padding: "3px 8px",
+                borderRadius: 3,
+                border: "1px solid color-mix(in srgb, var(--led-orange) 40%, transparent)",
+                background: "color-mix(in srgb, var(--led-orange) 8%, transparent)",
+                color: "var(--led-orange)",
+                cursor: "pointer",
+              }}
+            >
+              ↻
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Expansion panel */}
+      {isExpanded && (
+        <div
+          style={{
+            borderBottom: "1px solid var(--hw-list-border, var(--hw-border))",
+            background: "color-mix(in srgb, var(--led-red) 3%, var(--hw-list-row-bg, var(--hw-surface)))",
+            padding: "10px 16px 10px 60px",
+          }}
+        >
+          {expandedLoading ? (
+            <span className="font-mono" style={{ fontSize: 11, color: "var(--hw-text-muted)" }}>
+              Loading job history...
+            </span>
+          ) : expandedJobs ? (
+            <div className="space-y-2">
+              {expandedJobs
+                .filter((j) => j.status === "failed")
+                .map((job) => (
+                  <div
+                    key={job.id}
+                    className="flex items-start gap-3 font-mono"
+                    style={{ fontSize: 11 }}
+                  >
+                    <span
+                      style={{
+                        color: "var(--led-red)",
+                        fontWeight: 700,
+                        minWidth: 100,
+                      }}
+                    >
+                      {job.job_type}
+                    </span>
+                    <span style={{ color: "var(--hw-text-dim)", flex: 1 }}>
+                      {job.error ?? "Unknown error"}
+                    </span>
+                    <span style={{ color: "var(--hw-text-muted)", fontSize: 10 }}>
+                      {job.completed_at ? relativeTime(job.completed_at) : ""}
+                    </span>
+                    <button
+                      onClick={() => onRetryJob(job.id)}
+                      className="font-mono"
+                      style={{
+                        fontSize: 10,
+                        padding: "2px 8px",
+                        borderRadius: 3,
+                        border: "1px solid color-mix(in srgb, var(--led-orange) 40%, transparent)",
+                        background: "color-mix(in srgb, var(--led-orange) 8%, transparent)",
+                        color: "var(--led-orange)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ))}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
