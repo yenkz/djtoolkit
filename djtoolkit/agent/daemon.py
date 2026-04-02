@@ -168,7 +168,7 @@ async def run_daemon(
         save_job_state(job_id, "claimed", payload)
 
         try:
-            result = await execute_job(job_type, payload, cfg, creds)
+            result = await execute_job(job_type, payload, cfg, creds, job_id=job_id)
             save_job_state(job_id, "completed", payload, result)
             reported = await client.report_result(job_id, success=True, result=result)
             record_recent_job(

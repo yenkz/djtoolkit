@@ -131,6 +131,7 @@ async def shutdown_slsk_client():
 
 async def execute_job(
     job_type: str, payload: dict, cfg: Config, credentials: dict,
+    *, job_id: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a job to the appropriate executor. Returns result dict."""
     match job_type:
@@ -147,7 +148,7 @@ async def execute_job(
         case "metadata":
             return await execute_metadata(payload, cfg)
         case "folder_import":
-            return await execute_folder_import(payload, cfg, credentials)
+            return await execute_folder_import(payload, cfg, credentials, job_id=job_id)
         case _:
             raise ValueError(f"Unsupported job type: {job_type}")
 
@@ -472,7 +473,8 @@ async def execute_metadata(
 
 async def execute_folder_import(
     payload: dict, cfg: Config, credentials: dict,
+    *, job_id: str | None = None,
 ) -> dict[str, Any]:
     """Scan a folder, insert tracks, queue fingerprint jobs."""
     from djtoolkit.agent.jobs.folder_import import run
-    return await run(cfg, payload, credentials)
+    return await run(cfg, payload, credentials, job_id=job_id)
