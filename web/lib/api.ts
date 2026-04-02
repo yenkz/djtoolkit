@@ -503,6 +503,37 @@ export async function getFolderImportReport(
   return res.json();
 }
 
+// ── Folder Import Job Status ────────────────────────────────────────────────
+
+export interface FolderImportProgress {
+  stage: "importing" | "fingerprinting" | "complete";
+  progress: { done: number; total: number };
+  current_track: string;
+  inserted: number;
+  duplicates: number;
+  errors: number;
+  log: Array<{
+    type: "insert" | "fingerprint" | "skip" | "error";
+    track: string;
+    duplicate?: boolean;
+    message?: string;
+  }>;
+}
+
+export interface ImportJobStatus {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  result: FolderImportProgress | null;
+}
+
+export async function getImportJobStatus(
+  jobId: string,
+): Promise<ImportJobStatus> {
+  const res = await apiClient(`/catalog/import/folder/${jobId}/status`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
 // ─── Onboarding API functions ─────────────────────────────────────────────────
 
 export async function importSpotifyPlaylistNoJobs(
