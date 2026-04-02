@@ -11,7 +11,9 @@ class Djtoolkit < Formula
   depends_on :macos
 
   def install
-    bin.install "djtoolkit"
+    # Onedir PyInstaller output: djtoolkit/ directory with binary + _internal/
+    libexec.install Dir["*"]
+    bin.install_symlink libexec/"djtoolkit"
   end
 
   def caveats
@@ -19,8 +21,8 @@ class Djtoolkit < Formula
       Run the setup wizard to configure djtoolkit:
         djtoolkit agent configure
 
-      Or install the desktop app for a GUI experience:
-        brew install --cask djtoolkit
+      Start the agent with system tray:
+        djtoolkit agent tray
     EOS
   end
 end

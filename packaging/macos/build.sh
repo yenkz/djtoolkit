@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build djtoolkit macOS .pkg + .dmg installer
+# Build djtoolkit macOS — onedir mode (avoids macOS 15 Team ID signing issue)
 # Run from repo root: bash packaging/macos/build.sh
 set -euo pipefail
 
@@ -22,64 +22,40 @@ if [ ! -f "$FPCALC_PATH" ]; then
 fi
 echo "✓ fpcalc found at $FPCALC_PATH"
 
-# ── 2. Make installer scripts executable ───────────────────────────────────
-chmod +x packaging/macos/scripts/preinstall
-chmod +x packaging/macos/scripts/postinstall
-
-# ── 3. PyInstaller — single-file executable ────────────────────────────────
-echo "=== Pre-build diagnostics ==="
-uv run python -c "
-import site, sys
-print('sys.prefix:', sys.prefix)
-print('sys.exec_prefix:', sys.exec_prefix)
-print('site.getsitepackages():', site.getsitepackages())
-print('sys.path:', sys.path)
-import typer; print('typer at:', typer.__file__)
-"
+# ── 2. PyInstaller — onedir mode ──────────────────────────────────────────
+# Onedir avoids the macOS 15 Team ID mismatch that breaks onefile mode.
+# The onefile binary extracts to /tmp and the extracted Python.framework
+# retains the original Team ID, causing dlopen failures.
 export VENV_SITE_PACKAGES=$(uv run python -c "import site; print(site.getsitepackages()[0])")
 echo "VENV_SITE_PACKAGES=$VENV_SITE_PACKAGES"
-echo "Running PyInstaller..."
-uv run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
 
-BINARY="dist/djtoolkit"
+echo "Running PyInstaller (onedir)..."
+uv run pyinstaller packaging/macos/djtoolkit-onedir.spec --clean --noconfirm
+
+BINARY="dist/djtoolkit/djtoolkit"
 if [ ! -f "$BINARY" ]; then
     echo "ERROR: PyInstaller output not found at $BINARY"
     exit 1
 fi
-echo "✓ Binary built: $BINARY ($(du -sh "$BINARY" | cut -f1))"
 
-# ── 4. Build .pkg ───────────────────────────────────────────────────────────
-PKG_NAME="djtoolkit-${VERSION}-${ARCH}.pkg"
-echo "Building $PKG_NAME..."
+# Re-sign all native libraries with ad-hoc (strip any real Team IDs)
+echo "Re-signing native libraries..."
+SIGNED=0
+while IFS= read -r -d '' f; do
+    codesign --force --sign - "$f" 2>/dev/null
+    SIGNED=$((SIGNED + 1))
+done < <(find "dist/djtoolkit/_internal" -type f \( -name "*.dylib" -o -name "*.so" \) -print0)
+codesign --force --sign - "$BINARY"
+echo "✓ Re-signed $SIGNED libraries + bootloader"
 
-pkgbuild \
-    --root dist \
-    --identifier com.djtoolkit.agent \
-    --version "$VERSION" \
-    --install-location /usr/local/bin \
-    --scripts packaging/macos/scripts \
-    "$PKG_NAME"
+echo "✓ Binary built: $BINARY ($(du -sh dist/djtoolkit | cut -f1) total)"
 
-echo "✓ Package built: $PKG_NAME"
-
-# ── 5. Wrap in .dmg ─────────────────────────────────────────────────────────
-DMG_NAME="djtoolkit-${VERSION}-${ARCH}.dmg"
-echo "Creating $DMG_NAME..."
-
-# Stage into a temp folder for hdiutil
-TMP_DMG_DIR=$(mktemp -d)
-cp "$PKG_NAME" "$TMP_DMG_DIR/"
-
-hdiutil create \
-    -volname "djtoolkit $VERSION" \
-    -srcfolder "$TMP_DMG_DIR" \
-    -ov -format UDZO \
-    "$DMG_NAME"
-
-rm -rf "$TMP_DMG_DIR"
-echo "✓ Disk image created: $DMG_NAME ($(du -sh "$DMG_NAME" | cut -f1))"
+# ── 3. Create Homebrew tarball ─────────────────────────────────────────────
+# Tar the entire onedir output. The Homebrew formula extracts it and creates
+# a wrapper script that points to the binary inside.
+TAR_NAME="djtoolkit-${VERSION}-arm64.tar.gz"
+tar czf "${TAR_NAME}" -C dist djtoolkit
+echo "✓ Tarball: ${TAR_NAME} ($(du -sh "${TAR_NAME}" | cut -f1))"
 
 echo ""
-echo "Build complete:"
-echo "  $PKG_NAME"
-echo "  $DMG_NAME"
+echo "Build complete: ${TAR_NAME}"
