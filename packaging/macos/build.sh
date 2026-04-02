@@ -30,7 +30,7 @@ export VENV_SITE_PACKAGES=$(uv run python -c "import site; print(site.getsitepac
 echo "VENV_SITE_PACKAGES=$VENV_SITE_PACKAGES"
 
 echo "Running PyInstaller (onedir)..."
-uv run pyinstaller packaging/macos/djtoolkit-onedir.spec --clean --noconfirm
+uv run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
 
 BINARY="dist/djtoolkit/djtoolkit"
 if [ ! -f "$BINARY" ]; then

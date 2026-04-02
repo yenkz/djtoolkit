@@ -1,5 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for djtoolkit local agent (macOS arm64 + x86_64)."""
+"""PyInstaller spec for djtoolkit (macOS, onedir mode).
+
+Uses onedir mode to avoid the macOS 15 Team ID signing issue that breaks
+onefile mode. All native libraries are separate files on disk, allowing
+proper ad-hoc codesigning after the build.
+"""
 
 import os
 import sys
@@ -16,17 +21,17 @@ if not os.path.exists(FPCALC_PATH):
         f"fpcalc not found at {FPCALC_PATH}. Install with: brew install chromaprint"
     )
 
-# collect_all returns (datas, binaries, hiddenimports) — use it for packages
-# that collect_submodules fails to detect (e.g. typer in CI)
-# Add venv site-packages to pathex so PyInstaller can find all installed packages.
-# On macOS CI with uv-managed venvs, PyInstaller's import analysis sometimes
-# can't locate packages like typer. VENV_SITE_PACKAGES is set by build.sh.
+# Add venv site-packages AND repo root to pathex.
+# In CI, djtoolkit is installed as editable (lives at repo root, not site-packages).
 _venv_sp = os.environ.get("VENV_SITE_PACKAGES", "")
-_extra_paths = [_venv_sp] if _venv_sp else []
+_repo_root = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
+_extra_paths = [p for p in [_venv_sp, _repo_root] if p]
 
+# collect_all for packages that collect_submodules misses in CI
 typer_datas, typer_binaries, typer_imports = collect_all("typer")
 click_datas, click_binaries, click_imports = collect_all("click")
 rich_datas, rich_binaries, rich_imports = collect_all("rich")
+dj_datas, dj_binaries, dj_imports = collect_all("djtoolkit")
 
 a = Analysis(
     ["../../djtoolkit/__main__.py"],
@@ -36,6 +41,7 @@ a = Analysis(
         *typer_binaries,
         *click_binaries,
         *rich_binaries,
+        *dj_binaries,
     ],
     datas=[
         *collect_data_files("librosa"),
@@ -43,10 +49,16 @@ a = Analysis(
         *typer_datas,
         *click_datas,
         *rich_datas,
+        *dj_datas,
     ],
     hiddenimports=[
+        *dj_imports,
         *collect_submodules("djtoolkit"),
         *collect_submodules("aioslsk"),
+        # Explicit agent commands — collect_submodules may miss these in CI
+        "djtoolkit.agent.commands",
+        "djtoolkit.agent.commands.browse_folder",
+        "djtoolkit.agent.commands.scan_folder",
         # librosa optional backends
         "librosa.core",
         "librosa.beat",
@@ -98,8 +110,7 @@ a = Analysis(
         "_tkinter",
         "IPython",
         "jupyter",
-        # JIT deps — llvmlite bundles all of LLVM (~100MB); librosa falls back
-        # to pure Python implementations when numba is not importable.
+        # JIT deps
         "numba",
         "llvmlite",
     ],
@@ -111,19 +122,27 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="djtoolkit",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity="-",
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="djtoolkit",
 )
