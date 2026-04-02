@@ -18,13 +18,19 @@ if not os.path.exists(FPCALC_PATH):
 
 # collect_all returns (datas, binaries, hiddenimports) — use it for packages
 # that collect_submodules fails to detect (e.g. typer in CI)
+# Add site-packages to pathex so PyInstaller can find all installed packages.
+# On macOS CI, PyInstaller sometimes fails to locate packages like typer
+# when running inside a uv-managed venv.
+import site as _site
+_site_packages = _site.getsitepackages() + ([_site.getusersitepackages()] if _site.ENABLE_USER_SITE else [])
+
 typer_datas, typer_binaries, typer_imports = collect_all("typer")
 click_datas, click_binaries, click_imports = collect_all("click")
 rich_datas, rich_binaries, rich_imports = collect_all("rich")
 
 a = Analysis(
     ["../../djtoolkit/__main__.py"],
-    pathex=[],
+    pathex=_site_packages,
     binaries=[
         (FPCALC_PATH, "bin"),
         *typer_binaries,
