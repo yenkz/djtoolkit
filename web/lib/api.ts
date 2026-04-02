@@ -892,3 +892,127 @@ export async function deleteAccount(): Promise<void> {
   const res = await apiClient("/settings/account", { method: "DELETE" });
   if (!res.ok) throw new Error(await extractError(res));
 }
+
+// --- Recommendation Engine Types ---
+
+export interface Venue {
+  id: string;
+  name: string;
+  type: string;
+  city: string;
+  country: string;
+  address: string | null;
+  capacity: number | null;
+  sqm: number | null;
+  genres: string[];
+  mood_tags: string[];
+  dj_cabin_style: string | null;
+  photo_url: string | null;
+  website_url: string | null;
+  google_maps_url: string | null;
+  google_rating: number | null;
+  target_profile: Record<string, unknown>;
+}
+
+export interface MoodPreset {
+  id: string;
+  name: string;
+  category: string;
+  target_profile: Record<string, unknown>;
+}
+
+export interface SimilarityEdge {
+  source: number;
+  target: number;
+  weight: number;
+}
+
+export interface SeedResponse {
+  session_id: string;
+  context_profile: Record<string, unknown>;
+  seeds: Track[];
+  unanalyzed_count: number;
+}
+
+export interface ExpandResponse {
+  tracks: Track[];
+  energy_arc: string;
+  similarity_edges: SimilarityEdge[];
+}
+
+export interface SeedFeedback {
+  track_id: number;
+  liked: boolean;
+  position: number;
+}
+
+// --- Recommendation Engine API ---
+
+export async function fetchVenues(country?: string): Promise<Venue[]> {
+  const qs = country ? `?country=${encodeURIComponent(country)}` : "";
+  const res = await apiClient(`/venues${qs}`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function fetchVenue(id: string): Promise<Venue> {
+  const res = await apiClient(`/venues/${id}`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function fetchMoodPresets(): Promise<MoodPreset[]> {
+  const res = await apiClient("/mood-presets");
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function generateSeeds(params: {
+  venue_id?: string;
+  mood_preset_id?: string;
+  lineup_position: string;
+}): Promise<SeedResponse> {
+  const res = await apiClient("/recommend/seeds", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function expandSeeds(
+  session_id: string,
+  seed_feedback: SeedFeedback[],
+): Promise<ExpandResponse> {
+  const res = await apiClient("/recommend/expand", {
+    method: "POST",
+    body: JSON.stringify({ session_id, seed_feedback }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function refineResults(
+  session_id: string,
+  feedback: { track_id: number; liked: boolean }[],
+): Promise<ExpandResponse> {
+  const res = await apiClient("/recommend/refine", {
+    method: "POST",
+    body: JSON.stringify({ session_id, feedback }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function exportPlaylist(
+  session_id: string,
+  format: string,
+  playlist_name?: string,
+): Promise<Blob> {
+  const res = await apiClient("/recommend/export", {
+    method: "POST",
+    body: JSON.stringify({ session_id, format, playlist_name }),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.blob();
+}
