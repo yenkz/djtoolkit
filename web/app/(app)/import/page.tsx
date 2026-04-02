@@ -24,8 +24,15 @@ import {
   type TrackIdJobStatus,
   type ParseResult,
   type Agent,
+  getImportJobStatus,
+  getFolderImportDuplicates,
+  type ImportJobStatus,
+  type FolderImportProgress,
+  type DuplicatePair,
 } from "@/lib/api";
 import { FolderBrowser } from "@/components/folder-import/FolderBrowser";
+import { FolderImportReport } from "@/components/folder-import/FolderImportReport";
+import { DuplicateReview } from "@/components/folder-import/DuplicateReview";
 import { createClient } from "@/lib/supabase/client";
 import { usePreviewPlayer } from "@/lib/preview-player-context";
 import LCDDisplay from "@/components/ui/LCDDisplay";
@@ -649,6 +656,37 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
     total_count: number;
   } | null>(null);
   const [folderImporting, setFolderImporting] = useState(false);
+  const [importJobId, setImportJobId] = useState<string | null>(null);
+  const [importPhase, setImportPhase] = useState<"input" | "preview" | "progress" | "results">("input");
+  const [importProgress, setImportProgress] = useState<FolderImportProgress | null>(null);
+  const [showDuplicateReview, setShowDuplicateReview] = useState(false);
+  const [duplicatePairs, setDuplicatePairs] = useState<DuplicatePair[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  async function doScanFolder(agentId: string, path: string) {
+    setFolderScanning(true);
+    try {
+      const { id } = await sendAgentCommand(agentId, "scan_folder", { path });
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const cmd = await getAgentCommandResult(id);
+        if (cmd.status === "completed" && cmd.result) {
+          setFolderScanResult(cmd.result as NonNullable<typeof folderScanResult>);
+          setImportPhase("preview");
+          return;
+        }
+        if (cmd.status === "failed") {
+          toast.error(cmd.error ?? "Scan failed");
+          return;
+        }
+      }
+      toast.error("Scan timed out");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Scan failed");
+    } finally {
+      setFolderScanning(false);
+    }
+  }
 
   function formatElapsed(startMs: number): string {
     const sec = Math.floor((Date.now() - startMs) / 1000);
@@ -779,6 +817,45 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
       })
       .catch(() => {});
   }, []);
+
+  // Poll job status during progress phase
+  useEffect(() => {
+    if (importPhase !== "progress" || !importJobId) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const status = await getImportJobStatus(importJobId);
+          if (cancelled) break;
+
+          if (status.result) {
+            setImportProgress(status.result as FolderImportProgress);
+          }
+
+          if (status.status === "completed" || (status.result as FolderImportProgress | null)?.stage === "complete") {
+            setImportPhase("results");
+            break;
+          }
+          if (status.status === "failed") {
+            toast.error("Import failed");
+            setImportPhase("results");
+            break;
+          }
+        } catch {
+          // Network error — retry on next cycle
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    };
+    poll();
+    return () => { cancelled = true; };
+  }, [importPhase, importJobId]);
+
+  // Auto-scroll log feed
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [importProgress?.log?.length]);
 
   async function handleContinue() {
     if (sourcesSelected === 0) return;
@@ -1140,12 +1217,190 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
           icon={SRC_ICONS.agent}
           title="Local Folder"
           desc="Import audio files from a folder on your agent's machine"
+          active={importPhase === "progress" || importPhase === "results"}
         >
           {!selectedAgent ? (
             <p className="font-mono text-[10px]" style={{ color: "var(--hw-text-muted)" }}>
               No agent connected — install the agent first
             </p>
-          ) : folderScanResult ? (
+          ) : importPhase === "progress" ? (
+            /* ── Progress: live log feed ── */
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div
+                className="font-mono"
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.8,
+                  maxHeight: 300,
+                  overflowY: "auto",
+                  background: "var(--hw-input-bg)",
+                  border: "1px solid var(--hw-border-light)",
+                  borderRadius: 5,
+                  padding: "10px 12px",
+                }}
+              >
+                {!importProgress ? (
+                  <div style={{ color: "var(--led-blue)", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                      background: "var(--led-blue)", boxShadow: "0 0 8px var(--led-blue)",
+                      animation: "pulse 1.5s infinite",
+                    }} />
+                    <span style={{ color: "var(--hw-text-dim)" }}>Waiting for agent...</span>
+                  </div>
+                ) : (
+                  <>
+                    {importProgress.log.map((entry, i) => {
+                      const isLast = i === importProgress.log.length - 1 && importProgress.stage !== "complete";
+                      if (isLast) {
+                        return (
+                          <div key={i} style={{ color: "var(--led-blue)" }}>
+                            <span style={{ animation: "pulse 1.5s infinite", display: "inline-block" }}>●</span>
+                            {" "}<span style={{ color: "var(--hw-text)" }}>{entry.type === "insert" ? "Import" : "Fingerprint"}</span>
+                            {" "}<span style={{ color: "var(--hw-text-dim)" }}>{entry.track}</span>
+                            <span style={{ animation: "pulse 1.5s infinite", display: "inline-block" }}> ...</span>
+                          </div>
+                        );
+                      }
+                      if (entry.type === "error") {
+                        return (
+                          <div key={i} style={{ color: "var(--hw-error-text)" }}>
+                            ✗ <span style={{ color: "var(--hw-text-dim)" }}>{entry.track}</span>
+                            {entry.message && <span style={{ color: "var(--hw-text-muted)" }}> — {entry.message}</span>}
+                          </div>
+                        );
+                      }
+                      if (entry.type === "fingerprint" && entry.duplicate) {
+                        return (
+                          <div key={i} style={{ color: "var(--hw-warning-text, #f59e0b)" }}>
+                            ⚠ <span style={{ color: "var(--hw-text-dim)" }}>Duplicate</span>
+                            {" "}<span style={{ color: "var(--hw-text-muted)" }}>{entry.track}</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={i} style={{ color: "var(--hw-text-muted)" }}>
+                          <span style={{ color: "var(--hw-success-text)" }}>✓</span>
+                          {" "}<span style={{ color: "var(--hw-text-dim)" }}>{entry.type === "insert" ? "Import" : "Fingerprint"}</span>
+                          {" "}<span>{entry.track}</span>
+                        </div>
+                      );
+                    })}
+                    <div ref={logEndRef} />
+                  </>
+                )}
+              </div>
+              {importProgress && (
+                <div className="font-mono" style={{
+                  fontSize: 10,
+                  color: "var(--hw-text-muted)",
+                  borderTop: "1px solid var(--hw-border)",
+                  paddingTop: 6,
+                }}>
+                  <span style={{ color: "var(--led-blue)" }}>{importProgress.progress.done}</span>
+                  /{importProgress.progress.total}
+                  {" · "}
+                  <span style={{ color: "var(--hw-success-text)" }}>{importProgress.inserted}</span> inserted
+                  {" · "}
+                  <span style={{ color: "var(--hw-warning-text, #f59e0b)" }}>{importProgress.duplicates}</span> dupes
+                  {importProgress.errors > 0 && (
+                    <>
+                      {" · "}
+                      <span style={{ color: "var(--hw-error-text)" }}>{importProgress.errors}</span> errors
+                    </>
+                  )}
+                </div>
+              )}
+              <style>{`@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
+            </div>
+          ) : importPhase === "results" ? (
+            /* ── Results: summary + report + optional duplicate review ── */
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Collapsed summary */}
+              <div className="font-mono" style={{
+                fontSize: 11,
+                padding: "8px 12px",
+                background: "var(--hw-input-bg)",
+                borderRadius: 5,
+                borderLeft: "3px solid var(--hw-success-text)",
+              }}>
+                <span style={{ color: "var(--hw-success-text)" }}>✓</span>
+                {" "}Imported <strong style={{ color: "var(--hw-text)" }}>{importProgress?.inserted ?? 0}</strong> tracks
+                {(importProgress?.duplicates ?? 0) > 0 && (
+                  <> · <span style={{ color: "var(--hw-warning-text, #f59e0b)" }}>{importProgress?.duplicates}</span> duplicates skipped</>
+                )}
+                {(importProgress?.errors ?? 0) > 0 && (
+                  <> · <span style={{ color: "var(--hw-error-text)" }}>{importProgress?.errors}</span> errors</>
+                )}
+              </div>
+
+              {/* Metadata completeness report */}
+              {importJobId && <FolderImportReport jobId={importJobId} />}
+
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: 8 }}>
+                {(importProgress?.duplicates ?? 0) > 0 && (
+                  <ActionButton
+                    variant="outline"
+                    onClick={async () => {
+                      if (!showDuplicateReview && importJobId) {
+                        try {
+                          const data = await getFolderImportDuplicates(importJobId);
+                          setDuplicatePairs(data.duplicates);
+                        } catch { /* ignore */ }
+                      }
+                      setShowDuplicateReview(!showDuplicateReview);
+                    }}
+                  >
+                    {showDuplicateReview ? "Hide duplicates" : `Review ${importProgress?.duplicates ?? 0} duplicates`}
+                  </ActionButton>
+                )}
+                <ActionButton
+                  onClick={() => {
+                    setImportPhase("input");
+                    setImportJobId(null);
+                    setImportProgress(null);
+                    setFolderScanResult(null);
+                    setFolderPath("");
+                    setShowDuplicateReview(false);
+                    setDuplicatePairs([]);
+                  }}
+                >
+                  Done
+                </ActionButton>
+              </div>
+
+              {/* Duplicate review (optional) */}
+              {showDuplicateReview && duplicatePairs.length > 0 && (
+                <DuplicateReview
+                  pendingTracks={duplicatePairs.map((d) => ({
+                    id: d.new_track.id,
+                    title: d.new_track.title,
+                    artist: d.new_track.artist,
+                    local_path: d.new_track.local_path,
+                    extension: d.new_track.local_path.split(".").pop() ?? "",
+                    size_display: "",
+                    duplicate_track_id: d.existing_track?.id ?? 0,
+                    duplicate_title: d.existing_track?.title ?? "Unknown",
+                    duplicate_artist: d.existing_track?.artist ?? "Unknown",
+                    duplicate_extension: "",
+                    duplicate_size_display: "",
+                    duplicate_enriched: false,
+                    duplicate_has_art: false,
+                    duplicate_in_library: false,
+                    confidence: 1.0,
+                  }))}
+                  importedCount={importProgress?.inserted ?? 0}
+                  processingCount={0}
+                  onDecisionsComplete={() => {
+                    setShowDuplicateReview(false);
+                    toast.success("Duplicate decisions saved");
+                  }}
+                />
+              )}
+            </div>
+          ) : importPhase === "preview" && folderScanResult ? (
+            /* ── Preview: file list + import button ── */
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div className="font-mono" style={{ fontSize: 11, color: "var(--hw-text-secondary)" }}>
                 Found <strong style={{ color: "var(--hw-text)" }}>{folderScanResult.total_count}</strong> audio file{folderScanResult.total_count !== 1 ? "s" : ""} in{" "}
@@ -1185,7 +1440,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
               <div style={{ display: "flex", gap: 8 }}>
                 <ActionButton
                   variant="ghost"
-                  onClick={() => { setFolderScanResult(null); setFolderPath(""); }}
+                  onClick={() => { setFolderScanResult(null); setFolderPath(""); setImportPhase("input"); }}
                 >
                   Cancel
                 </ActionButton>
@@ -1194,9 +1449,9 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                   onClick={async () => {
                     setFolderImporting(true);
                     try {
-                      await importFolder(selectedAgent!, folderScanResult!.path);
-                      toast.success(`Importing ${folderScanResult!.total_count} tracks — duplicates will be flagged for review`);
-                      router.push("/pipeline");
+                      const { id } = await importFolder(selectedAgent!, folderScanResult!.path);
+                      setImportJobId(id);
+                      setImportPhase("progress");
                     } catch (e) {
                       toast.error(e instanceof Error ? e.message : "Import failed");
                     } finally {
@@ -1209,6 +1464,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
               </div>
             </div>
           ) : (
+            /* ── Input: path + scan (default) ── */
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input
@@ -1227,28 +1483,9 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                     color: "var(--hw-text)",
                     outline: "none",
                   }}
-                  onKeyDown={async (e) => {
+                  onKeyDown={(e) => {
                     if (e.key === "Enter" && folderPath.trim() && selectedAgent) {
-                      setFolderScanning(true);
-                      try {
-                        const { id } = await sendAgentCommand(selectedAgent, "scan_folder", { path: folderPath.trim() });
-                        for (let i = 0; i < 60; i++) {
-                          await new Promise((r) => setTimeout(r, 500));
-                          const cmd = await getAgentCommandResult(id);
-                          if (cmd.status === "completed" && cmd.result) {
-                            setFolderScanResult(cmd.result as NonNullable<typeof folderScanResult>);
-                            break;
-                          }
-                          if (cmd.status === "failed") {
-                            toast.error(cmd.error ?? "Scan failed");
-                            break;
-                          }
-                        }
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "Scan failed");
-                      } finally {
-                        setFolderScanning(false);
-                      }
+                      doScanFolder(selectedAgent, folderPath.trim());
                     }
                   }}
                 />
@@ -1261,27 +1498,9 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
               </div>
               <ActionButton
                 disabled={!folderPath.trim() || folderScanning}
-                onClick={async () => {
-                  if (!folderPath.trim() || !selectedAgent) return;
-                  setFolderScanning(true);
-                  try {
-                    const { id } = await sendAgentCommand(selectedAgent, "scan_folder", { path: folderPath.trim() });
-                    for (let i = 0; i < 60; i++) {
-                      await new Promise((r) => setTimeout(r, 500));
-                      const cmd = await getAgentCommandResult(id);
-                      if (cmd.status === "completed" && cmd.result) {
-                        setFolderScanResult(cmd.result as NonNullable<typeof folderScanResult>);
-                        break;
-                      }
-                      if (cmd.status === "failed") {
-                        toast.error(cmd.error ?? "Scan failed");
-                        break;
-                      }
-                    }
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Scan failed");
-                  } finally {
-                    setFolderScanning(false);
+                onClick={() => {
+                  if (folderPath.trim() && selectedAgent) {
+                    doScanFolder(selectedAgent, folderPath.trim());
                   }
                 }}
               >
