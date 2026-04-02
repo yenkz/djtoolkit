@@ -952,6 +952,53 @@ def agent_run(
         pass
 
 
+@agent_app.command("tray")
+def agent_tray(
+    config: Annotated[str | None, typer.Option(help="Path to config file")] = None,
+):
+    """Run the agent daemon with a system tray icon (menu bar on macOS, tray on Windows).
+
+    The daemon runs in a background thread while the tray occupies the main thread.
+    This is the recommended way to run the agent on desktop systems.
+    """
+    import logging
+    from djtoolkit.agent.tray import run_tray
+    from djtoolkit.agent.paths import config_dir, log_dir
+
+    config_path = config if config else str(config_dir() / "config.toml")
+
+    _log_dir = log_dir()
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[logging.FileHandler(_log_dir / "agent.log")],
+    )
+
+    cfg = _cfg(config_path)
+    run_tray(cfg)
+
+
+@agent_app.command("deeplink", hidden=True)
+def agent_deeplink(
+    url: Annotated[str, typer.Argument(help="djtoolkit:// URL to handle")],
+):
+    """Handle a djtoolkit:// deep link URL. Used by the OS URL scheme handler."""
+    from djtoolkit.agent.deeplink import handle_deeplink
+
+    ok = handle_deeplink(url)
+    if ok:
+        console.print("[green]✓[/green] Agent configured from deep link. Starting agent...")
+        # Start the tray+daemon
+        import subprocess
+        import sys as _sys
+        binary = _sys.executable if not getattr(_sys, "frozen", False) else _sys.argv[0]
+        subprocess.Popen([binary, "agent", "tray"])
+    else:
+        console.print("[red]Failed to process deep link.[/red]")
+        raise typer.Exit(1)
+
+
 @agent_app.command("service-entry", hidden=True)
 def agent_service_entry():
     """Entry point for the Windows Service. Not for manual use."""
@@ -1083,55 +1130,41 @@ sources = "coverart itunes deezer"
 # ─── setup command ────────────────────────────────────────────────────────────
 
 @app.command("setup")
-def setup_wizard():
-    """Launch the Setup Assistant (GUI if available, otherwise interactive terminal wizard)."""
-    import subprocess
-    import sys as _sys
+def setup_wizard(
+    browser: Annotated[bool, typer.Option("--browser", help="Open browser-based setup")] = False,
+    terminal: Annotated[bool, typer.Option("--terminal", help="Force terminal wizard")] = False,
+):
+    """Set up the djtoolkit agent — browser-based onboarding or interactive terminal wizard.
 
-    if _sys.platform == "darwin":
-        # Search for the .app bundle on macOS
-        search_paths = [
-            Path("/opt/homebrew/share/djtoolkit/DJToolkit Setup.app"),
-            Path("/usr/local/share/djtoolkit/DJToolkit Setup.app"),
-            Path(__file__).parent.parent / "DJToolkit Setup.app",
-        ]
+    By default, opens the browser for a guided setup experience. Use --terminal
+    for a text-based wizard in the terminal.
+    """
+    import webbrowser as _wb
 
-        app_path = None
-        for p in search_paths:
-            if p.exists():
-                app_path = p
-                break
+    from djtoolkit.agent.keychain import has_secret, API_KEY
 
-        if app_path is None:
-            _setup_terminal_wizard()
-            return
+    if has_secret(API_KEY) and not terminal and not browser:
+        console.print("[green]Agent already configured.[/green]")
+        console.print("  Use [bold]djtoolkit agent status[/bold] to check the agent.")
+        console.print("  Use [bold]djtoolkit setup --terminal[/bold] to reconfigure.")
+        return
 
-        console.print("Opening Setup Assistant...")
-        subprocess.run(["open", str(app_path)])
-
-    elif _sys.platform == "win32":
-        import os
-        # Search for the .exe on Windows
-        search_paths = [
-            Path(os.environ.get("PROGRAMFILES", "C:\\Program Files")) / "djtoolkit" / "DJToolkit Setup.exe",
-            Path(__file__).parent.parent / "DJToolkit Setup.exe",
-        ]
-
-        exe_path = None
-        for p in search_paths:
-            if p.exists():
-                exe_path = p
-                break
-
-        if exe_path is None:
-            _setup_terminal_wizard()
-            return
-
-        console.print("Opening Setup Assistant...")
-        subprocess.run([str(exe_path)])
-
-    else:
+    if terminal:
         _setup_terminal_wizard()
+        return
+
+    # Browser-based onboarding (default)
+    setup_url = "https://www.djtoolkit.net/agent-connect"
+    console.print()
+    console.print("[bold]Opening browser for agent setup...[/bold]")
+    console.print(f"  If the browser doesn't open, visit: [link={setup_url}]{setup_url}[/link]")
+    console.print()
+    console.print("  Complete the setup in your browser. The agent will start automatically")
+    console.print("  once you connect it.")
+    console.print()
+    console.print("[dim]  Prefer the terminal? Use: djtoolkit setup --terminal[/dim]")
+
+    _wb.open(setup_url)
 
 
 if __name__ == "__main__":

@@ -60,6 +60,8 @@ a = Analysis(
         "keyring",
         "keyring.backends",
         "keyring.backends.macOS",
+        # System tray (menu bar)
+        "rumps",
         # typer / click / rich
         *typer_imports,
         *click_imports,

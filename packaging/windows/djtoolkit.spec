@@ -57,6 +57,9 @@ a = Analysis(
         "win32service",
         "win32event",
         "servicemanager",
+        # System tray
+        "pystray",
+        "pystray._win32",
         # typer / click internals
         "typer",
         "typer.main",
