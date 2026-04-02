@@ -312,6 +312,34 @@ export interface PipelineTrack {
   updated_at: string;
 }
 
+export interface FailedJob {
+  id: string;
+  job_type: string;
+  error: string | null;
+  completed_at: string | null;
+  retry_count: number;
+}
+
+export interface TrackWithFailedJobs {
+  id: number;
+  title: string;
+  artist: string;
+  album: string | null;
+  artwork_url: string | null;
+  acquisition_status: string;
+  source: string | null;
+  created_at: string;
+  updated_at: string;
+  failed_jobs: FailedJob[];
+}
+
+export interface TrackWithFailedJobsList {
+  tracks: TrackWithFailedJobs[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 export interface PipelineMonitorStatus {
   candidate: number;
   searching: number;
@@ -321,6 +349,7 @@ export interface PipelineMonitorStatus {
   downloading: number;
   failed: number;
   paused: number;
+  job_failures: number;
   agents: { id: string; machine_name: string; last_seen_at: string; capabilities: string[] }[];
 }
 
@@ -354,6 +383,20 @@ export async function fetchPipelineTracks(params: {
   if (params.search) sp.set("search", params.search);
   const res = await apiClient(`/pipeline/tracks?${sp}`);
   if (!res.ok) throw new Error("Failed to fetch pipeline tracks");
+  return res.json();
+}
+
+export async function fetchTracksWithFailedJobs(params: {
+  page?: number;
+  per_page?: number;
+  search?: string;
+}): Promise<TrackWithFailedJobsList> {
+  const sp = new URLSearchParams();
+  if (params.page) sp.set("page", String(params.page));
+  if (params.per_page) sp.set("per_page", String(params.per_page));
+  if (params.search) sp.set("search", params.search);
+  const res = await apiClient(`/pipeline/tracks/with-failed-jobs?${sp}`);
+  if (!res.ok) throw new Error("Failed to fetch tracks with failed jobs");
   return res.json();
 }
 
