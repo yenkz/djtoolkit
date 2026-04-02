@@ -1325,14 +1325,33 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
                 borderRadius: 5,
                 borderLeft: "3px solid var(--hw-success-text)",
               }}>
-                <span style={{ color: "var(--hw-success-text)" }}>✓</span>
-                {" "}Imported <strong style={{ color: "var(--hw-text)" }}>{importProgress?.inserted ?? 0}</strong> tracks
-                {(importProgress?.duplicates ?? 0) > 0 && (
-                  <> · <span style={{ color: "var(--hw-warning-text, #f59e0b)" }}>{importProgress?.duplicates}</span> duplicates skipped</>
-                )}
-                {(importProgress?.errors ?? 0) > 0 && (
-                  <> · <span style={{ color: "var(--hw-error-text)" }}>{importProgress?.errors}</span> errors</>
-                )}
+                {(() => {
+                  const inserted = importProgress?.inserted ?? 0;
+                  const dupes = importProgress?.duplicates ?? 0;
+                  const errors = importProgress?.errors ?? 0;
+                  const skipped = importProgress?.log?.filter((e) => e.type === "skip").length ?? 0;
+                  return (
+                    <>
+                      <span style={{ color: "var(--hw-success-text)" }}>✓</span>
+                      {inserted > 0 ? (
+                        <>{" "}Imported <strong style={{ color: "var(--hw-text)" }}>{inserted}</strong> tracks</>
+                      ) : skipped > 0 ? (
+                        <>{" "}All <strong style={{ color: "var(--hw-text)" }}>{skipped}</strong> tracks already in library</>
+                      ) : (
+                        <>{" "}Imported <strong style={{ color: "var(--hw-text)" }}>0</strong> tracks</>
+                      )}
+                      {dupes > 0 && (
+                        <> · <span style={{ color: "var(--hw-warning-text, #f59e0b)" }}>{dupes}</span> fingerprint duplicates</>
+                      )}
+                      {skipped > 0 && inserted > 0 && (
+                        <> · <span style={{ color: "var(--hw-text-muted)" }}>{skipped}</span> already imported</>
+                      )}
+                      {errors > 0 && (
+                        <> · <span style={{ color: "var(--hw-error-text)" }}>{errors}</span> errors</>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Metadata completeness report */}
