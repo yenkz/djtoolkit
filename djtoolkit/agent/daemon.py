@@ -448,11 +448,12 @@ async def run_daemon(
             except Exception as exc:
                 log.debug("Command poll error: %s", exc)
 
-            # Wait for Realtime wake or poll interval
+            # Always poll commands at a short interval — Realtime wake is
+            # a bonus but not reliable for commands (unlike pipeline jobs).
             try:
                 await asyncio.wait_for(
                     asyncio.ensure_future(command_wake.wait()),
-                    timeout=5.0 if not realtime_connected else 120.0,
+                    timeout=5.0,
                 )
                 command_wake.clear()
             except asyncio.TimeoutError:
