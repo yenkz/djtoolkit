@@ -47,15 +47,15 @@ export default function AgentConnectPage() {
 
   return (
     <div className="mx-auto max-w-md py-16 text-center">
-      <h1 className="mb-2 text-2xl font-bold">Connect Desktop Agent</h1>
+      <h1 className="mb-2 text-2xl font-bold">Connect Agent</h1>
       <p className="mb-8 text-gray-500">
-        Click the button below to link the djtoolkit desktop agent to your account.
-        You will be prompted to open the djtoolkit app.
+        Click the button below to link the djtoolkit agent to your account.
+        You will be prompted to open djtoolkit.
       </p>
 
       {status === "done" ? (
         <p className="text-green-600">
-          Done! Switch back to the djtoolkit app to finish setup.
+          Done! Switch back to djtoolkit to finish setup.
         </p>
       ) : (
         <button

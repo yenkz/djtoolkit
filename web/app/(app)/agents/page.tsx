@@ -257,191 +257,14 @@ function AgentWizard({
           {/* Show wizard steps only after path is chosen */}
           {path !== null && <WizardSteps step={step} labels={labels} />}
 
-          {/* ── Step 0: Choose path ────────────────────────────────── */}
-          {step === 0 && (
-            <div className="space-y-4">
-              <div className="mb-1">
-                <p className="text-base font-bold text-hw-text">How would you like to install?</p>
-                <p className="mt-1 text-sm text-hw-text-sec">
-                  Choose the installation method for your machine.
-                </p>
-              </div>
+          {/* ── Step 0: Skip path choice — single install flow ──── */}
+          {step === 0 && (() => { setPath("cli"); setStep(1); return null; })()}
 
-              {/* Desktop App card */}
-              <button
-                onClick={() => { setPath("app"); setStep(1); }}
-                className="w-full rounded-[6px] border text-left transition-colors duration-150 hover:border-led-blue/40"
-                style={{
-                  padding: "16px 18px",
-                  borderColor: "var(--hw-card-border)",
-                  background: "var(--hw-card-bg)",
-                }}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-sm font-bold text-hw-text">Desktop App</span>
-                  <span
-                    className="font-mono uppercase"
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: "var(--led-green)",
-                      background: "rgba(68,255,68,0.08)",
-                      padding: "2px 8px",
-                      borderRadius: 3,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    Recommended
-                  </span>
-                </div>
-                <p className="text-xs text-hw-text-dim">
-                  Menu bar app with setup wizard and auto-updates. The app handles credentials and configuration automatically.
-                </p>
-              </button>
-
-              {/* CLI card */}
-              <button
-                onClick={() => { setPath("cli"); setStep(1); }}
-                className="w-full rounded-[6px] border text-left transition-colors duration-150 hover:border-led-blue/40"
-                style={{
-                  padding: "16px 18px",
-                  borderColor: "var(--hw-card-border)",
-                  background: "var(--hw-card-bg)",
-                }}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-sm font-bold text-hw-text">CLI</span>
-                  <span
-                    className="font-mono uppercase"
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: "var(--hw-steel-text, #8A9AAA)",
-                      background: "rgba(138,154,170,0.1)",
-                      padding: "2px 8px",
-                      borderRadius: 3,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    Power users
-                  </span>
-                </div>
-                <p className="text-xs text-hw-text-dim">
-                  Terminal-based setup. Requires manual configuration of credentials and service installation.
-                </p>
-              </button>
-
-              <div className="text-center">
-                <button
-                  onClick={onClose}
-                  className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── Desktop App Step 1: Install ───────────────────────── */}
-          {path === "app" && step === 1 && (
-            <div className="space-y-3">
-              <p className="text-sm text-hw-text-sec">
-                Install the djtoolkit desktop app on your macOS machine:
-              </p>
-
-              {/* Homebrew cask */}
-              <div
-                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
-                style={{ padding: "16px 18px" }}
-              >
-                <div className="mb-2.5 flex items-center gap-2">
-                  <span className="text-sm font-bold text-hw-text">Homebrew</span>
-                  <span
-                    className="font-mono uppercase"
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: "var(--led-green)",
-                      background: "rgba(68,255,68,0.08)",
-                      padding: "2px 8px",
-                      borderRadius: 3,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    Recommended
-                  </span>
-                </div>
-                <CodeBlock code="brew tap yenkz/djtoolkit && brew install --cask djtoolkit" />
-              </div>
-
-              {/* curl script */}
-              <div
-                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
-                style={{ padding: "16px 18px" }}
-              >
-                <p className="mb-2 text-xs text-hw-text-dim">Or install via curl:</p>
-                <CodeBlock code="curl -fsSL https://raw.githubusercontent.com/yenkz/djtoolkit/main/install.sh | bash" />
-              </div>
-
-              {/* Manual download */}
-              <div
-                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
-                style={{ padding: "16px 18px" }}
-              >
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-sm font-bold text-hw-text">Manual download</span>
-                  <a
-                    href="https://github.com/yenkz/djtoolkit/releases/latest"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-[5px] border border-hw-border-light px-4 py-1.5 font-mono text-[11px] font-bold tracking-wide text-hw-text-dim transition-colors hover:border-led-blue/30 hover:text-led-blue"
-                  >
-                    GitHub Releases
-                  </a>
-                </div>
-                <p className="text-xs text-hw-text-dim">
-                  Download the .dmg from the latest release (arm64 + x86_64)
-                </p>
-              </div>
-
-              {/* Info box */}
-              <div
-                className="rounded-[5px] px-3.5 py-2.5 text-sm"
-                style={{
-                  background: "rgba(68,136,255,0.07)",
-                  border: "1px solid rgba(68,136,255,0.18)",
-                  color: "var(--hw-text-sec)",
-                }}
-              >
-                After installing, open the app — the setup wizard will guide you through connecting to your account automatically.
-              </div>
-
-              <button
-                onClick={onClose}
-                className="w-full rounded-[5px] bg-led-blue py-3 font-mono text-xs font-bold uppercase tracking-widest text-white transition-colors hover:bg-led-blue/85"
-                style={{
-                  boxShadow: "0 4px 12px rgba(68,136,255,0.3)",
-                }}
-              >
-                Done
-              </button>
-
-              <div className="text-center">
-                <button
-                  onClick={() => { setPath(null); setStep(0); }}
-                  className="text-sm text-hw-text-dim transition-colors hover:text-hw-text"
-                >
-                  Back
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ── CLI Step 1: Install ───────────────────────────────── */}
+          {/* ── Step 1: Install ───────────────────────────────────── */}
           {path === "cli" && step === 1 && (
             <div className="space-y-3">
               <p className="text-sm text-hw-text-sec">
-                Install the djtoolkit CLI on your macOS machine:
+                Install djtoolkit on your machine:
               </p>
 
               {/* Homebrew formula */}
@@ -469,13 +292,34 @@ function AgentWizard({
                 <CodeBlock code="brew tap yenkz/djtoolkit && brew install djtoolkit" />
               </div>
 
-              {/* pip */}
+              {/* curl script */}
               <div
                 className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
                 style={{ padding: "16px 18px" }}
               >
-                <p className="mb-2 text-xs text-hw-text-dim">Or install via pip:</p>
-                <CodeBlock code="pip install djtoolkit" />
+                <p className="mb-2 text-xs text-hw-text-dim">Or install via curl (macOS):</p>
+                <CodeBlock code="curl -fsSL https://raw.githubusercontent.com/yenkz/djtoolkit/main/install.sh | bash" />
+              </div>
+
+              {/* Manual download */}
+              <div
+                className="rounded-[6px] border border-hw-card-border bg-hw-card-bg"
+                style={{ padding: "16px 18px" }}
+              >
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="text-sm font-bold text-hw-text">Manual download</span>
+                  <a
+                    href="https://github.com/yenkz/djtoolkit/releases/latest"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-[5px] border border-hw-border-light px-4 py-1.5 font-mono text-[11px] font-bold tracking-wide text-hw-text-dim transition-colors hover:border-led-blue/30 hover:text-led-blue"
+                  >
+                    GitHub Releases
+                  </a>
+                </div>
+                <p className="text-xs text-hw-text-dim">
+                  Download the .pkg (macOS) or .msi (Windows) from the latest release
+                </p>
               </div>
 
               <button
@@ -747,15 +591,15 @@ export default function AgentsPage() {
       {!loading && agents.length > 0 && (
         <p className="text-[13px] text-hw-text-muted">
           Agents run on your machine and handle downloading, fingerprinting, and tagging.
-          Install the{" "}
-          <code className="font-mono text-xs" style={{ color: "var(--hw-steel-text, #8A9AAA)" }}>
-            brew install --cask djtoolkit
-          </code>{" "}
-          desktop app or the{" "}
+          Install with{" "}
           <code className="font-mono text-xs" style={{ color: "var(--hw-steel-text, #8A9AAA)" }}>
             brew install djtoolkit
           </code>{" "}
-          CLI.
+          then run{" "}
+          <code className="font-mono text-xs" style={{ color: "var(--hw-steel-text, #8A9AAA)" }}>
+            djtoolkit setup
+          </code>{" "}
+          to connect.
         </p>
       )}
 

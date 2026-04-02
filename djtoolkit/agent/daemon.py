@@ -496,7 +496,7 @@ async def run_daemon(
             pass
 
         while not shutdown_event.is_set():
-            # Check for pause flag file (managed by Tauri app)
+            # Check for pause flag file (managed by tray app)
             pause_file = config_dir() / "agent_paused"
             if pause_file.exists():
                 log.info("Agent is paused (flag file exists), skipping poll cycle")

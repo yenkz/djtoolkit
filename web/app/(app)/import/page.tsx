@@ -2009,11 +2009,11 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone: _on
       </p>
 
       <div className="flex flex-col gap-3.5">
-        {/* Desktop App (recommended) */}
+        {/* Install djtoolkit */}
         <SourceCard
           icon={SRC_ICONS.homebrew}
-          title="Desktop App"
-          desc="Menu bar app with setup wizard and auto-updates. The app will guide you through setup automatically."
+          title="Install djtoolkit"
+          desc="CLI + system tray + background daemon — all in one binary."
           active
         >
           <span
@@ -2029,7 +2029,7 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone: _on
           >
             recommended
           </span>
-          <CopyBlock text="brew tap yenkz/djtoolkit && brew install --cask djtoolkit" />
+          <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
           <div className="mt-3 flex items-center gap-3">
             <a
               href="https://github.com/yenkz/djtoolkit/releases/latest"
@@ -2052,28 +2052,6 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone: _on
             </span>
           </div>
         </SourceCard>
-
-        {/* CLI (power users) */}
-        <SourceCard
-          icon={SRC_ICONS.download}
-          title="CLI"
-          desc="Terminal-based install for power users."
-        >
-          <span
-            className="font-mono text-[10px] font-bold uppercase inline-block mb-3"
-            style={{
-              color: "var(--hw-steel-text, #8A9AAA)",
-              background: "rgba(138,154,170,0.1)",
-              border: "1px solid rgba(138,154,170,0.2)",
-              padding: "3px 10px",
-              borderRadius: 4,
-              letterSpacing: 1,
-            }}
-          >
-            for power users
-          </span>
-          <CopyBlock text="brew tap yenkz/djtoolkit && brew install djtoolkit" />
-        </SourceCard>
       </div>
 
       {/* CLI setup */}
@@ -2088,7 +2066,7 @@ function Step3Agent({ apiKey, setApiKey, machineName, onAgentChange, onDone: _on
           className="font-sans text-xs mb-2.5"
           style={{ color: "var(--hw-text-dim)" }}
         >
-          If you installed the desktop app, skip this — the app handles setup automatically.
+          After installing, run <code className="font-mono" style={{ fontSize: 11 }}>djtoolkit setup</code> to connect your account.
         </p>
         {registering || !apiKey ? (
           <div className="font-sans text-sm py-2" style={{ color: "var(--hw-text-dim)" }}>

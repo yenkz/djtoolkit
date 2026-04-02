@@ -63,7 +63,8 @@ djtoolkit agent start / stop       # start or stop the daemon
 djtoolkit agent status             # check daemon status
 djtoolkit agent logs               # view daemon logs
 djtoolkit agent run                # run jobs locally (manual/testing, no daemon)
-djtoolkit setup                    # launch Setup Assistant GUI (macOS/Windows) or terminal wizard
+djtoolkit agent tray               # run daemon + system tray icon (recommended for desktop)
+djtoolkit setup                    # browser-based setup wizard (or --terminal for CLI wizard)
 
 # Not yet implemented (stubs)
 # make normalize                  # ReplayGain/EBU R128 loudness normalization
@@ -144,8 +145,7 @@ djtoolkit/
 │   └── utils/
 │       └── search_string.py    # build Soulseek search query from track metadata
 ├── web/                        # Next.js app (Vercel) — UI + API routes
-├── setup-assistant/            # macOS Setup Assistant (Xcode/SwiftUI)
-├── setup-assistant-windows/    # Windows Setup Assistant (.NET/WinUI 3)
+├── (removed: setup-assistant/, setup-assistant-windows/, agent-app/)
 ├── legacy/
 │   └── spotify_oauth/          # deprecated OAuth-based Spotify import — DO NOT USE
 ├── tests/
@@ -304,7 +304,7 @@ The agent is a background service that polls Supabase Realtime for `pipeline_job
 
 ### Credentials
 
-Agent credentials are stored in the OS keychain via `keychain.py` (macOS Keychain / Windows Credential Manager). `djtoolkit agent configure` runs an interactive wizard; `configure-headless` accepts JSON on stdin (used by the Setup Assistants).
+Agent credentials are stored in the OS keychain via `keychain.py` (macOS Keychain / Windows Credential Manager). `djtoolkit agent configure` runs an interactive wizard; `configure-headless` accepts JSON on stdin; `djtoolkit setup` opens the browser for guided onboarding.
 
 ### Pipeline Jobs
 
@@ -341,12 +341,9 @@ Workflows in `.github/workflows/`:
 | --- | --- |
 | `ci-web.yml` | Next.js lint + build |
 | `ci-api.yml` | FastAPI service CI |
-| `ci-agents.yml` | Build Setup Assistants (macOS Xcode + Windows MSBuild) |
-| `ci-tauri-agent.yml` | Tauri agent app CI |
 | `deploy-api.yml` | Deploy FastAPI service |
 | `release-macos.yml` | macOS installer release |
 | `release-windows.yml` | Windows installer release |
-| `release-tauri-agent.yml` | Tauri agent release |
 
 ---
 

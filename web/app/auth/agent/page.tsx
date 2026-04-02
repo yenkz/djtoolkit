@@ -8,8 +8,8 @@ import LEDText from "@/components/ui/LEDText";
 /**
  * Agent authentication page.
  *
- * The desktop Tauri app opens this URL with ?port=XXXXX.
- * If the user is signed in, sends the access token to the desktop app
+ * The djtoolkit agent opens this URL with ?port=XXXXX.
+ * If the user is signed in, sends the access token to the agent
  * via localhost callback. If not signed in, redirects to /login first.
  */
 export default function AgentAuthPage() {
@@ -31,17 +31,17 @@ export default function AgentAuthPage() {
       setStatus("redirecting");
       const token = session.access_token;
 
-      // Get the localhost port from query params (passed by the Tauri app)
+      // Get the localhost port from query params (passed by the agent)
       const params = new URLSearchParams(window.location.search);
       const port = params.get("port");
 
       if (port) {
-        // Send token to the desktop app's localhost callback server
+        // Send token to the agent's localhost callback server
         try {
           window.location.href = `http://127.0.0.1:${port}/callback?token=${token}`;
           setStatus("done");
         } catch {
-          setError("Failed to connect to the desktop app. Make sure it's running.");
+          setError("Failed to connect to the djtoolkit agent. Make sure it's running.");
           setStatus("error");
         }
       } else {
@@ -49,7 +49,7 @@ export default function AgentAuthPage() {
         window.location.href = `djtoolkit://auth/callback#access_token=${token}`;
         setTimeout(() => {
           setStatus("error");
-          setError("Could not open the desktop app. Make sure djtoolkit is installed and running.");
+          setError("Could not open djtoolkit. Make sure it is installed and running.");
         }, 3000);
       }
     })();
@@ -93,7 +93,7 @@ export default function AgentAuthPage() {
         {status === "redirecting" && (
           <>
             <Spinner />
-            <StatusText>Connecting to desktop app...</StatusText>
+            <StatusText>Connecting to agent...</StatusText>
           </>
         )}
 

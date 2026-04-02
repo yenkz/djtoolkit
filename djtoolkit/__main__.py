@@ -672,7 +672,7 @@ def agent_configure_headless(
 ):
     """Non-interactive agent configuration — reads credentials from stdin JSON.
 
-    Used by the Setup Assistant GUI. Outputs JSON to stdout.
+    Used by automated setup flows and the deep link handler. Outputs JSON to stdout.
     """
     import json as _json
     import sys as _sys

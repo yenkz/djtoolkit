@@ -114,38 +114,39 @@ Pages: import, catalog, pipeline, agents, settings.
 
 ## Local Agent
 
-The agent is a desktop app (Tauri) that runs in the system tray and manages a background daemon on your machine. The daemon polls the cloud API for jobs (download, fingerprint, metadata, cover art) and executes them locally.
+The agent is a single Python binary that handles CLI commands, a background daemon, and a system tray icon. It polls the cloud API for jobs (download, fingerprint, metadata, cover art) and executes them locally — your files never leave your machine.
 
-### Installing the desktop app
+### Installing
 
 #### macOS
 
-1. Download the `.dmg` from the [latest release](../../releases/latest)
-2. Open the `.dmg` and drag **djtoolkit** to your Applications folder
-3. On first launch macOS will block the app because it is not from a verified developer:
-   - Open **System Settings → Privacy & Security**
-   - Scroll down to the blocked app notice and click **Open Anyway**
-   - Click **Open** in the confirmation dialog
-4. The app will appear in the menu bar. Follow the setup wizard to sign in and enter your Soulseek credentials.
+```bash
+# Homebrew (recommended)
+brew tap yenkz/djtoolkit && brew install djtoolkit
 
-> **Why does macOS block it?**
-> The app is ad-hoc signed (no paid Apple Developer certificate). It is safe to open — just follow the "Open Anyway" steps above instead of running any terminal command.
+# Or one-line installer
+curl -fsSL https://raw.githubusercontent.com/yenkz/djtoolkit/main/install.sh | bash
+```
 
 #### Windows
 
-1. Download the `.msi` from the [latest release](../../releases/latest)
-2. Run the installer — Windows may show a SmartScreen warning, click **More info → Run anyway**
-3. The app will appear in the system tray. Follow the setup wizard.
+Download the `.msi` from the [latest release](../../releases/latest) and run the installer.
 
-### Running the agent manually (CLI)
+### Setup
 
 ```bash
-djtoolkit agent start      # start the background daemon
-djtoolkit agent stop       # stop the daemon
-djtoolkit agent status     # check daemon status
+djtoolkit setup              # opens browser to connect your account (recommended)
+djtoolkit setup --terminal   # interactive terminal wizard
 ```
 
-On macOS the daemon can also be installed as a launchd service to auto-start on login.
+### Running the agent
+
+```bash
+djtoolkit agent tray       # system tray + daemon (recommended)
+djtoolkit agent run        # headless daemon only
+djtoolkit agent install    # install as launchd (macOS) / Windows Service
+djtoolkit agent status     # check daemon status
+```
 
 ---
 

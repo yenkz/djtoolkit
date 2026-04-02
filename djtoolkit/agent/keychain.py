@@ -74,12 +74,11 @@ def store_agent_credentials(
 
 
 def _load_credentials_json() -> dict[str, str | None]:
-    """Load credentials from credentials.json (written by the Tauri app).
+    """Load credentials from credentials.json (written by the agent setup process).
 
-    This is the primary credential source on Windows because the Rust
-    ``keyring`` crate and Python ``keyring`` library use incompatible
-    target name formats in Windows Credential Manager, and PyInstaller
-    may not bundle keyring backends correctly.
+    This is the primary credential source on Windows because PyInstaller
+    may not bundle keyring backends correctly, and the Python ``keyring``
+    library can be unreliable in frozen environments.
     """
     import json
     from djtoolkit.agent.paths import config_dir

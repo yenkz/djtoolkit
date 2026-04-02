@@ -21,13 +21,13 @@ def test_config_dir_win32(monkeypatch, tmp_path):
 
 
 def test_log_dir_darwin(monkeypatch):
-    """macOS: log dir is ~/.djtoolkit (same as config_dir for Tauri log viewer)."""
+    """macOS: log dir is ~/.djtoolkit (same as config_dir for tray log viewer)."""
     monkeypatch.setattr(sys, "platform", "darwin")
     assert paths.log_dir() == Path.home() / ".djtoolkit"
 
 
 def test_log_dir_win32(monkeypatch, tmp_path):
-    """Windows: log dir is %APPDATA%/djtoolkit (same as config_dir for Tauri log viewer)."""
+    """Windows: log dir is %APPDATA%/djtoolkit (same as config_dir for tray log viewer)."""
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("APPDATA", str(tmp_path))
     assert paths.log_dir() == tmp_path / "djtoolkit"
