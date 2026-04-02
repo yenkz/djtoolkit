@@ -15,9 +15,12 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files, coll
 # fpcalc is bundled separately by the CI workflow, not by PyInstaller.
 # The Tauri app has its own externalBin entry for fpcalc.
 
-# Add venv site-packages to pathex (CI fix — same as djtoolkit.spec)
+# Add venv site-packages AND repo root to pathex.
+# In CI, djtoolkit is installed as editable (lives at repo root, not site-packages).
+# PyInstaller needs both paths to resolve all hidden imports.
 _venv_sp = os.environ.get("VENV_SITE_PACKAGES", "")
-_extra_paths = [_venv_sp] if _venv_sp else []
+_repo_root = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
+_extra_paths = [p for p in [_venv_sp, _repo_root] if p]
 
 # collect_all for packages that collect_submodules misses in CI
 typer_datas, typer_binaries, typer_imports = collect_all("typer")
