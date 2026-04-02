@@ -262,13 +262,17 @@ export default function CatalogPage() {
   const analyzableSelected = useMemo(
     () =>
       filteredTracks.filter(
-        (t) => selected.has(t.id) && !t.enriched_audio && t.local_path,
+        (t) => selected.has(t.id) && (!t.enriched_audio || !t.cover_art_written) && t.local_path,
       ),
     [filteredTracks, selected],
   );
 
+  const availableCount = stats?.by_status?.available ?? 0;
   const needsAnalysisCount = stats
-    ? (stats.by_status?.available ?? 0) - (stats.flags?.enriched_audio ?? 0)
+    ? Math.max(
+        availableCount - (stats.flags?.enriched_audio ?? 0),
+        availableCount - (stats.flags?.cover_art_written ?? 0),
+      )
     : 0;
 
   async function handleAnalyzeSelected() {
@@ -277,16 +281,19 @@ export default function CatalogPage() {
     setAnalyzing(true);
     try {
       const result = await analyzeTracksBulk(ids);
-      toast.success(
-        `${result.created} analysis job${result.created !== 1 ? "s" : ""} queued`,
-      );
+      const parts: string[] = [];
+      if (result.created > 0) parts.push(`${result.created} analysis`);
+      if (result.cover_art_created > 0) parts.push(`${result.cover_art_created} cover art`);
+      if (parts.length > 0) {
+        toast.success(`${parts.join(" + ")} job${result.created + result.cover_art_created !== 1 ? "s" : ""} queued`);
+      }
       if (result.skipped > 0) {
         toast.info(`${result.skipped} tracks skipped`);
       }
       setSelected(new Set());
       load();
     } catch {
-      toast.error("Failed to queue analysis jobs");
+      toast.error("Failed to queue jobs");
     } finally {
       setAnalyzing(false);
       setConfirmAnalyze(false);
@@ -294,20 +301,23 @@ export default function CatalogPage() {
   }
 
   async function handleAnalyzeAll() {
-    // Analyze all unanalyzed available tracks on current page
+    // Analyze all unanalyzed / missing-artwork available tracks on current page
     const ids = filteredTracks
-      .filter((t) => !t.enriched_audio && t.local_path)
+      .filter((t) => (!t.enriched_audio || !t.cover_art_written) && t.local_path)
       .map((t) => t.id);
     if (ids.length === 0) return;
     setAnalyzing(true);
     try {
       const result = await analyzeTracksBulk(ids);
-      toast.success(
-        `${result.created} analysis job${result.created !== 1 ? "s" : ""} queued`,
-      );
+      const parts: string[] = [];
+      if (result.created > 0) parts.push(`${result.created} analysis`);
+      if (result.cover_art_created > 0) parts.push(`${result.cover_art_created} cover art`);
+      if (parts.length > 0) {
+        toast.success(`${parts.join(" + ")} job${result.created + result.cover_art_created !== 1 ? "s" : ""} queued`);
+      }
       load();
     } catch {
-      toast.error("Failed to queue analysis jobs");
+      toast.error("Failed to queue jobs");
     } finally {
       setAnalyzing(false);
     }

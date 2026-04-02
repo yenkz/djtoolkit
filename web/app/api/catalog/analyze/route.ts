@@ -10,12 +10,12 @@ const MAX_TRACK_IDS = 1000;
 /**
  * POST /api/catalog/analyze
  *
- * Create one audio_analysis job per track_id. Skips tracks the user doesn't
- * own, non-available tracks, tracks without local_path, and tracks that are
- * already analyzed (unless force=true).
+ * Create audio_analysis and cover_art jobs per track_id. Skips tracks the user
+ * doesn't own, non-available tracks, tracks without local_path, and tracks
+ * that are already processed (unless force=true).
  *
  * Body: { track_ids: number[], force?: boolean }
- * Returns: { created: number, skipped: number } with status 201
+ * Returns: { created: number, skipped: number, cover_art_created: number } with status 201
  */
 export async function POST(request: NextRequest) {
   const rateLimitResponse = await rateLimit(request, limiters.write);
@@ -50,12 +50,13 @@ export async function POST(request: NextRequest) {
 
   let created = 0;
   let skipped = 0;
+  let coverArtCreated = 0;
 
   for (const trackId of track_ids) {
     // Check ownership + available status + has local_path
     const { data: track, error: trackErr } = await supabase
       .from("tracks")
-      .select("id, local_path, enriched_audio")
+      .select("id, local_path, enriched_audio, cover_art_written, artist, album, title, spotify_uri")
       .eq("id", trackId)
       .eq("user_id", user.userId)
       .eq("acquisition_status", "available")
@@ -67,52 +68,88 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
-    // Skip already-analyzed tracks unless force
-    if (track.enriched_audio && !forceReanalyze) {
+    const needsAnalysis = !track.enriched_audio || forceReanalyze;
+    const needsCoverArt = !track.cover_art_written || forceReanalyze;
+
+    if (!needsAnalysis && !needsCoverArt) {
       skipped++;
       continue;
     }
 
-    // Check no existing active audio_analysis job
-    const { data: existing } = await supabase
-      .from("pipeline_jobs")
-      .select("id")
-      .eq("track_id", trackId)
-      .eq("job_type", "audio_analysis")
-      .in("status", ["pending", "claimed", "running"])
-      .limit(1)
-      .maybeSingle();
+    // ── Audio analysis job ──
+    if (needsAnalysis) {
+      const { data: existingAa } = await supabase
+        .from("pipeline_jobs")
+        .select("id")
+        .eq("track_id", trackId)
+        .eq("job_type", "audio_analysis")
+        .in("status", ["pending", "claimed", "running"])
+        .limit(1)
+        .maybeSingle();
 
-    if (existing) {
-      skipped++;
-      continue;
+      if (!existingAa) {
+        const { error: insertErr } = await supabase
+          .from("pipeline_jobs")
+          .insert({
+            user_id: user.userId,
+            track_id: trackId,
+            job_type: "audio_analysis",
+            payload: {
+              track_id: trackId,
+              local_path: track.local_path,
+            },
+          });
+
+        if (!insertErr) created++;
+      }
     }
 
-    // Insert audio_analysis pipeline job
-    const { error: insertErr } = await supabase
-      .from("pipeline_jobs")
-      .insert({
-        user_id: user.userId,
-        track_id: trackId,
-        job_type: "audio_analysis",
-        payload: {
-          track_id: trackId,
-          local_path: track.local_path,
-        },
-      });
+    // ── Cover art job ──
+    if (needsCoverArt) {
+      const { data: existingCa } = await supabase
+        .from("pipeline_jobs")
+        .select("id")
+        .eq("track_id", trackId)
+        .eq("job_type", "cover_art")
+        .in("status", ["pending", "claimed", "running"])
+        .limit(1)
+        .maybeSingle();
 
-    if (!insertErr) {
-      created++;
-    } else {
-      skipped++;
+      if (!existingCa) {
+        const { error: insertErr } = await supabase
+          .from("pipeline_jobs")
+          .insert({
+            user_id: user.userId,
+            track_id: trackId,
+            job_type: "cover_art",
+            payload: {
+              local_path: track.local_path,
+              artist: track.artist ?? "",
+              album: track.album ?? "",
+              title: track.title ?? "",
+              spotify_uri: track.spotify_uri ?? "",
+            },
+          });
+
+        if (!insertErr) coverArtCreated++;
+      }
     }
   }
 
   await auditLog(user.userId, "track.bulk_analyze", {
     resourceType: "pipeline_job",
-    details: { created, skipped, requested: track_ids.length, force: forceReanalyze },
+    details: {
+      created,
+      cover_art_created: coverArtCreated,
+      skipped,
+      requested: track_ids.length,
+      force: forceReanalyze,
+    },
     ipAddress: getClientIp(request),
   });
 
-  return NextResponse.json({ created, skipped }, { status: 201 });
+  return NextResponse.json(
+    { created, skipped, cover_art_created: coverArtCreated },
+    { status: 201 },
+  );
 }

@@ -698,7 +698,7 @@ export async function exportCollection(
 export async function analyzeTracksBulk(
   trackIds: number[],
   force?: boolean,
-): Promise<{ created: number; skipped: number }> {
+): Promise<{ created: number; skipped: number; cover_art_created: number }> {
   const res = await apiClient("/catalog/analyze", {
     method: "POST",
     body: JSON.stringify({ track_ids: trackIds, force: force ?? false }),
