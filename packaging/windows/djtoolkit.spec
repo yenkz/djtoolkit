@@ -3,7 +3,7 @@
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files, collect_all
 
 # All paths resolved relative to repo root so the spec works regardless of CWD
 REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
@@ -19,15 +19,20 @@ if not os.path.exists(FPCALC_PATH):
 else:
     fpcalc_binaries = [(FPCALC_PATH, "bin")]
 
+# Force-collect djtoolkit — editable installs can confuse collect_submodules in CI
+dj_datas, dj_binaries, dj_imports = collect_all("djtoolkit")
+
 a = Analysis(
     [os.path.join(REPO_ROOT, "djtoolkit", "__main__.py")],
-    pathex=[],
-    binaries=fpcalc_binaries,
+    pathex=[REPO_ROOT],
+    binaries=[*fpcalc_binaries, *dj_binaries],
     datas=[
         *collect_data_files("librosa"),
         *collect_data_files("aioslsk"),
+        *dj_datas,
     ],
     hiddenimports=[
+        *dj_imports,
         *collect_submodules("djtoolkit"),
         *collect_submodules("aioslsk"),
         # Explicit agent commands — collect_submodules may miss these in CI

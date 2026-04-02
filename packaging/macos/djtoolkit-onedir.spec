@@ -27,6 +27,10 @@ typer_datas, typer_binaries, typer_imports = collect_all("typer")
 click_datas, click_binaries, click_imports = collect_all("click")
 rich_datas, rich_binaries, rich_imports = collect_all("rich")
 
+# Force-collect djtoolkit — collect_submodules misses it in CI because
+# it's an editable install. Use collect_all which is more thorough.
+dj_datas, dj_binaries, dj_imports = collect_all("djtoolkit")
+
 a = Analysis(
     ["../../djtoolkit/__main__.py"],
     pathex=_extra_paths,
@@ -34,6 +38,7 @@ a = Analysis(
         *typer_binaries,
         *click_binaries,
         *rich_binaries,
+        *dj_binaries,
     ],
     datas=[
         *collect_data_files("librosa"),
@@ -41,8 +46,10 @@ a = Analysis(
         *typer_datas,
         *click_datas,
         *rich_datas,
+        *dj_datas,
     ],
     hiddenimports=[
+        *dj_imports,
         *collect_submodules("djtoolkit"),
         *collect_submodules("aioslsk"),
         # Explicit agent commands — collect_submodules may miss these in CI
