@@ -28,7 +28,9 @@ chmod +x packaging/macos/scripts/postinstall
 
 # ── 3. PyInstaller — single-file executable ────────────────────────────────
 echo "Running PyInstaller..."
-uv run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm
+uv run pyinstaller packaging/macos/djtoolkit.spec --clean --noconfirm --log-level DEBUG 2>&1 | tee pyinstaller.log
+echo "=== PyInstaller typer references ==="
+grep -i typer pyinstaller.log | head -20 || echo "No typer references found in PyInstaller log"
 
 BINARY="dist/djtoolkit"
 if [ ! -f "$BINARY" ]; then

@@ -113,6 +113,11 @@ jobs:
             fi
           done
 
+      - name: Verify typer is importable
+        run: |
+          uv run python -c "import typer; print('typer OK:', typer.__version__, typer.__file__)"
+          uv run python -c "from djtoolkit.__main__ import app; print('CLI app OK')"
+
       - name: Build installer
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
