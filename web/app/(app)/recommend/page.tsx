@@ -205,13 +205,15 @@ export default function RecommendPage() {
 
       {step === "results" && expandResponse && (
         <>
-          <SimilarityGraph
-            tracks={expandResponse.tracks}
-            edges={expandResponse.similarity_edges}
-            seedIds={seedIds}
-            onLike={() => {}}
-            onDislike={() => {}}
-          />
+          <div style={{ position: "sticky", top: 0, zIndex: 20 }}>
+            <SimilarityGraph
+              tracks={expandResponse.tracks}
+              edges={expandResponse.similarity_edges}
+              seedIds={seedIds}
+              onLike={() => {}}
+              onDislike={() => {}}
+            />
+          </div>
           <div style={{ marginTop: 16 }}>
             <ResultsList
               tracks={expandResponse.tracks}
