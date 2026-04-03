@@ -96,7 +96,39 @@ export default function SimilarityGraph({ tracks, edges, seedIds, onLike, onDisl
     ctx.stroke();
   }, []);
 
-  if (!ForceGraph) return <div style={{ color: HARDWARE.textDim, padding: 20 }}>Loading graph...</div>;
+  if (!ForceGraph) {
+    return (
+      <div style={{
+        width: "100%", height: 500, display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center", gap: 16,
+        background: HARDWARE.groove, borderRadius: 8,
+      }}>
+        {/* Animated orbiting dots */}
+        <div style={{ position: "relative", width: 80, height: 80 }}>
+          <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="30" fill="none" stroke={HARDWARE.border} strokeWidth="1" />
+            <circle cx="40" cy="40" r="18" fill="none" stroke={HARDWARE.border} strokeWidth="1" opacity="0.5" />
+            {/* Orbiting dots */}
+            <circle r="4" fill={LED_COLORS.blue.on}>
+              <animateMotion dur="3s" repeatCount="indefinite"
+                path="M40,10 A30,30 0 1,1 39.99,10" />
+            </circle>
+            <circle r="3" fill={LED_COLORS.green.on} opacity="0.8">
+              <animateMotion dur="2s" repeatCount="indefinite"
+                path="M40,22 A18,18 0 1,1 39.99,22" />
+            </circle>
+            <circle r="2.5" fill={LED_COLORS.orange.on} opacity="0.7">
+              <animateMotion dur="4s" repeatCount="indefinite"
+                path="M40,10 A30,30 0 1,0 39.99,10" />
+            </circle>
+            {/* Center node */}
+            <circle cx="40" cy="40" r="5" fill={HARDWARE.surface} stroke={LED_COLORS.blue.mid} strokeWidth="1.5" />
+          </svg>
+        </div>
+        <span style={{ color: HARDWARE.textDim, fontSize: 13 }}>Building similarity graph...</span>
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} style={{ position: "relative", width: "100%", height: 500 }}>

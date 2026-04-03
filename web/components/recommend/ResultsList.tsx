@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { Heart, HeartOff, Play, Pause, RefreshCw, Download } from "lucide-react";
 import { usePreviewPlayer } from "@/lib/preview-player-context";
+import EnergyBar from "@/components/ui/EnergyBar";
 import type { Track } from "@/lib/api";
 import EnergyArc from "./EnergyArc";
-import { HARDWARE, LED_COLORS } from "@/lib/design-system/tokens";
+import { HARDWARE, LED_COLORS, FONTS } from "@/lib/design-system/tokens";
 
 interface ResultsListProps {
   tracks: Track[];
@@ -16,6 +17,7 @@ interface ResultsListProps {
 
 export default function ResultsList({ tracks, onRefine, onExport, refining }: ResultsListProps) {
   const [feedback, setFeedback] = useState<Record<number, boolean>>({});
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const { currentTrackId, isPlaying, play, playUrl, pause } = usePreviewPlayer();
 
   const toggleFeedback = (id: number, liked: boolean) => {
@@ -77,36 +79,110 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
 
       <EnergyArc tracks={tracks} />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 8 }}>
-        {tracks.map((t, i) => (
-          <div key={t.id} style={{
-            display: "flex", alignItems: "center", gap: 8, padding: "5px 8px",
-            background: HARDWARE.groove, borderRadius: 4, fontSize: 12,
-          }}>
-            <span style={{ color: HARDWARE.textDim, width: 24, textAlign: "right" }}>{i + 1}</span>
-            <div style={{ flex: 1, color: HARDWARE.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {t.artist} &mdash; {t.title}
+      {/* Column header */}
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "28px 36px 1fr 50px 50px 48px 42px 50px 30px 30px 30px",
+        gap: 6, alignItems: "center", padding: "4px 8px", marginTop: 8,
+        fontSize: 9, color: HARDWARE.textDim, textTransform: "uppercase", letterSpacing: 0.5,
+        borderBottom: `1px solid ${HARDWARE.border}`, marginBottom: 2,
+      }}>
+        <span style={{ textAlign: "right" }}>#</span>
+        <span />
+        <span>Track</span>
+        <span style={{ textAlign: "right" }}>BPM</span>
+        <span>Key</span>
+        <span>Energy</span>
+        <span>Dance</span>
+        <span>Genre</span>
+        <span />
+        <span />
+        <span />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {tracks.map((t, i) => {
+          const isHovered = hoverIdx === i;
+          const isLiked = feedback[t.id] === true;
+          const isDisliked = feedback[t.id] === false;
+          return (
+            <div
+              key={t.id}
+              onMouseEnter={() => setHoverIdx(i)}
+              onMouseLeave={() => setHoverIdx(null)}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "28px 36px 1fr 50px 50px 48px 42px 50px 30px 30px 30px",
+                gap: 6, alignItems: "center", padding: "4px 8px",
+                background: isHovered ? "rgba(68,136,255,0.08)" : HARDWARE.groove,
+                borderRadius: 4, fontSize: 12,
+                transition: "background 0.12s ease",
+                cursor: "default",
+              }}
+            >
+              <span style={{ color: HARDWARE.textDim, textAlign: "right", fontFamily: FONTS.mono, fontSize: 11 }}>{i + 1}</span>
+
+              {/* Artwork */}
+              {t.artwork_url ? (
+                <img src={t.artwork_url} alt="" style={{ width: 32, height: 32, borderRadius: 3, objectFit: "cover" }} />
+              ) : (
+                <div style={{ width: 32, height: 32, borderRadius: 3, background: HARDWARE.raised }} />
+              )}
+
+              {/* Title + Artist */}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: HARDWARE.text, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {t.title}
+                </div>
+                <div style={{ color: HARDWARE.textDim, fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {t.artist}
+                </div>
+              </div>
+
+              {/* BPM */}
+              <span style={{ color: HARDWARE.textDim, fontFamily: FONTS.mono, fontSize: 11, textAlign: "right" }}>
+                {Math.round(t.tempo ?? 0)}
+              </span>
+
+              {/* Key */}
+              <span style={{ color: HARDWARE.textDim, fontFamily: FONTS.mono, fontSize: 11 }}>
+                {t.key_normalized || ""}
+              </span>
+
+              {/* Energy bar */}
+              <EnergyBar level={t.energy ?? 0} />
+
+              {/* Danceability */}
+              <span style={{ color: HARDWARE.textDim, fontFamily: FONTS.mono, fontSize: 10 }}>
+                {t.danceability != null ? t.danceability.toFixed(2) : "—"}
+              </span>
+
+              {/* Genre */}
+              <span style={{ color: HARDWARE.textDim, fontSize: 9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {t.genres?.split(",")[0] || ""}
+              </span>
+
+              {/* Play */}
+              <button onClick={() => togglePlay(t)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", justifyContent: "center" }}>
+                {currentTrackId === t.id && isPlaying
+                  ? <Pause size={16} color={LED_COLORS.green.on} />
+                  : <Play size={16} color={HARDWARE.textDim} />
+                }
+              </button>
+
+              {/* Like */}
+              <button onClick={() => toggleFeedback(t.id, true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", justifyContent: "center" }}>
+                <Heart size={20} color={isLiked ? LED_COLORS.green.on : HARDWARE.textDim}
+                       fill={isLiked ? LED_COLORS.green.on : "none"} />
+              </button>
+
+              {/* Dislike */}
+              <button onClick={() => toggleFeedback(t.id, false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", justifyContent: "center" }}>
+                <HeartOff size={20} color={isDisliked ? LED_COLORS.red.on : HARDWARE.textDim} />
+              </button>
             </div>
-            <span style={{ color: HARDWARE.textDim }}>{Math.round(t.tempo ?? 0)}</span>
-            <span style={{ color: HARDWARE.textDim }}>{t.key_normalized || ""}</span>
-            <span style={{ color: (t.energy ?? 0) > 0.7 ? LED_COLORS.orange.on : LED_COLORS.green.on }}>
-              E {t.energy?.toFixed(2)}
-            </span>
-            <button onClick={() => togglePlay(t)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-              {currentTrackId === t.id && isPlaying
-                ? <Pause size={14} color={LED_COLORS.green.on} />
-                : <Play size={14} color={HARDWARE.textDim} />
-              }
-            </button>
-            <button onClick={() => toggleFeedback(t.id, true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-              <Heart size={14} color={feedback[t.id] === true ? LED_COLORS.green.on : HARDWARE.textDim}
-                     fill={feedback[t.id] === true ? LED_COLORS.green.on : "none"} />
-            </button>
-            <button onClick={() => toggleFeedback(t.id, false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-              <HeartOff size={14} color={feedback[t.id] === false ? LED_COLORS.red.on : HARDWARE.textDim} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
