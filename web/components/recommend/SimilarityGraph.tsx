@@ -67,6 +67,8 @@ function genreToColor(genre: string): string {
 export default function SimilarityGraph({ tracks, edges, seedIds, onLike, onDislike }: SimilarityGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const graphRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [ForceGraph, setForceGraph] = useState<any>(null);
   const [colorMode, setColorMode] = useState<ColorMode>("key");
   const [showHarmonicOnly, setShowHarmonicOnly] = useState(false);
@@ -78,6 +80,24 @@ export default function SimilarityGraph({ tracks, edges, seedIds, onLike, onDisl
   useEffect(() => {
     import("react-force-graph-2d").then(mod => setForceGraph(() => mod.default));
   }, []);
+
+  // Configure d3 forces after graph mounts
+  useEffect(() => {
+    if (!graphRef.current) return;
+    const fg = graphRef.current;
+    // Strong repulsion so nodes spread out
+    fg.d3Force("charge")?.strength(-200).distanceMax(300);
+    // Link distance inversely proportional to weight (similar = closer)
+    fg.d3Force("link")?.distance((link: GraphLink) => {
+      return 30 + (1 - (link.weight ?? 0.5)) * 150;
+    }).strength((link: GraphLink) => {
+      // Harmonic links pull harder
+      return link.harmonic >= 0.8 ? 0.3 : 0.05;
+    });
+    // Gentle centering
+    fg.d3Force("center")?.strength(0.05);
+    fg.d3ReheatSimulation();
+  }, [ForceGraph, edges.length, showHarmonicOnly]);
 
   const getNodeColor = useCallback((t: Track): string => {
     if (colorMode === "key") return camelotToColor(t.key_normalized ?? "", t.energy ?? 0.5);
@@ -257,6 +277,7 @@ export default function SimilarityGraph({ tracks, edges, seedIds, onLike, onDisl
       </div>
 
       <ForceGraph
+        ref={graphRef}
         graphData={{ nodes, links }}
         nodeCanvasObject={nodeCanvasObject}
         linkColor={linkColorFn}
