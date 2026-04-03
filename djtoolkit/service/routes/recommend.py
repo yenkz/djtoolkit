@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -201,7 +202,7 @@ async def export_playlist(
     track_by_id = {t._id: t for t in tracks}
     ordered_tracks = [track_by_id[tid] for tid in track_ids if tid in track_by_id]
 
-    playlist_name = body.playlist_name or f"Recommendation — {session['lineup_position']}"
+    playlist_name = body.playlist_name or f"Recommendation - {session['lineup_position']}"
 
     # Save playlist
     playlist_id = str(uuid.uuid4())
@@ -222,7 +223,7 @@ async def export_playlist(
     if body.format == "m3u":
         data = M3UExporter().export(ordered_tracks, playlist_name)
         return Response(content=data, media_type="audio/x-mpegurl; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={playlist_name}.m3u"})
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(playlist_name)}.m3u"})
     elif body.format == "csv":
         import csv
         import io
@@ -237,14 +238,14 @@ async def export_playlist(
                 "genres": t.genres, "energy": t.energy, "danceability": t.danceability,
             })
         return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={playlist_name}.csv"})
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(playlist_name)}.csv"})
     elif body.format == "traktor":
         from djtoolkit.adapters.traktor import TraktorExporter
         data = TraktorExporter().export(ordered_tracks)
         return Response(content=data, media_type="application/xml; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={playlist_name}.nml"})
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(playlist_name)}.nml"})
     else:  # rekordbox
         from djtoolkit.adapters.rekordbox import RekordboxExporter
         data = RekordboxExporter().export(ordered_tracks)
         return Response(content=data, media_type="application/xml; charset=utf-8",
-                        headers={"Content-Disposition": f"attachment; filename={playlist_name}.xml"})
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(playlist_name)}.xml"})
