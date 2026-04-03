@@ -204,8 +204,8 @@ export default function RecommendPage() {
       )}
 
       {step === "results" && expandResponse && (
-        <>
-          <div style={{ position: "sticky", top: 0, zIndex: 20 }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 80px)" }}>
+          <div style={{ flexShrink: 0 }}>
             <SimilarityGraph
               tracks={expandResponse.tracks}
               edges={expandResponse.similarity_edges}
@@ -214,7 +214,7 @@ export default function RecommendPage() {
               onDislike={() => {}}
             />
           </div>
-          <div style={{ marginTop: 16 }}>
+          <div style={{ flex: 1, overflow: "auto", marginTop: 16, minHeight: 0 }}>
             <ResultsList
               tracks={expandResponse.tracks}
               onRefine={handleRefine}
@@ -222,7 +222,7 @@ export default function RecommendPage() {
               refining={refining}
             />
           </div>
-        </>
+        </div>
       )}
 
       {showExport && sessionId && (
