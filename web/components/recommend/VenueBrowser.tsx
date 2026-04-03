@@ -75,9 +75,13 @@ export default function VenueBrowser({ onSelectVenue }: VenueBrowserProps) {
               background: HARDWARE.surface, border: `1px solid ${HARDWARE.border}`,
               borderRadius: 8, cursor: "pointer", textAlign: "left", width: "100%",
             }}>
-              <div style={{ width: 48, height: 48, borderRadius: 6, background: HARDWARE.raised, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: HARDWARE.textDim }}>
-                {v.type.slice(0, 3).toUpperCase()}
-              </div>
+              {v.photo_url ? (
+                <img src={v.photo_url} alt={v.name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover" }} />
+              ) : (
+                <div style={{ width: 48, height: 48, borderRadius: 6, background: HARDWARE.raised, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: HARDWARE.textDim }}>
+                  {v.type.slice(0, 3).toUpperCase()}
+                </div>
+              )}
               <div style={{ flex: 1 }}>
                 <div style={{ color: HARDWARE.text, fontSize: 14, fontWeight: 600 }}>{v.name}</div>
                 <div style={{ color: HARDWARE.textDim, fontSize: 12 }}>

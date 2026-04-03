@@ -24,7 +24,11 @@ export default function VenueDetail({ venue, onGenerateSeeds, loading }: VenueDe
   return (
     <div style={{ maxWidth: 500, margin: "0 auto" }}>
       <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ width: 80, height: 80, borderRadius: 8, background: HARDWARE.raised }} />
+        {venue.photo_url ? (
+          <img src={venue.photo_url} alt={venue.name} style={{ width: 80, height: 80, borderRadius: 8, objectFit: "cover" }} />
+        ) : (
+          <div style={{ width: 80, height: 80, borderRadius: 8, background: HARDWARE.raised }} />
+        )}
         <div>
           <h2 style={{ color: HARDWARE.text, fontFamily: FONTS.sans, fontSize: 18, margin: 0 }}>{venue.name}</h2>
           {venue.address && <div style={{ color: HARDWARE.textDim, fontSize: 12 }}>{venue.address}</div>}
