@@ -66,6 +66,38 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
+def track_similarity(track_a: dict, track_b: dict) -> dict:
+    """Compute multi-dimensional similarity between two tracks.
+
+    Returns a dict with component scores and a combined weight.
+    Components: feature (cosine on BPM/energy/dance/loud), harmonic, genre.
+    Combined: 0.40 * feature + 0.35 * harmonic + 0.25 * genre
+    """
+    vec_a = normalize_features(track_a)
+    vec_b = normalize_features(track_b)
+    feat_sim = cosine_similarity(vec_a, vec_b)
+
+    harm = harmonic_score(
+        track_a.get("camelot", ""),
+        track_b.get("camelot", ""),
+    )
+
+    # Genre overlap (symmetric Jaccard)
+    genres_a = {g.strip().lower() for g in (track_a.get("genres") or "").split(",") if g.strip()}
+    genres_b = {g.strip().lower() for g in (track_b.get("genres") or "").split(",") if g.strip()}
+    union = genres_a | genres_b
+    genre_sim = len(genres_a & genres_b) / len(union) if union else 0.0
+
+    combined = 0.40 * feat_sim + 0.35 * harm + 0.25 * genre_sim
+
+    return {
+        "feature": round(feat_sim, 3),
+        "harmonic": round(harm, 3),
+        "genre": round(genre_sim, 3),
+        "weight": round(combined, 3),
+    }
+
+
 def harmonic_score(camelot_a: str, camelot_b: str) -> float:
     """Score harmonic compatibility between two Camelot keys.
 

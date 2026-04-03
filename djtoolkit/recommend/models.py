@@ -42,6 +42,9 @@ class SimilarityEdge(BaseModel):
     source: int
     target: int
     weight: float
+    harmonic: float = 0.0
+    genre: float = 0.0
+    feature: float = 0.0
 
 
 class SeedResponse(BaseModel):

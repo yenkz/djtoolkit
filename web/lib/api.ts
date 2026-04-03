@@ -929,6 +929,9 @@ export interface SimilarityEdge {
   source: number;
   target: number;
   weight: number;
+  harmonic: number;
+  genre: number;
+  feature: number;
 }
 
 export interface SeedResponse {

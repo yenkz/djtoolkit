@@ -9,13 +9,14 @@ from djtoolkit.recommend.scoring import (
     cosine_similarity,
     expansion_score,
     genre_overlap,
+    track_similarity,
 )
 
 
 class RecommendationEngine:
     """Two-phase recommendation engine: profile matching → seed similarity."""
 
-    def __init__(self, similarity_threshold: float = 0.5):
+    def __init__(self, similarity_threshold: float = 0.65):
         self._similarity_threshold = similarity_threshold
 
     def generate_seeds(
@@ -170,21 +171,27 @@ class RecommendationEngine:
         return centroid, all_genres
 
     def _compute_similarity_edges(self, tracks: list[dict]) -> list[dict]:
-        """Compute pairwise similarity edges above threshold."""
+        """Compute pairwise similarity edges using multi-dimensional scoring.
+
+        Uses combined feature + harmonic + genre similarity. Only includes
+        edges above the threshold, creating a sparser graph with meaningful
+        clusters (by key, genre, energy).
+        """
         if len(tracks) < 2:
             return []
 
-        vectors = [normalize_features(t) for t in tracks]
         edges = []
-
         for i in range(len(tracks)):
             for j in range(i + 1, len(tracks)):
-                sim = cosine_similarity(vectors[i], vectors[j])
-                if sim >= self._similarity_threshold:
+                sim = track_similarity(tracks[i], tracks[j])
+                if sim["weight"] >= self._similarity_threshold:
                     edges.append({
                         "source": tracks[i]["id"],
                         "target": tracks[j]["id"],
-                        "weight": round(sim, 3),
+                        "weight": sim["weight"],
+                        "harmonic": sim["harmonic"],
+                        "genre": sim["genre"],
+                        "feature": sim["feature"],
                     })
 
         return edges
