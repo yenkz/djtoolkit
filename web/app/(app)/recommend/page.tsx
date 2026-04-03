@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import EntryScreen from "@/components/recommend/EntryScreen";
 import VenueBrowser from "@/components/recommend/VenueBrowser";
@@ -14,6 +15,7 @@ import {
   generateSeeds,
   expandSeeds,
   refineResults,
+  restoreSession,
   type Venue,
   type SeedResponse,
   type ExpandResponse,
@@ -24,6 +26,7 @@ import { HARDWARE } from "@/lib/design-system/tokens";
 type Step = "entry" | "venue-browse" | "venue-detail" | "mood" | "seeds" | "results";
 
 export default function RecommendPage() {
+  const searchParams = useSearchParams();
   const [step, setStep] = useState<Step>("entry");
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -34,6 +37,37 @@ export default function RecommendPage() {
   const [loading, setLoading] = useState(false);
   const [refining, setRefining] = useState(false);
   const [showExport, setShowExport] = useState(false);
+
+  // Restore session from ?session= query param
+  useEffect(() => {
+    const sid = searchParams.get("session");
+    if (!sid) return;
+
+    setLoading(true);
+    restoreSession(sid)
+      .then((res) => {
+        setSessionId(res.session_id);
+        setLineupPosition(res.lineup_position);
+        setExpandResponse({
+          tracks: res.tracks,
+          energy_arc: res.energy_arc,
+          similarity_edges: res.similarity_edges,
+        });
+        // Mark all tracks as liked seeds for the graph
+        setSeedFeedback(
+          res.tracks.slice(0, 10).map((t, i) => ({
+            track_id: t.id,
+            liked: true,
+            position: i + 1,
+          }))
+        );
+        setStep("results");
+      })
+      .catch((err) => {
+        toast.error(err instanceof Error ? err.message : "Failed to restore session");
+      })
+      .finally(() => setLoading(false));
+  }, [searchParams]);
 
   const handleSelectVenue = useCallback((venue: Venue) => {
     setSelectedVenue(venue);
@@ -127,11 +161,17 @@ export default function RecommendPage() {
         </button>
       )}
 
-      {step === "entry" && (
+      {step === "entry" && !loading && (
         <EntryScreen
           onSelectVenue={() => setStep("venue-browse")}
           onSelectMood={() => setStep("mood")}
         />
+      )}
+
+      {step === "entry" && loading && (
+        <p style={{ color: HARDWARE.textDim, fontSize: 13, textAlign: "center", marginTop: 40 }}>
+          Restoring session...
+        </p>
       )}
 
       {step === "venue-browse" && (

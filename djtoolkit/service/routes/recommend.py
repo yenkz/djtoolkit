@@ -169,6 +169,38 @@ async def list_sessions(
     return result.data
 
 
+@router.get("/recommend/session/{session_id}")
+async def restore_session(
+    session_id: str,
+    user_id: str = Depends(get_current_user),
+):
+    """Restore an existing session — re-run expand with stored seed feedback."""
+    client = get_client()
+
+    res = client.table("recommendation_sessions").select("*").eq("id", session_id).eq("user_id", user_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = res.data[0]
+    feedback = session.get("seed_feedback", [])
+    if not feedback:
+        raise HTTPException(status_code=400, detail="No seed feedback — session has no expand data")
+
+    library = _load_analyzed_library(user_id)
+    result = _engine.expand(library, session["context_profile"], feedback)
+    result["tracks"] = _engine.order_by_energy_arc(
+        result["tracks"], session["lineup_position"]
+    )
+
+    return {
+        "session_id": session_id,
+        "lineup_position": session["lineup_position"],
+        "venue_id": session.get("venue_id"),
+        "mood_preset_id": session.get("mood_preset_id"),
+        **result,
+    }
+
+
 @router.post("/recommend/export")
 async def export_playlist(
     body: ExportRequest,

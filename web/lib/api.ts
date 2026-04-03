@@ -1020,3 +1020,65 @@ export async function exportPlaylist(
   if (!res.ok) throw new Error(await extractError(res));
   return res.blob();
 }
+
+// --- Playlists ---
+
+export interface Playlist {
+  id: string;
+  name: string;
+  session_id: string | null;
+  created_at: string;
+  track_count: number;
+  total_duration_ms: number;
+  venue_name: string | null;
+  mood_name: string | null;
+  lineup_position: string | null;
+  energies: number[];
+}
+
+export interface PlaylistDetail extends Playlist {
+  tracks: Track[];
+}
+
+export interface SessionRestore extends ExpandResponse {
+  session_id: string;
+  lineup_position: string;
+  venue_id: string | null;
+  mood_preset_id: string | null;
+}
+
+export async function fetchPlaylists(): Promise<Playlist[]> {
+  const res = await apiClient("/playlists");
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function fetchPlaylist(id: string): Promise<PlaylistDetail> {
+  const res = await apiClient(`/playlists/${id}`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
+
+export async function updatePlaylist(
+  id: string,
+  data: { name?: string; tracks?: number[] },
+): Promise<void> {
+  const res = await apiClient(`/playlists/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(await extractError(res));
+}
+
+export async function deletePlaylist(id: string): Promise<void> {
+  const res = await apiClient(`/playlists/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(await extractError(res));
+}
+
+export async function restoreSession(
+  sessionId: string,
+): Promise<SessionRestore> {
+  const res = await apiClient(`/recommend/session/${sessionId}`);
+  if (!res.ok) throw new Error(await extractError(res));
+  return res.json();
+}
