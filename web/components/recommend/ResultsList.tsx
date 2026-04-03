@@ -45,7 +45,7 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
     }
   };
 
-  const totalMs = tracks.reduce((sum, t) => sum + ((t as Record<string, unknown>).duration_ms as number ?? 0), 0);
+  const totalMs = tracks.reduce((sum, t) => sum + (t.duration_ms ?? 0), 0);
   const totalMin = Math.floor(totalMs / 60000);
   const totalHrs = Math.floor(totalMin / 60);
 

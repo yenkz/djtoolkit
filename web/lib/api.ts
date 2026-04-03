@@ -75,6 +75,10 @@ export interface Track {
   key?: number;
   mode?: number;
   energy?: number;
+  danceability?: number;
+  duration_ms?: number;
+  loudness?: number;
+  camelot?: string;
   created_at?: string;
 }
 
