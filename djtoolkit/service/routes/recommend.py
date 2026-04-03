@@ -32,7 +32,8 @@ def _load_analyzed_library(user_id: str) -> list[dict]:
         client.table("tracks")
         .select("id,title,artist,album,tempo,energy,danceability,loudness,"
                 "camelot,key_normalized,genres,enriched_audio,spotify_uri,"
-                "cover_art_written,local_path,duration_ms")
+                "cover_art_written,local_path,duration_ms,artwork_url,"
+                "preview_url")
         .eq("user_id", user_id)
         .eq("acquisition_status", "available")
         .execute()
