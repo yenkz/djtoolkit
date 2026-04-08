@@ -30,7 +30,6 @@ import {
   type FolderImportProgress,
   type DuplicatePair,
 } from "@/lib/api";
-import { FolderBrowser } from "@/components/folder-import/FolderBrowser";
 import { FolderImportReport } from "@/components/folder-import/FolderImportReport";
 import { DuplicateReview } from "@/components/folder-import/DuplicateReview";
 import { createClient } from "@/lib/supabase/client";
@@ -647,7 +646,6 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [_agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const [folderBrowserOpen, setFolderBrowserOpen] = useState(false);
   const [folderPath, setFolderPath] = useState("");
   const [folderScanning, setFolderScanning] = useState(false);
   const [folderScanResult, setFolderScanResult] = useState<{
@@ -1485,37 +1483,29 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             </div>
           ) : (
             /* ── Input: path + scan (default) ── */
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  type="text"
-                  value={folderPath}
-                  onChange={(e) => setFolderPath(e.target.value)}
-                  placeholder="/Users/you/Music/DJ Sets"
-                  className="font-mono"
-                  style={{
-                    flex: 1,
-                    fontSize: 12,
-                    padding: "7px 12px",
-                    background: "var(--hw-input-bg)",
-                    border: "1px solid var(--hw-input-border)",
-                    borderRadius: 5,
-                    color: "var(--hw-text)",
-                    outline: "none",
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && folderPath.trim() && selectedAgent) {
-                      doScanFolder(selectedAgent, folderPath.trim());
-                    }
-                  }}
-                />
-                <ActionButton
-                  variant="outline"
-                  onClick={() => setFolderBrowserOpen(true)}
-                >
-                  Browse
-                </ActionButton>
-              </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                type="text"
+                value={folderPath}
+                onChange={(e) => setFolderPath(e.target.value)}
+                placeholder="/Users/you/Music/DJ Sets"
+                className="font-mono"
+                style={{
+                  flex: 1,
+                  fontSize: 12,
+                  padding: "7px 12px",
+                  background: "var(--hw-input-bg)",
+                  border: "1px solid var(--hw-input-border)",
+                  borderRadius: 5,
+                  color: "var(--hw-text)",
+                  outline: "none",
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && folderPath.trim() && selectedAgent) {
+                    doScanFolder(selectedAgent, folderPath.trim());
+                  }
+                }}
+              />
               <ActionButton
                 disabled={!folderPath.trim() || folderScanning}
                 onClick={() => {
@@ -1529,17 +1519,6 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
             </div>
           )}
         </SourceCard>
-
-        {folderBrowserOpen && selectedAgent && (
-          <FolderBrowser
-            agentId={selectedAgent}
-            onClose={() => setFolderBrowserOpen(false)}
-            onSelect={async (path) => {
-              setFolderBrowserOpen(false);
-              setFolderPath(path);
-            }}
-          />
-        )}
 
         {/* ── CSV Upload ── */}
         <SourceCard
