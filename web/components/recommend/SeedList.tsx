@@ -5,7 +5,6 @@ import { GripVertical, Heart, HeartOff, Play, Pause, AlertTriangle } from "lucid
 import { usePreviewPlayer } from "@/lib/preview-player-context";
 import EnergyBar from "@/components/ui/EnergyBar";
 import type { Track } from "@/lib/api";
-import { HARDWARE, LED_COLORS, FONTS } from "@/lib/design-system/tokens";
 
 interface SeedListProps {
   seeds: Track[];
@@ -65,13 +64,13 @@ export default function SeedList({ seeds, unanalyzedCount, onExpand, onRegenerat
   return (
     <div style={{ maxWidth: 800, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h2 style={{ color: HARDWARE.text, fontFamily: FONTS.sans, fontSize: 18, margin: 0 }}>
+        <h2 style={{ color: "var(--hw-text)", fontFamily: "var(--font-sans)", fontSize: 18, margin: 0 }}>
           Your Seeds
         </h2>
         {unanalyzedCount > 0 && (
           <div style={{
             display: "flex", alignItems: "center", gap: 4, fontSize: 12,
-            color: LED_COLORS.orange.on, background: "rgba(255,224,126,0.1)",
+            color: "var(--led-orange)", background: "rgba(255,224,126,0.1)",
             padding: "4px 10px", borderRadius: 6,
           }}>
             <AlertTriangle size={14} /> {unanalyzedCount} tracks not analyzed
@@ -84,8 +83,8 @@ export default function SeedList({ seeds, unanalyzedCount, onExpand, onRegenerat
         display: "grid",
         gridTemplateColumns: "24px 24px 44px 1fr 56px 56px 56px 48px 56px 36px 36px",
         gap: 8, alignItems: "center", padding: "4px 12px",
-        fontSize: 10, color: HARDWARE.textDim, textTransform: "uppercase", letterSpacing: 0.5,
-        borderBottom: `1px solid ${HARDWARE.border}`, marginBottom: 4,
+        fontSize: 10, color: "var(--hw-text-dim)", textTransform: "uppercase", letterSpacing: 0.5,
+        borderBottom: "1px solid var(--hw-border)", marginBottom: 4,
       }}>
         <span />
         <span style={{ textAlign: "center" }}>#</span>
@@ -118,69 +117,69 @@ export default function SeedList({ seeds, unanalyzedCount, onExpand, onRegenerat
                 gap: 8, alignItems: "center", padding: "6px 12px",
                 background: isHovered
                   ? "rgba(126,255,126,0.08)"
-                  : item.liked ? "rgba(126,255,126,0.03)" : HARDWARE.surface,
-                border: `1px solid ${item.liked ? "rgba(126,255,126,0.15)" : HARDWARE.border}`,
+                  : item.liked ? "rgba(126,255,126,0.03)" : "var(--hw-surface)",
+                border: item.liked ? "1px solid rgba(126,255,126,0.15)" : "1px solid var(--hw-border)",
                 borderRadius: 6, opacity: item.liked ? 1 : 0.5,
                 cursor: "default",
                 transition: "background 0.15s ease",
               }}
             >
-              <GripVertical size={14} style={{ color: HARDWARE.textDim, cursor: "grab" }} />
-              <span style={{ color: HARDWARE.textDim, fontSize: 11, textAlign: "center", fontFamily: FONTS.mono }}>{idx + 1}</span>
+              <GripVertical size={14} style={{ color: "var(--hw-text-dim)", cursor: "grab" }} />
+              <span style={{ color: "var(--hw-text-dim)", fontSize: 11, textAlign: "center", fontFamily: "var(--font-mono)" }}>{idx + 1}</span>
 
               {/* Artwork */}
               {item.artwork_url ? (
                 <img src={item.artwork_url} alt="" style={{ width: 38, height: 38, borderRadius: 4, objectFit: "cover" }} />
               ) : (
-                <div style={{ width: 38, height: 38, borderRadius: 4, background: HARDWARE.raised }} />
+                <div style={{ width: 38, height: 38, borderRadius: 4, background: "var(--hw-raised)" }} />
               )}
 
               {/* Title + Artist */}
               <div style={{ minWidth: 0 }}>
-                <div style={{ color: HARDWARE.text, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ color: "var(--hw-text)", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {item.title}
                 </div>
-                <div style={{ color: HARDWARE.textDim, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ color: "var(--hw-text-dim)", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {item.artist}
                 </div>
               </div>
 
               {/* BPM */}
-              <span style={{ color: HARDWARE.textDim, fontSize: 12, fontFamily: FONTS.mono, textAlign: "right" }}>
-                {item.tempo ? Math.round(item.tempo) : "—"}
+              <span style={{ color: "var(--hw-text-dim)", fontSize: 12, fontFamily: "var(--font-mono)", textAlign: "right" }}>
+                {item.tempo ? Math.round(item.tempo) : "\u2014"}
               </span>
 
               {/* Key */}
-              <span style={{ color: HARDWARE.textDim, fontSize: 12, fontFamily: FONTS.mono }}>
-                {item.key_normalized || "—"}
+              <span style={{ color: "var(--hw-text-dim)", fontSize: 12, fontFamily: "var(--font-mono)" }}>
+                {item.key_normalized || "\u2014"}
               </span>
 
               {/* Energy bar */}
               <EnergyBar level={item.energy ?? 0} />
 
               {/* Danceability */}
-              <span style={{ color: HARDWARE.textDim, fontSize: 11, fontFamily: FONTS.mono }}>
-                {item.danceability != null ? item.danceability.toFixed(2) : "—"}
+              <span style={{ color: "var(--hw-text-dim)", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                {item.danceability != null ? item.danceability.toFixed(2) : "\u2014"}
               </span>
 
               {/* Genre */}
-              <span style={{ color: HARDWARE.textDim, fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {item.genres?.split(",")[0] || "—"}
+              <span style={{ color: "var(--hw-text-dim)", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {item.genres?.split(",")[0] || "\u2014"}
               </span>
 
               {/* Play */}
               <button onClick={() => togglePlay(item)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", justifyContent: "center" }}>
                 {currentTrackId === item.id && isPlaying
-                  ? <Pause size={18} color={LED_COLORS.green.on} />
-                  : <Play size={18} color={HARDWARE.text} />
+                  ? <Pause size={18} color="var(--led-green)" />
+                  : <Play size={18} color="var(--hw-text)" />
                 }
               </button>
 
               {/* Like / Dislike */}
               <button onClick={() => toggleLike(item.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", justifyContent: "center" }}>
                 {item.liked
-                  ? <Heart size={22} color={LED_COLORS.green.on} fill={LED_COLORS.green.on} />
-                  : <HeartOff size={22} color={HARDWARE.textDim} />
+                  ? <Heart size={22} color="var(--led-green)" fill="var(--led-green)" />
+                  : <HeartOff size={22} color="var(--hw-text-dim)" />
                 }
               </button>
             </div>
@@ -191,13 +190,13 @@ export default function SeedList({ seeds, unanalyzedCount, onExpand, onRegenerat
       <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
         <button onClick={onRegenerate} style={{
           padding: "8px 16px", borderRadius: 8, cursor: "pointer",
-          background: HARDWARE.raised, color: HARDWARE.textDim, border: "none", fontSize: 13,
+          background: "var(--hw-raised)", color: "var(--hw-text-dim)", border: "none", fontSize: 13,
         }}>
           Regenerate
         </button>
         <button onClick={handleExpand} disabled={loading} style={{
           padding: "8px 16px", borderRadius: 8, cursor: loading ? "wait" : "pointer",
-          background: LED_COLORS.blue.on, color: "#fff", border: "none", fontSize: 13, fontWeight: 600,
+          background: "var(--led-blue)", color: "#fff", border: "none", fontSize: 13, fontWeight: 600,
           opacity: loading ? 0.6 : 1,
         }}>
           {loading ? "Expanding..." : "Expand to 100 \u2192"}

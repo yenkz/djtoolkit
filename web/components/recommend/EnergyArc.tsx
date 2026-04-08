@@ -1,7 +1,6 @@
 "use client";
 
 import type { Track } from "@/lib/api";
-import { HARDWARE } from "@/lib/design-system/tokens";
 
 interface EnergyArcProps {
   tracks: Track[];
@@ -14,7 +13,7 @@ export default function EnergyArc({ tracks }: EnergyArcProps) {
 
   return (
     <div style={{
-      background: HARDWARE.groove, borderRadius: 6, padding: "8px 12px",
+      background: "var(--hw-groove)", borderRadius: 6, padding: "8px 12px",
       height: 44, display: "flex", alignItems: "flex-end", gap: 1,
     }}>
       {tracks.map((t, i) => {

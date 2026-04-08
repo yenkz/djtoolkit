@@ -21,7 +21,6 @@ import {
   type ExpandResponse,
   type SeedFeedback,
 } from "@/lib/api";
-import { HARDWARE } from "@/lib/design-system/tokens";
 
 type Step = "entry" | "venue-browse" | "venue-detail" | "mood" | "seeds" | "results";
 
@@ -151,11 +150,11 @@ export default function RecommendPage() {
   const seedIds = new Set(seedFeedback.filter(f => f.liked).map(f => f.track_id));
 
   return (
-    <div className="flex-1 overflow-auto p-6">
+    <div className={`flex-1 p-6 ${step === "results" ? "flex flex-col overflow-hidden" : "overflow-auto"}`}>
       {step !== "entry" && (
         <button
           onClick={handleBack}
-          style={{ color: HARDWARE.textDim, fontSize: 13, marginBottom: 16, cursor: "pointer", background: "none", border: "none" }}
+          style={{ color: "var(--hw-text-dim)", fontSize: 13, marginBottom: 16, cursor: "pointer", background: "none", border: "none" }}
         >
           &larr; Back
         </button>
@@ -169,7 +168,7 @@ export default function RecommendPage() {
       )}
 
       {step === "entry" && loading && (
-        <p style={{ color: HARDWARE.textDim, fontSize: 13, textAlign: "center", marginTop: 40 }}>
+        <p style={{ color: "var(--hw-text-dim)", fontSize: 13, textAlign: "center", marginTop: 40 }}>
           Restoring session...
         </p>
       )}
@@ -204,8 +203,8 @@ export default function RecommendPage() {
       )}
 
       {step === "results" && expandResponse && (
-        <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 80px)" }}>
-          <div style={{ flexShrink: 0 }}>
+        <>
+          <div style={{ flexShrink: 0, width: "100%" }}>
             <SimilarityGraph
               tracks={expandResponse.tracks}
               edges={expandResponse.similarity_edges}
@@ -214,7 +213,7 @@ export default function RecommendPage() {
               onDislike={() => {}}
             />
           </div>
-          <div style={{ flex: 1, overflow: "auto", marginTop: 16, minHeight: 0 }}>
+          <div style={{ flex: 1, overflowY: "auto", marginTop: 12, minHeight: 0 }}>
             <ResultsList
               tracks={expandResponse.tracks}
               onRefine={handleRefine}
@@ -222,7 +221,7 @@ export default function RecommendPage() {
               refining={refining}
             />
           </div>
-        </div>
+        </>
       )}
 
       {showExport && sessionId && (

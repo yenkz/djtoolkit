@@ -6,7 +6,6 @@ import { usePreviewPlayer } from "@/lib/preview-player-context";
 import EnergyBar from "@/components/ui/EnergyBar";
 import type { Track } from "@/lib/api";
 import EnergyArc from "./EnergyArc";
-import { HARDWARE, LED_COLORS, FONTS } from "@/lib/design-system/tokens";
 
 interface ResultsListProps {
   tracks: Track[];
@@ -54,7 +53,7 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span style={{ color: HARDWARE.text, fontSize: 14, fontWeight: 600 }}>
+        <span style={{ color: "var(--hw-text)", fontSize: 14, fontWeight: 600 }}>
           {tracks.length} tracks &middot; {totalHrs}h {totalMin % 60}m
         </span>
         <div style={{ display: "flex", gap: 6 }}>
@@ -62,7 +61,7 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
             <button onClick={handleRefine} disabled={refining} style={{
               display: "flex", alignItems: "center", gap: 4,
               padding: "4px 12px", borderRadius: 6, cursor: refining ? "wait" : "pointer",
-              background: LED_COLORS.blue.mid, color: "#fff", border: "none", fontSize: 12,
+              background: "var(--led-blue-mid)", color: "#fff", border: "none", fontSize: 12,
             }}>
               <RefreshCw size={12} /> {refining ? "Refining..." : "Re-run with feedback"}
             </button>
@@ -70,7 +69,7 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
           <button onClick={onExport} style={{
             display: "flex", alignItems: "center", gap: 4,
             padding: "4px 12px", borderRadius: 6, cursor: "pointer",
-            background: LED_COLORS.green.mid, color: "#fff", border: "none", fontSize: 12,
+            background: "var(--led-green-mid)", color: "#fff", border: "none", fontSize: 12,
           }}>
             <Download size={12} /> Export Playlist
           </button>
@@ -84,8 +83,8 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
         display: "grid",
         gridTemplateColumns: "28px 36px 1fr 50px 50px 48px 42px 50px 30px 30px 30px",
         gap: 6, alignItems: "center", padding: "4px 8px", marginTop: 8,
-        fontSize: 9, color: HARDWARE.textDim, textTransform: "uppercase", letterSpacing: 0.5,
-        borderBottom: `1px solid ${HARDWARE.border}`, marginBottom: 2,
+        fontSize: 9, color: "var(--hw-text-dim)", textTransform: "uppercase", letterSpacing: 0.5,
+        borderBottom: "1px solid var(--hw-border)", marginBottom: 2,
       }}>
         <span style={{ textAlign: "right" }}>#</span>
         <span />
@@ -114,38 +113,38 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
                 display: "grid",
                 gridTemplateColumns: "28px 36px 1fr 50px 50px 48px 42px 50px 30px 30px 30px",
                 gap: 6, alignItems: "center", padding: "4px 8px",
-                background: isHovered ? "rgba(68,136,255,0.08)" : HARDWARE.groove,
+                background: isHovered ? "rgba(68,136,255,0.08)" : "var(--hw-groove)",
                 borderRadius: 4, fontSize: 12,
                 transition: "background 0.12s ease",
                 cursor: "default",
               }}
             >
-              <span style={{ color: HARDWARE.textDim, textAlign: "right", fontFamily: FONTS.mono, fontSize: 11 }}>{i + 1}</span>
+              <span style={{ color: "var(--hw-text-dim)", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 11 }}>{i + 1}</span>
 
               {/* Artwork */}
               {t.artwork_url ? (
                 <img src={t.artwork_url} alt="" style={{ width: 32, height: 32, borderRadius: 3, objectFit: "cover" }} />
               ) : (
-                <div style={{ width: 32, height: 32, borderRadius: 3, background: HARDWARE.raised }} />
+                <div style={{ width: 32, height: 32, borderRadius: 3, background: "var(--hw-raised)" }} />
               )}
 
               {/* Title + Artist */}
               <div style={{ minWidth: 0 }}>
-                <div style={{ color: HARDWARE.text, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ color: "var(--hw-text)", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {t.title}
                 </div>
-                <div style={{ color: HARDWARE.textDim, fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <div style={{ color: "var(--hw-text-dim)", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {t.artist}
                 </div>
               </div>
 
               {/* BPM */}
-              <span style={{ color: HARDWARE.textDim, fontFamily: FONTS.mono, fontSize: 11, textAlign: "right" }}>
+              <span style={{ color: "var(--hw-text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, textAlign: "right" }}>
                 {Math.round(t.tempo ?? 0)}
               </span>
 
               {/* Key */}
-              <span style={{ color: HARDWARE.textDim, fontFamily: FONTS.mono, fontSize: 11 }}>
+              <span style={{ color: "var(--hw-text-dim)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
                 {t.key_normalized || ""}
               </span>
 
@@ -153,32 +152,32 @@ export default function ResultsList({ tracks, onRefine, onExport, refining }: Re
               <EnergyBar level={t.energy ?? 0} />
 
               {/* Danceability */}
-              <span style={{ color: HARDWARE.textDim, fontFamily: FONTS.mono, fontSize: 10 }}>
-                {t.danceability != null ? t.danceability.toFixed(2) : "—"}
+              <span style={{ color: "var(--hw-text-dim)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                {t.danceability != null ? t.danceability.toFixed(2) : "\u2014"}
               </span>
 
               {/* Genre */}
-              <span style={{ color: HARDWARE.textDim, fontSize: 9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span style={{ color: "var(--hw-text-dim)", fontSize: 9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {t.genres?.split(",")[0] || ""}
               </span>
 
               {/* Play */}
               <button onClick={() => togglePlay(t)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", justifyContent: "center" }}>
                 {currentTrackId === t.id && isPlaying
-                  ? <Pause size={16} color={LED_COLORS.green.on} />
-                  : <Play size={16} color={HARDWARE.textDim} />
+                  ? <Pause size={16} color="var(--led-green)" />
+                  : <Play size={16} color="var(--hw-text-dim)" />
                 }
               </button>
 
               {/* Like */}
               <button onClick={() => toggleFeedback(t.id, true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", justifyContent: "center" }}>
-                <Heart size={20} color={isLiked ? LED_COLORS.green.on : HARDWARE.textDim}
-                       fill={isLiked ? LED_COLORS.green.on : "none"} />
+                <Heart size={20} color={isLiked ? "var(--led-green)" : "var(--hw-text-dim)"}
+                       fill={isLiked ? "var(--led-green)" : "none"} />
               </button>
 
               {/* Dislike */}
               <button onClick={() => toggleFeedback(t.id, false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", justifyContent: "center" }}>
-                <HeartOff size={20} color={isDisliked ? LED_COLORS.red.on : HARDWARE.textDim} />
+                <HeartOff size={20} color={isDisliked ? "var(--led-red)" : "var(--hw-text-dim)"} />
               </button>
             </div>
           );
