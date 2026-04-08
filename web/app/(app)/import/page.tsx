@@ -1125,7 +1125,7 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
         <SourceCard
           icon={SRC_ICONS.trackid}
           title="TrackID"
-          desc="Identify tracks from a YouTube DJ set or mix"
+          desc="Identify tracks from a YouTube DJ set, SoundCloud or others"
           active={trackIdValid}
         >
           <input
