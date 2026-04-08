@@ -1487,7 +1487,14 @@ function Step1Import({ searchParams, onSourceChange, onComplete }: Step1Props) {
               <input
                 type="text"
                 value={folderPath}
-                onChange={(e) => setFolderPath(e.target.value)}
+                onChange={(e) => {
+                  let v = e.target.value;
+                  // Strip wrapping quotes (single or double) from pasted paths
+                  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+                    v = v.slice(1, -1);
+                  }
+                  setFolderPath(v);
+                }}
                 placeholder="/Users/you/Music/DJ Sets"
                 className="font-mono"
                 style={{
