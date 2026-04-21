@@ -156,6 +156,7 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   const sidebarContent = (
+    {/* aside must stay position:static — SidebarNotificationBell drawer (position:absolute left:100%) escapes overflow:hidden only because this element has no position set */}
     <aside
       className="flex flex-col border-r border-hw-border bg-hw-surface h-full"
       style={{
