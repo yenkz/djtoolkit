@@ -10,5 +10,9 @@ export function stepToIndex(step: Step): number {
     case "venue-detail": return 2;
     case "seeds":        return 3;
     case "results":      return 4;
+    default: {
+      const _exhaustive: never = step;
+      throw new Error(`Unhandled step: ${_exhaustive}`);
+    }
   }
 }
