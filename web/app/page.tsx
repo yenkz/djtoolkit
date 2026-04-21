@@ -159,7 +159,7 @@ export default function LandingPage() {
 
   if (!mounted) return <div style={{ background: "var(--hw-body)", minHeight: "100vh" }} />;
 
-  const ctaHref = user ? "/import" : "/login";
+  const ctaHref = user ? "/dashboard" : "/login";
   const ctaLabel = user ? "DASHBOARD" : "GET STARTED";
 
   return (
