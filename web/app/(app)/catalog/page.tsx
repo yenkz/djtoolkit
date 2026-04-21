@@ -20,7 +20,6 @@ import FilterPopover, { type Filters } from "@/components/ui/FilterPopover";
 import DetailPanel from "@/components/ui/DetailPanel";
 import ViewToggle from "@/components/ui/ViewToggle";
 import CrateItem from "@/components/ui/CrateItem";
-import LCDDisplay from "@/components/ui/LCDDisplay";
 
 type ViewMode = "grid" | "list" | "compact";
 
@@ -510,44 +509,6 @@ export default function CatalogPage() {
               })}
             </div>
 
-            {/* Analyze button */}
-            {needsAnalysisCount > 0 && (
-              <button
-                type="button"
-                onClick={handleAnalyzeAll}
-                disabled={analyzing}
-                className="font-mono text-xs font-bold tracking-wide"
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 5,
-                  background: "var(--led-orange)",
-                  color: "#fff",
-                  border: "none",
-                  cursor: analyzing ? "wait" : "pointer",
-                  opacity: analyzing ? 0.6 : 1,
-                }}
-              >
-                {analyzing ? "Queuing..." : "Analyze Tracks"}
-              </button>
-            )}
-
-            {/* Import button */}
-            <a
-              href="/import"
-              className="font-mono text-xs font-bold tracking-wide"
-              style={{
-                padding: "6px 14px",
-                borderRadius: 5,
-                background: "var(--led-blue)",
-                color: "#fff",
-                border: "none",
-                cursor: "pointer",
-                textDecoration: "none",
-              }}
-            >
-              Import a Playlist
-            </a>
-
             {/* Search */}
             <div style={{ width: "clamp(160px, 22vw, 260px)" }}>
               <MiniSearch
@@ -658,34 +619,68 @@ export default function CatalogPage() {
           )}
         </div>
 
-        {/* ── Stats row (LCD Displays) ── */}
+        {/* ── Stats + CTAs row ── */}
         {stats && (
           <div
-            className="grid grid-cols-2 sm:grid-cols-5 gap-3 shrink-0"
-            style={{ padding: "12px clamp(16px, 2vw, 24px)" }}
+            className="shrink-0"
+            style={{
+              padding: "7px clamp(16px, 2vw, 24px)",
+              borderBottom: "1px solid var(--hw-border)",
+              display: "flex",
+              alignItems: "center",
+              gap: 18,
+              background: "var(--hw-surface)",
+              flexWrap: "wrap",
+            }}
           >
-            <LCDDisplay value={stats.total} label="Total" />
-            <LCDDisplay
-              value={stats.by_status?.available ?? 0}
-              label="Available"
-            />
-            <LCDDisplay
-              value={stats.by_status?.downloading ?? 0}
-              label="Downloading"
-            />
-            <LCDDisplay
-              value={stats.by_status?.failed ?? 0}
-              label="Failed"
-            />
-            <LCDDisplay
-              value={needsAnalysisCount}
-              label="Needs Analysis"
-              active={analyzedFilter === false}
-              onClick={() => {
-                setAnalyzedFilter((prev) => (prev === false ? undefined : false));
-                setPage(1);
+            {[
+              { value: stats.total, label: "Total" },
+              { value: stats.by_status?.available ?? 0, label: "Available" },
+              { value: stats.by_status?.downloading ?? 0, label: "Downloading" },
+              { value: stats.by_status?.failed ?? 0, label: "Failed" },
+            ].map((s) => (
+              <div
+                key={s.label}
+                style={{ display: "flex", alignItems: "baseline", gap: 5 }}
+              >
+                <span className="font-mono text-sm font-bold text-hw-text">{s.value ?? "—"}</span>
+                <span className="font-mono text-[9px] text-hw-text-muted">{s.label}</span>
+              </div>
+            ))}
+            <div style={{ flex: 1 }} />
+            {needsAnalysisCount > 0 && (
+              <button
+                type="button"
+                onClick={handleAnalyzeAll}
+                disabled={analyzing}
+                className="font-mono text-[9px] font-bold"
+                style={{
+                  padding: "5px 12px",
+                  background: "rgba(255,160,51,0.12)",
+                  border: "1px solid rgba(255,160,51,0.3)",
+                  borderRadius: 4,
+                  color: "var(--led-orange)",
+                  cursor: analyzing ? "wait" : "pointer",
+                  opacity: analyzing ? 0.6 : 1,
+                }}
+              >
+                {analyzing ? "Queuing…" : `Analyze ${needsAnalysisCount} Tracks`}
+              </button>
+            )}
+            <a
+              href="/import"
+              className="font-mono text-[9px] font-bold"
+              style={{
+                padding: "5px 12px",
+                background: "rgba(68,136,255,0.12)",
+                border: "1px solid rgba(68,136,255,0.3)",
+                borderRadius: 4,
+                color: "var(--led-blue)",
+                textDecoration: "none",
               }}
-            />
+            >
+              + Import Playlist
+            </a>
           </div>
         )}
 
