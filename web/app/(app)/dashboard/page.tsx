@@ -86,8 +86,8 @@ function StatusPill({ color, children }: { color: string; children: React.ReactN
         gap: 5,
         padding: "4px 10px",
         borderRadius: 4,
-        border: `1px solid ${color}33`,
-        background: `${color}11`,
+        border: `1px solid color-mix(in srgb, ${color} 20%, transparent)`,
+        background: `color-mix(in srgb, ${color} 7%, transparent)`,
         fontSize: 9,
         fontWeight: 700,
         color,
@@ -137,6 +137,7 @@ export default function DashboardPage() {
   const available = stats?.by_status?.available ?? 0;
   const needsAnalysis = stats
     ? Math.max(
+        0,
         available - (stats.flags?.enriched_audio ?? 0),
         available - (stats.flags?.cover_art_written ?? 0),
       )
