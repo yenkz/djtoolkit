@@ -60,15 +60,10 @@ a = Analysis(
         # System tray
         "pystray",
         "pystray._win32",
-        # typer / click internals
-        "typer",
-        "typer.main",
+        # typer / click internals — collect_submodules picks up lazy-loaded internals
+        *collect_submodules("typer"),
         "click",
-        "rich",
-        "rich.console",
-        "rich.logging",
-        "rich.progress",
-        "rich.table",
+        *collect_submodules("rich"),
         # httpx
         "httpx",
         "httpcore",

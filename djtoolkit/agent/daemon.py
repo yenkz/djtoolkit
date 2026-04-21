@@ -109,7 +109,8 @@ async def run_daemon(
     creds = load_agent_credentials()
     api_key = creds.get("api_key")
     if not api_key:
-        log.error("No API key found in keychain. Run 'djtoolkit agent configure' first.")
+        log.error("Setup required: no API key found. Open the app and complete setup first.")
+        save_daemon_status({"state": "needs_setup", "error": "No API key configured"})
         return
 
     client = AgentClient(
