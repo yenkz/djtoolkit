@@ -1,24 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bell, CheckCircle, XCircle, Download, AudioWaveform } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { apiClient } from "@/lib/api";
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-interface Notification {
-  id: string;
-  type: "batch_complete" | "track_failed" | "track_downloaded" | "analysis_complete";
-  title: string;
-  body: string;
-  url: string | null;
-  data: Record<string, unknown> | null;
-  read: boolean;
-  created_at: string;
-}
+import { useNotifications, type Notification } from "@/lib/hooks/use-notifications";
 
 // ─── Relative time ──────────────────────────────────────────────────────────
 
@@ -38,68 +24,9 @@ function timeAgo(iso: string): string {
 
 export default function NotificationBell() {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const { notifications, loading, unreadCount, markOneRead, markAllRead } = useNotifications();
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  // ── Fetch notifications ───────────────────────────────────────────────
-
-  const loadNotifications = useCallback(async () => {
-    try {
-      const res = await apiClient("/notifications?limit=20");
-      if (res.ok) {
-        const data: Notification[] = await res.json();
-        setNotifications(data);
-      }
-    } catch {
-      // Silently fail — notifications are non-critical
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
-
-  // ── Realtime subscription ─────────────────────────────────────────────
-
-  useEffect(() => {
-    const supabase = createClient();
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-
-    async function setup() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) return;
-
-      channel = supabase
-        .channel("notifications-bell")
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "push_notifications",
-            filter: `user_id=eq.${session.user.id}`,
-          },
-          (payload) => {
-            const row = payload.new as Notification;
-            setNotifications((prev) => [row, ...prev].slice(0, 20));
-          },
-        )
-        .subscribe();
-    }
-    setup();
-
-    return () => {
-      if (channel) supabase.removeChannel(channel);
-    };
-  }, []);
 
   // ── Close on outside click ────────────────────────────────────────────
 
@@ -132,28 +59,10 @@ export default function NotificationBell() {
 
   // ── Mark single as read + navigate ────────────────────────────────────
 
-  async function handleClickNotification(n: Notification) {
-    if (!n.read) {
-      setNotifications((prev) =>
-        prev.map((item) => (item.id === n.id ? { ...item, read: true } : item)),
-      );
-      apiClient("/notifications/read", {
-        method: "PATCH",
-        body: JSON.stringify({ id: n.id }),
-      }).catch(() => {});
-    }
+  function handleClickNotification(n: Notification) {
+    if (!n.read) markOneRead(n.id);
     setOpen(false);
     if (n.url) router.push(n.url);
-  }
-
-  // ── Mark all as read ──────────────────────────────────────────────────
-
-  async function handleMarkAllRead() {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    apiClient("/notifications/read", {
-      method: "PATCH",
-      body: JSON.stringify({ all: true }),
-    }).catch(() => {});
   }
 
   // ── Render ────────────────────────────────────────────────────────────
@@ -240,7 +149,7 @@ export default function NotificationBell() {
             </span>
             {unreadCount > 0 && (
               <button
-                onClick={handleMarkAllRead}
+                onClick={markAllRead}
                 className="font-mono transition-colors duration-150"
                 style={{
                   fontSize: 10,
