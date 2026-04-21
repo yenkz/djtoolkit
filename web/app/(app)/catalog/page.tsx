@@ -643,7 +643,7 @@ export default function CatalogPage() {
                 key={s.label}
                 style={{ display: "flex", alignItems: "baseline", gap: 5 }}
               >
-                <span className="font-mono text-sm font-bold text-hw-text">{s.value ?? "—"}</span>
+                <span className="font-mono text-sm font-bold text-hw-text">{s.value}</span>
                 <span className="font-mono text-[9px] text-hw-text-muted">{s.label}</span>
               </div>
             ))}
