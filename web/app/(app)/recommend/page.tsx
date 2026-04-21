@@ -1,7 +1,9 @@
 "use client";
 
+import React from "react";
 import { useState, useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 import EntryScreen from "@/components/recommend/EntryScreen";
 import VenueBrowser from "@/components/recommend/VenueBrowser";
@@ -21,8 +23,86 @@ import {
   type ExpandResponse,
   type SeedFeedback,
 } from "@/lib/api";
+import { stepToIndex, STEP_LABELS, type Step } from "./step-index";
 
-type Step = "entry" | "venue-browse" | "venue-detail" | "mood" | "seeds" | "results";
+function Stepper({ currentStep }: { currentStep: number }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: "14px 24px",
+        borderBottom: "1px solid var(--hw-border)",
+        flexShrink: 0,
+        marginBottom: 16,
+      }}
+    >
+      {STEP_LABELS.map((label, i) => {
+        const done = i < currentStep;
+        const current = i === currentStep;
+        return (
+          <React.Fragment key={label}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <div
+                style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  background: done ? "var(--led-blue)" : current ? "var(--hw-panel)" : "var(--hw-raised)",
+                  border: `2px solid ${i <= currentStep ? "var(--led-blue)" : "var(--hw-border-light)"}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxShadow: current ? "0 0 0 3px rgba(68,136,255,0.15)" : "none",
+                  transition: "all 0.2s",
+                }}
+              >
+                {done ? (
+                  <Check size={11} color="#fff" strokeWidth={3} />
+                ) : (
+                  <span
+                    className="font-mono"
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: current ? "var(--led-blue)" : "var(--hw-text-dim)",
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                )}
+              </div>
+              <span
+                className="font-mono"
+                style={{
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: 0.5,
+                  whiteSpace: "nowrap",
+                  color: current ? "var(--led-blue)" : done ? "var(--hw-text-dim)" : "var(--hw-border-light)",
+                }}
+              >
+                {label}
+              </span>
+            </div>
+            {i < STEP_LABELS.length - 1 && (
+              <div
+                style={{
+                  flex: 1,
+                  height: 2,
+                  background: done ? "var(--led-blue)" : "var(--hw-border-light)",
+                  marginBottom: 16,
+                  minWidth: 20,
+                  transition: "background 0.3s",
+                }}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function RecommendPage() {
   const searchParams = useSearchParams();
@@ -151,6 +231,7 @@ export default function RecommendPage() {
 
   return (
     <div className={`flex-1 p-6 ${step === "results" ? "flex flex-col overflow-hidden" : "overflow-auto"}`}>
+      <Stepper currentStep={stepToIndex(step)} />
       {step !== "entry" && (
         <button
           onClick={handleBack}
