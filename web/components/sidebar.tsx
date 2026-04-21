@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Download, Upload, LayoutGrid, SlidersHorizontal, Bot, Sparkles, ListMusic, Settings, LogOut, Menu, X, Sun, Moon, Monitor, ChevronsLeft, Home } from "lucide-react";
 import { useTheme } from "@/lib/theme-provider";
 import Logo from "@/components/ui/Logo";
+import SidebarNotificationBell from "@/components/sidebar-notification-bell";
 import type { LucideIcon } from "lucide-react";
 
 const LIBRARY_NAV: { href: string; label: string; icon: LucideIcon }[] = [
@@ -208,74 +209,140 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
         ))}
       </nav>
 
-      <div className="border-t border-hw-border" style={{ padding: collapsed ? "12px 4px" : "12px 16px" }}>
-        {!collapsed && <p className="truncate text-xs text-hw-text-dim">{userEmail}</p>}
-        <div className="flex items-center justify-center gap-1" style={{ marginTop: collapsed ? 0 : 8, marginBottom: collapsed ? 8 : 8 }}>
-          {THEME_OPTIONS.map(({ value, icon: Icon, label }) => {
-            const active = theme === value;
-            return (
-              <button
-                key={value}
-                onClick={() => setTheme(value)}
-                aria-label={`${label} theme`}
-                className="flex items-center justify-center rounded transition-colors duration-200"
-                style={{
-                  width: 28,
-                  height: 28,
-                  color: active ? "var(--led-blue)" : "var(--hw-text-dim)",
-                  background: active ? "rgba(68, 136, 255, 0.12)" : "transparent",
-                  boxShadow: active ? "0 0 8px rgba(68, 136, 255, 0.25)" : "none",
-                }}
-              >
-                <Icon size={14} strokeWidth={2} />
-              </button>
-            );
-          })}
+      <div
+        className="border-t border-hw-border"
+        style={{ padding: collapsed ? "10px 4px" : "10px 14px", position: "relative" }}
+      >
+        {!collapsed && (
+          <p
+            className="font-mono truncate"
+            style={{ fontSize: 9, color: "var(--hw-text-muted)", marginBottom: 6, letterSpacing: 0.3 }}
+          >
+            {userEmail}
+          </p>
+        )}
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: collapsed ? 0 : 4,
+            flexDirection: collapsed ? "column" : "row",
+            justifyContent: collapsed ? "center" : "flex-start",
+          }}
+        >
+          {/* Theme toggles — only when expanded */}
+          {!collapsed &&
+            THEME_OPTIONS.map(({ value, icon: Icon, label }) => {
+              const active = theme === value;
+              return (
+                <button
+                  key={value}
+                  onClick={() => setTheme(value)}
+                  aria-label={`${label} theme`}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 4,
+                    border: "none",
+                    cursor: "pointer",
+                    background: active ? "rgba(68, 136, 255, 0.12)" : "transparent",
+                    color: active ? "var(--led-blue)" : "var(--hw-text-dim)",
+                    boxShadow: active ? "0 0 8px rgba(68, 136, 255, 0.25)" : "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Icon size={13} strokeWidth={2} />
+                </button>
+              );
+            })}
+
+          <div style={{ flex: collapsed ? 0 : 1 }} />
+
+          {/* Settings link */}
+          <Link
+            href="/settings"
+            aria-label="Settings"
+            title={collapsed ? "Settings" : undefined}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 4,
+              color: pathname.startsWith("/settings") ? "var(--led-blue)" : "var(--hw-text-dim)",
+              background: pathname.startsWith("/settings") ? "rgba(68,136,255,0.12)" : "transparent",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              textDecoration: "none",
+            }}
+            onMouseEnter={(e) => {
+              if (!pathname.startsWith("/settings")) e.currentTarget.style.color = "var(--hw-text)";
+            }}
+            onMouseLeave={(e) => {
+              if (!pathname.startsWith("/settings")) e.currentTarget.style.color = "var(--hw-text-dim)";
+            }}
+          >
+            <Settings size={14} strokeWidth={2} />
+          </Link>
+
+          {/* Notification bell + drawer */}
+          <SidebarNotificationBell />
+
+          {/* Collapse toggle */}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 4,
+              border: "none",
+              cursor: "pointer",
+              background: "transparent",
+              color: "var(--hw-text-dim)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "var(--hw-text)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hw-text-dim)"; }}
+          >
+            <ChevronsLeft
+              size={14}
+              strokeWidth={2}
+              style={{
+                transform: collapsed ? "rotate(180deg)" : "none",
+                transition: "transform 0.2s ease",
+              }}
+            />
+          </button>
         </div>
+
+        {/* Sign out */}
         <button
           onClick={signOut}
-          className="flex items-center text-xs transition-colors duration-200"
+          className="flex items-center"
           title={collapsed ? "Sign out" : undefined}
           style={{
-            color: "var(--hw-text-dim)",
+            marginTop: 8,
+            width: "100%",
             gap: collapsed ? 0 : 6,
             justifyContent: collapsed ? "center" : "flex-start",
-            width: "100%",
-            marginTop: 4,
+            background: "none",
+            border: "none",
+            color: "var(--hw-text-dim)",
+            fontSize: 11,
+            cursor: "pointer",
+            padding: "4px 0",
           }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "var(--led-red)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hw-text-dim)"; }}
         >
           <LogOut size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
           {!collapsed && "Sign out"}
-        </button>
-
-        {/* Collapse toggle */}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex items-center text-xs transition-colors duration-200"
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          style={{
-            color: "var(--hw-text-dim)",
-            gap: collapsed ? 0 : 6,
-            justifyContent: collapsed ? "center" : "flex-start",
-            width: "100%",
-            marginTop: 8,
-            padding: "4px 0",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--hw-text)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--hw-text-dim)"; }}
-        >
-          <ChevronsLeft
-            size={14}
-            strokeWidth={2}
-            style={{
-              flexShrink: 0,
-              transform: collapsed ? "rotate(180deg)" : "none",
-              transition: "transform 0.2s ease",
-            }}
-          />
-          {!collapsed && "Collapse"}
         </button>
       </div>
     </aside>
