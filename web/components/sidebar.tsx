@@ -4,21 +4,23 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { Download, Upload, LayoutGrid, SlidersHorizontal, Bot, Bell, Sparkles, ListMusic, Settings, LogOut, Menu, X, Sun, Moon, Monitor, ChevronsLeft } from "lucide-react";
+import { Download, Upload, LayoutGrid, SlidersHorizontal, Bot, Sparkles, ListMusic, Settings, LogOut, Menu, X, Sun, Moon, Monitor, ChevronsLeft, Home } from "lucide-react";
 import { useTheme } from "@/lib/theme-provider";
 import Logo from "@/components/ui/Logo";
 import type { LucideIcon } from "lucide-react";
 
-const NAV: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/import", label: "Import", icon: Download },
-  { href: "/catalog", label: "Catalog", icon: LayoutGrid },
+const LIBRARY_NAV: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/dashboard", label: "Home",      icon: Home },
+  { href: "/import",    label: "Import",    icon: Download },
+  { href: "/catalog",   label: "Catalog",   icon: LayoutGrid },
   { href: "/playlists", label: "Playlists", icon: ListMusic },
-  { href: "/export", label: "Export", icon: Upload },
-  { href: "/pipeline", label: "Pipeline", icon: SlidersHorizontal },
-  { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/export",    label: "Export",    icon: Upload },
   { href: "/recommend", label: "Recommend", icon: Sparkles },
-  { href: "/settings", label: "Settings", icon: Settings },
+];
+
+const OPS_NAV: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/pipeline", label: "Pipeline", icon: SlidersHorizontal },
+  { href: "/agents",   label: "Agents",   icon: Bot },
 ];
 
 const THEME_OPTIONS = [
@@ -78,6 +80,55 @@ function SidebarLogo({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function NavLink({
+  item,
+  pathname,
+  collapsed,
+  muted,
+}: {
+  item: { href: string; label: string; icon: LucideIcon };
+  pathname: string;
+  collapsed: boolean;
+  muted: boolean;
+}) {
+  const active = pathname.startsWith(item.href);
+  const Icon = item.icon;
+  const defaultColor = muted ? "var(--hw-text-muted)" : "var(--hw-text-dim)";
+  return (
+    <Link
+      href={item.href}
+      className="flex items-center text-sm transition-all duration-200"
+      title={collapsed ? item.label : undefined}
+      style={{
+        gap: collapsed ? 0 : 12,
+        padding: collapsed ? "10px 0" : "10px 14px",
+        justifyContent: collapsed ? "center" : "flex-start",
+        color: active ? "var(--led-blue)" : defaultColor,
+        background: active ? "rgba(68, 136, 255, 0.08)" : "transparent",
+        borderLeft: active ? "2px solid var(--led-blue)" : "2px solid transparent",
+        textShadow: active ? "0 0 14px rgba(68, 136, 255, 0.4)" : "none",
+        borderRadius: collapsed ? 6 : 0,
+        fontWeight: active && !muted ? 600 : 400,
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          e.currentTarget.style.color = "var(--hw-text)";
+          e.currentTarget.style.background = "var(--hw-raised)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          e.currentTarget.style.color = defaultColor;
+          e.currentTarget.style.background = "transparent";
+        }
+      }}
+    >
+      <Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+      {!collapsed && item.label}
+    </Link>
+  );
+}
+
 export default function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -114,43 +165,47 @@ export default function Sidebar({ userEmail }: { userEmail: string }) {
     >
       <SidebarLogo collapsed={collapsed} />
 
-      <nav className="flex-1 space-y-0.5 py-2" style={{ padding: collapsed ? "8px 4px" : "8px 12px" }}>
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = pathname.startsWith(href);
-          return (
-            <Link
-              key={href}
-              href={href}
-              className="flex items-center text-sm font-medium transition-all duration-200"
-              title={collapsed ? label : undefined}
-              style={{
-                gap: collapsed ? 0 : 12,
-                padding: collapsed ? "10px 0" : "10px 14px",
-                justifyContent: collapsed ? "center" : "flex-start",
-                color: active ? "var(--led-blue)" : "var(--hw-text-dim)",
-                background: active ? "rgba(68, 136, 255, 0.08)" : "transparent",
-                borderLeft: active ? "2px solid var(--led-blue)" : "2px solid transparent",
-                textShadow: active ? "0 0 14px rgba(68, 136, 255, 0.4)" : "none",
-                borderRadius: collapsed ? 6 : 0,
-              }}
-              onMouseEnter={(e) => {
-                if (!active) {
-                  e.currentTarget.style.color = "var(--hw-text)";
-                  e.currentTarget.style.background = "var(--hw-raised)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!active) {
-                  e.currentTarget.style.color = "var(--hw-text-dim)";
-                  e.currentTarget.style.background = "transparent";
-                }
-              }}
-            >
-              <Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
-              {!collapsed && label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 py-2" style={{ padding: collapsed ? "8px 4px" : "8px 12px" }}>
+        {/* Library group */}
+        {!collapsed && (
+          <div
+            className="font-mono uppercase"
+            style={{
+              padding: "8px 14px 4px",
+              fontSize: 8,
+              fontWeight: 700,
+              letterSpacing: 2,
+              color: "var(--hw-border-light)",
+            }}
+          >
+            Library
+          </div>
+        )}
+        {LIBRARY_NAV.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} muted={false} />
+        ))}
+
+        {/* Divider */}
+        <div style={{ height: 1, background: "var(--hw-border)", margin: collapsed ? "6px 8px" : "8px 14px" }} />
+
+        {/* Operations group */}
+        {!collapsed && (
+          <div
+            className="font-mono uppercase"
+            style={{
+              padding: "4px 14px 4px",
+              fontSize: 8,
+              fontWeight: 700,
+              letterSpacing: 2,
+              color: "var(--hw-border-light)",
+            }}
+          >
+            Operations
+          </div>
+        )}
+        {OPS_NAV.map((item) => (
+          <NavLink key={item.href} item={item} pathname={pathname} collapsed={collapsed} muted={true} />
+        ))}
       </nav>
 
       <div className="border-t border-hw-border" style={{ padding: collapsed ? "12px 4px" : "12px 16px" }}>
