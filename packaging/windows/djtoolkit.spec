@@ -8,6 +8,25 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files, coll
 # All paths resolved relative to repo root so the spec works regardless of CWD
 REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 
+# PyInstaller's module finder needs the venv's site-packages on its search path.
+# Under `uv run`, sys.path alone doesn't always expose it — add it explicitly.
+_venv_site_packages = []
+_venv_dir = os.environ.get("VIRTUAL_ENV")
+if _venv_dir:
+    if sys.platform == "win32":
+        _candidate = os.path.join(_venv_dir, "Lib", "site-packages")
+        if os.path.isdir(_candidate):
+            _venv_site_packages.append(_candidate)
+    else:
+        _lib_dir = os.path.join(_venv_dir, "lib")
+        if os.path.isdir(_lib_dir):
+            for _entry in os.listdir(_lib_dir):
+                _candidate = os.path.join(_lib_dir, _entry, "site-packages")
+                if os.path.isdir(_candidate):
+                    _venv_site_packages.append(_candidate)
+                    break
+print(f"INFO: spec pathex venv_site_packages = {_venv_site_packages}")
+
 # fpcalc.exe: env var (may be relative to repo root) or default location
 FPCALC_PATH = os.environ.get("FPCALC_PATH", os.path.join("dist", "fpcalc.exe"))
 if not os.path.isabs(FPCALC_PATH):
@@ -26,7 +45,7 @@ rich_datas, rich_binaries, rich_imports = collect_all("rich")
 
 a = Analysis(
     [os.path.join(REPO_ROOT, "djtoolkit", "__main__.py")],
-    pathex=[REPO_ROOT],
+    pathex=[REPO_ROOT, *_venv_site_packages],
     binaries=[*fpcalc_binaries, *dj_binaries, *typer_binaries, *rich_binaries],
     datas=[
         *collect_data_files("librosa"),
