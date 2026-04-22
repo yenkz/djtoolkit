@@ -19,17 +19,21 @@ if not os.path.exists(FPCALC_PATH):
 else:
     fpcalc_binaries = [(FPCALC_PATH, "bin")]
 
-# Force-collect djtoolkit — editable installs can confuse collect_submodules in CI
+# Force-collect packages — editable installs / uv envs can confuse collect_submodules in CI
 dj_datas, dj_binaries, dj_imports = collect_all("djtoolkit")
+typer_datas, typer_binaries, typer_imports = collect_all("typer")
+rich_datas, rich_binaries, rich_imports = collect_all("rich")
 
 a = Analysis(
     [os.path.join(REPO_ROOT, "djtoolkit", "__main__.py")],
     pathex=[REPO_ROOT],
-    binaries=[*fpcalc_binaries, *dj_binaries],
+    binaries=[*fpcalc_binaries, *dj_binaries, *typer_binaries, *rich_binaries],
     datas=[
         *collect_data_files("librosa"),
         *collect_data_files("aioslsk"),
         *dj_datas,
+        *typer_datas,
+        *rich_datas,
     ],
     hiddenimports=[
         *dj_imports,
@@ -60,10 +64,10 @@ a = Analysis(
         # System tray
         "pystray",
         "pystray._win32",
-        # typer / click internals — collect_submodules picks up lazy-loaded internals
-        *collect_submodules("typer"),
+        # typer / click / rich — force-collected above; imports listed for completeness
+        *typer_imports,
         "click",
-        *collect_submodules("rich"),
+        *rich_imports,
         # httpx
         "httpx",
         "httpcore",
