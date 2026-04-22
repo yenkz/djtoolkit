@@ -61,7 +61,7 @@ jobs:
         run: uv run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
 
       - name: Install WiX 4
-        run: dotnet tool install --global wix
+        run: dotnet tool install --global wix --version "4.*"
         shell: pwsh
 
       - name: Build MSI
