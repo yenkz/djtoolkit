@@ -35,7 +35,7 @@ function SidebarLogo({ collapsed }: { collapsed: boolean }) {
 
   return (
     <Link
-      href="/catalog"
+      href="/dashboard"
       className="flex items-center no-underline"
       style={{
         textDecoration: "none",
