@@ -38,10 +38,7 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync --frozen
-          uv run pip install pystray
-
-      - name: Install PyInstaller
-        run: uv run pip install pyinstaller
+          uv pip install pystray pyinstaller
 
       - name: Download fpcalc.exe
         run: |
@@ -58,7 +55,8 @@ jobs:
       - name: Build CLI binary
         env:
           FPCALC_PATH: dist\fpcalc.exe
-        run: uv run pyinstaller packaging/windows/djtoolkit.spec --clean --noconfirm
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m PyInstaller packaging/windows/djtoolkit.spec --clean --noconfirm
 
       - name: Install WiX 4
         run: dotnet tool install --global wix --version "4.*"
