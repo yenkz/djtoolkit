@@ -14,6 +14,27 @@ PLIST_PATH = PLIST_DIR / f"{LABEL}.plist"
 LOG_DIR = Path.home() / "Library" / "Logs" / "djtoolkit"
 
 
+def _gui_domain() -> str:
+    """Return the launchctl GUI domain for the current user (e.g. 'gui/501')."""
+    return f"gui/{os.getuid()}"
+
+
+def _bootstrap(plist: Path) -> None:
+    """Load a plist using the modern bootstrap API."""
+    subprocess.run(
+        ["launchctl", "bootstrap", _gui_domain(), str(plist)],
+        check=True,
+    )
+
+
+def _bootout(plist: Path) -> None:
+    """Unload a service using the modern bootout API."""
+    subprocess.run(
+        ["launchctl", "bootout", _gui_domain(), str(plist)],
+        check=False,  # may already be stopped
+    )
+
+
 def _resolve_binary() -> str:
     """Find the djtoolkit binary path.
 
@@ -96,7 +117,7 @@ def generate_plist(binary_path: str | None = None) -> str:
 
 
 def install() -> Path:
-    """Write the plist and load it via launchctl.
+    """Write the plist and bootstrap it via launchctl.
 
     Returns the plist path.
     """
@@ -106,40 +127,37 @@ def install() -> Path:
     plist_content = generate_plist()
     PLIST_PATH.write_text(plist_content)
 
-    # Load the agent
-    subprocess.run(
-        ["launchctl", "load", str(PLIST_PATH)],
-        check=True,
-    )
+    # Bootout first in case a stale service is registered, then bootstrap
+    _bootout(PLIST_PATH)
+    _bootstrap(PLIST_PATH)
     return PLIST_PATH
 
 
 def uninstall() -> None:
     """Unload and remove the plist."""
     if PLIST_PATH.exists():
-        subprocess.run(
-            ["launchctl", "unload", str(PLIST_PATH)],
-            check=False,  # may already be unloaded
-        )
+        _bootout(PLIST_PATH)
         PLIST_PATH.unlink()
 
 
 def start() -> None:
-    """Load (resume) a previously installed agent."""
+    """Bootstrap a previously installed agent (idempotent)."""
     if not PLIST_PATH.exists():
         raise FileNotFoundError(
             "Agent not installed. Run 'djtoolkit agent install' first."
         )
-    subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
+    if is_running():
+        return
+    _bootstrap(PLIST_PATH)
 
 
 def stop() -> None:
-    """Unload (temporarily stop) the agent. Resumes on next boot."""
+    """Bootout the agent. It will restart on next login (KeepAlive plist)."""
     if not PLIST_PATH.exists():
         raise FileNotFoundError(
             "Agent not installed. Run 'djtoolkit agent install' first."
         )
-    subprocess.run(["launchctl", "unload", str(PLIST_PATH)], check=True)
+    _bootout(PLIST_PATH)
 
 
 def is_installed() -> bool:
@@ -149,10 +167,8 @@ def is_installed() -> bool:
 
 def is_running() -> bool:
     """Check if the agent is currently loaded in launchctl."""
-    if not PLIST_PATH.exists():
-        return False
     result = subprocess.run(
-        ["launchctl", "list", LABEL],
-        capture_output=True, text=True,
+        ["launchctl", "print", f"{_gui_domain()}/{LABEL}"],
+        capture_output=True,
     )
     return result.returncode == 0
