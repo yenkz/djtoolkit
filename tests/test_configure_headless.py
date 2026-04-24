@@ -16,7 +16,7 @@ runner = CliRunner()
 
 def _make_input(*, api_key="djt_abc123def456abc123def456abc123def456abc1",
                 slsk_user="testuser", slsk_pass="testpass",
-                acoustid_key=None, cloud_url="https://api.djtoolkit.com",
+                acoustid_key=None, cloud_url="https://www.djtoolkit.net",
                 downloads_dir="~/Music/djtoolkit/downloads",
                 poll_interval=30):
     return json.dumps({
@@ -59,7 +59,7 @@ def test_configure_headless_valid_json(mock_store, tmp_path, monkeypatch):
     config_path = tmp_path / ".djtoolkit" / "config.toml"
     assert config_path.exists()
     content = config_path.read_text()
-    assert 'cloud_url = "https://api.djtoolkit.com"' in content
+    assert 'cloud_url = "https://www.djtoolkit.net"' in content
     assert "poll_interval_sec = 30" in content
 
 

@@ -616,7 +616,7 @@ def coverart_list(
 @agent_app.command("configure")
 def agent_configure(
     api_key: Annotated[str, typer.Option("--api-key", help="Agent API key (djt_xxx)")],
-    cloud_url: Annotated[str, typer.Option("--cloud-url", help="Cloud API base URL")] = "https://api.djtoolkit.com",
+    cloud_url: Annotated[str, typer.Option("--cloud-url", help="Cloud API base URL")] = "https://www.djtoolkit.net",
 ):
     """Configure the local agent — stores credentials in the system credential store."""
     from djtoolkit.agent.keychain import store_agent_credentials, has_secret, API_KEY
@@ -1100,7 +1100,7 @@ def _setup_terminal_wizard():
     config_path = cfg_dir / "config.toml"
 
     config_content = f"""[agent]
-cloud_url = "https://api.djtoolkit.com"
+cloud_url = "https://www.djtoolkit.net"
 poll_interval_sec = 60
 max_concurrent_jobs = 2
 downloads_dir = "{toml_downloads_dir}"
