@@ -23,22 +23,38 @@ else:
 dj_datas, dj_binaries, dj_imports = collect_all("djtoolkit")
 typer_datas, typer_binaries, typer_imports = collect_all("typer")
 rich_datas, rich_binaries, rich_imports = collect_all("rich")
+# librosa's BPM/key detection calls numba-JITed routines; numba needs
+# llvmlite's bundled LLVM DLL. Excluding them leaves stub references
+# that fail with "cannot import name 'stencil' from 'numba'".
+numba_datas, numba_binaries, numba_imports = collect_all("numba")
+llvmlite_datas, llvmlite_binaries, llvmlite_imports = collect_all("llvmlite")
 
 a = Analysis(
     [os.path.join(REPO_ROOT, "djtoolkit", "__main__.py")],
     pathex=[REPO_ROOT],
-    binaries=[*fpcalc_binaries, *dj_binaries, *typer_binaries, *rich_binaries],
+    binaries=[
+        *fpcalc_binaries,
+        *dj_binaries,
+        *typer_binaries,
+        *rich_binaries,
+        *numba_binaries,
+        *llvmlite_binaries,
+    ],
     datas=[
         *collect_data_files("librosa"),
         *collect_data_files("aioslsk"),
         *dj_datas,
         *typer_datas,
         *rich_datas,
+        *numba_datas,
+        *llvmlite_datas,
     ],
     hiddenimports=[
         *dj_imports,
         *collect_submodules("djtoolkit"),
         *collect_submodules("aioslsk"),
+        *numba_imports,
+        *llvmlite_imports,
         # Explicit agent commands — collect_submodules may miss these in CI
         "djtoolkit.agent.commands",
         "djtoolkit.agent.commands.browse_folder",
@@ -97,10 +113,6 @@ a = Analysis(
         "_tkinter",
         "IPython",
         "jupyter",
-        # JIT deps — llvmlite bundles all of LLVM (~100MB); librosa falls back
-        # to pure Python implementations when numba is not importable.
-        "numba",
-        "llvmlite",
     ],
     noarchive=False,
 )

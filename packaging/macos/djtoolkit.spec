@@ -32,6 +32,12 @@ typer_datas, typer_binaries, typer_imports = collect_all("typer")
 click_datas, click_binaries, click_imports = collect_all("click")
 rich_datas, rich_binaries, rich_imports = collect_all("rich")
 dj_datas, dj_binaries, dj_imports = collect_all("djtoolkit")
+# librosa's BPM/key detection needs numba's JIT-compiled routines; numba
+# depends on llvmlite's bundled shared library. Both must be collected in
+# full — PyInstaller's default scan drops the native .so/.dll and misses
+# numba's extensive submodule tree.
+numba_datas, numba_binaries, numba_imports = collect_all("numba")
+llvmlite_datas, llvmlite_binaries, llvmlite_imports = collect_all("llvmlite")
 
 a = Analysis(
     ["../../djtoolkit/__main__.py"],
@@ -42,6 +48,8 @@ a = Analysis(
         *click_binaries,
         *rich_binaries,
         *dj_binaries,
+        *numba_binaries,
+        *llvmlite_binaries,
     ],
     datas=[
         *collect_data_files("librosa"),
@@ -50,11 +58,15 @@ a = Analysis(
         *click_datas,
         *rich_datas,
         *dj_datas,
+        *numba_datas,
+        *llvmlite_datas,
     ],
     hiddenimports=[
         *dj_imports,
         *collect_submodules("djtoolkit"),
         *collect_submodules("aioslsk"),
+        *numba_imports,
+        *llvmlite_imports,
         # Explicit agent commands — collect_submodules may miss these in CI
         "djtoolkit.agent.commands",
         "djtoolkit.agent.commands.browse_folder",
@@ -110,9 +122,6 @@ a = Analysis(
         "_tkinter",
         "IPython",
         "jupyter",
-        # JIT deps
-        "numba",
-        "llvmlite",
     ],
     noarchive=False,
 )
