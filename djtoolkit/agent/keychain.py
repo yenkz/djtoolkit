@@ -57,7 +57,13 @@ def store_agent_credentials(
     agent_email: str | None = None,
     agent_password: str | None = None,
 ) -> None:
-    """Store all agent credentials in the keychain at once."""
+    """Store all agent credentials in the keychain and mirror to credentials.json.
+
+    credentials.json is the primary source on Windows and a fallback elsewhere;
+    if a stale file is left behind with an old api_key, load_agent_credentials()
+    returns it before ever reaching the keychain. Rewriting it here keeps the
+    two stores in sync after every reconfigure.
+    """
     store_secret(API_KEY, api_key)
     store_secret(SLSK_USERNAME, slsk_username)
     store_secret(SLSK_PASSWORD, slsk_password)
@@ -71,6 +77,55 @@ def store_agent_credentials(
         store_secret(AGENT_EMAIL, agent_email)
     if agent_password:
         store_secret(AGENT_PASSWORD, agent_password)
+
+    _sync_credentials_json(
+        api_key=api_key,
+        slsk_username=slsk_username,
+        slsk_password=slsk_password,
+        acoustid_key=acoustid_key,
+        supabase_url=supabase_url,
+        supabase_anon_key=supabase_anon_key,
+        agent_email=agent_email,
+        agent_password=agent_password,
+    )
+
+
+def _sync_credentials_json(**kwargs: str | None) -> None:
+    """Write non-None credentials to credentials.json, preserving existing values.
+
+    Falls back to keychain-only if the config dir can't be written to.
+    """
+    import json
+    from djtoolkit.agent.paths import config_dir
+
+    _KEY_MAP = {
+        "api_key": "agent-api-key",
+        "slsk_username": "soulseek-username",
+        "slsk_password": "soulseek-password",
+        "acoustid_key": "acoustid-key",
+        "supabase_url": "supabase-url",
+        "supabase_anon_key": "supabase-anon-key",
+        "agent_email": "agent-email",
+        "agent_password": "agent-password",
+    }
+
+    try:
+        cfg_dir = config_dir()
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        creds_file = cfg_dir / "credentials.json"
+        existing: dict[str, str] = {}
+        if creds_file.exists():
+            try:
+                existing = json.loads(creds_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+        for py_key, file_key in _KEY_MAP.items():
+            value = kwargs.get(py_key)
+            if value is not None:
+                existing[file_key] = value
+        creds_file.write_text(json.dumps(existing, indent=2))
+    except OSError:
+        pass
 
 
 def _load_credentials_json() -> dict[str, str | None]:
@@ -141,9 +196,17 @@ def load_agent_credentials() -> dict[str, str | None]:
 
 
 def clear_agent_credentials() -> None:
-    """Remove all agent credentials from the keychain."""
+    """Remove all agent credentials from the keychain and credentials.json."""
     for account in (
         API_KEY, SLSK_USERNAME, SLSK_PASSWORD, ACOUSTID_KEY,
         SUPABASE_URL, SUPABASE_ANON_KEY, AGENT_EMAIL, AGENT_PASSWORD,
     ):
         delete_secret(account)
+
+    from djtoolkit.agent.paths import config_dir
+    creds_file = config_dir() / "credentials.json"
+    if creds_file.exists():
+        try:
+            creds_file.unlink()
+        except OSError:
+            pass
