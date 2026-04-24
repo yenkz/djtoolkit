@@ -186,6 +186,29 @@ export default function SidebarNotificationBell() {
                 ))
               )}
             </div>
+
+            {/* Footer */}
+            <button
+              onClick={() => { setOpen(false); router.push("/notifications"); }}
+              className="font-mono uppercase"
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                borderTop: "1px solid var(--hw-border)",
+                background: "transparent",
+                border: "none",
+                fontSize: 9,
+                fontWeight: 700,
+                letterSpacing: 1.5,
+                color: "var(--led-blue)",
+                cursor: "pointer",
+                textAlign: "center",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--hw-raised)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            >
+              View all notifications →
+            </button>
           </div>,
           document.body
         )
