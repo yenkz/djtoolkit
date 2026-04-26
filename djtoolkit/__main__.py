@@ -620,7 +620,7 @@ def agent_configure(
 ):
     """Configure the local agent — stores credentials in the system credential store."""
     from djtoolkit.agent.keychain import store_agent_credentials, has_secret, API_KEY
-    from djtoolkit.agent.paths import config_dir, credential_store_name
+    from djtoolkit.agent.paths import config_dir, credential_store_name, default_downloads_dir
 
     if not api_key.startswith("djt_"):
         console.print("[red]API key must start with 'djt_'[/red]")
@@ -643,10 +643,20 @@ def agent_configure(
     cfg_dir.mkdir(parents=True, exist_ok=True)
     config_path = cfg_dir / "config.toml"
 
+    # Resolve an absolute downloads dir at configure time. This matters on
+    # Windows where the agent runs as LocalSystem and would otherwise expand
+    # ~ to C:\Windows\System32\config\systemprofile\… instead of the user's
+    # actual home folder.
+    downloads_dir_abs = default_downloads_dir().resolve()
+    downloads_dir_toml = str(downloads_dir_abs).replace("\\", "/")
+
     config_content = f"""[agent]
 cloud_url = "{cloud_url}"
 poll_interval_sec = 60
 max_concurrent_jobs = 2
+
+[paths]
+downloads_dir = "{downloads_dir_toml}"
 
 [soulseek]
 search_timeout_sec = 15
@@ -752,11 +762,13 @@ def agent_configure_headless(
     downloads_dir = data.get("downloads_dir", str(default_downloads_dir()))
     poll_interval = data.get("poll_interval", 30)
 
-    # Expand ~ for the response but keep unexpanded in config if user passed ~
-    expanded_downloads = str(Path(downloads_dir).expanduser())
+    # Always persist the absolute path resolved against the configuring user's
+    # home — the daemon may later run under a different account (e.g. Windows
+    # LocalSystem service) where ~ would expand to the wrong place.
+    expanded_downloads = str(Path(downloads_dir).expanduser().resolve())
 
     # TOML treats backslashes as escape chars; use forward slashes (Windows handles them fine)
-    toml_downloads_dir = downloads_dir.replace("\\", "/")
+    toml_downloads_dir = expanded_downloads.replace("\\", "/")
 
     cfg_dir = config_dir()
     cfg_dir.mkdir(parents=True, exist_ok=True)
@@ -766,9 +778,11 @@ def agent_configure_headless(
 cloud_url = "{cloud_url}"
 poll_interval_sec = {poll_interval}
 max_concurrent_jobs = 2
-downloads_dir = "{toml_downloads_dir}"
 api_key = "{api_key}"
 slsk_username = "{slsk_user}"
+
+[paths]
+downloads_dir = "{toml_downloads_dir}"
 
 [soulseek]
 search_timeout_sec = 15
