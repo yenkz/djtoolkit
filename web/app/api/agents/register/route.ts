@@ -45,6 +45,12 @@ export async function POST(request: NextRequest) {
   });
 
   if (error) {
+    console.error("agents.insert failed", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     return jsonError("Failed to register agent", 500);
   }
 
