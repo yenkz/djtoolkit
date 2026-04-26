@@ -72,7 +72,7 @@ class LoudnormConfig:
 class CoverArtConfig:
     force: bool = False
     skip_embed: bool = False
-    sources: str = "coverart itunes deezer"  # space-separated, tried in order
+    sources: str = "spotify coverart itunes deezer"  # space-separated, tried in order
     minwidth: int = 800                      # reject images narrower than this (px)
     maxwidth: int = 2000                     # resize images wider than this (px, requires Pillow)
     quality: int = 90                        # JPEG quality when re-encoding after resize

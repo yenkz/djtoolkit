@@ -26,11 +26,16 @@ async def run(cfg: Config, payload: dict) -> dict:
 
     Returns {cover_art_written: bool, artwork_url?: str, preview_url?: str, spotify_uri?: str}.
     """
-    from djtoolkit.coverart.art import _fetch_art, _embed
+    from djtoolkit.coverart.art import _fetch_art, _embed, _has_cover_art
 
     local_path = Path(payload.get("local_path", ""))
     if not local_path.exists():
         raise FileNotFoundError(f"File not found: {local_path}")
+
+    # Fast-path: file already has embedded art. Don't re-fetch — just
+    # tell the DB the flag is correct so it stops getting re-queued.
+    if _has_cover_art(local_path):
+        return {"cover_art_written": True}
 
     artist = payload.get("artist", "")
     album = payload.get("album", "")

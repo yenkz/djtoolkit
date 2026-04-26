@@ -41,7 +41,7 @@ target_lra  = "9"
 [cover_art]
 force          = false   # re-embed even if the file already has art
 skip_embed     = false   # dry-run: fetch only, don't write to files
-sources        = "coverart itunes deezer"
+sources        = "spotify coverart itunes deezer"
                  # Available sources (space-separated, tried in order):
                  #   spotify  — uses spotify_uri if available, otherwise searches by artist+title;
                  #              requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env

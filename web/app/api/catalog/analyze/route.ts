@@ -69,12 +69,9 @@ export async function POST(request: NextRequest) {
     }
 
     const needsAnalysis = !track.enriched_audio || forceReanalyze;
-    const needsCoverArt = !track.cover_art_written || forceReanalyze;
-
-    if (!needsAnalysis && !needsCoverArt) {
-      skipped++;
-      continue;
-    }
+    // Always enqueue a cover_art job — the agent fast-paths files that
+    // already have embedded art, so the DB flag isn't trusted blindly.
+    const needsCoverArt = true;
 
     // ── Audio analysis job ──
     if (needsAnalysis) {
