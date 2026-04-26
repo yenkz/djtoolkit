@@ -25,10 +25,60 @@ def _resolve_binary() -> str:
     raise FileNotFoundError("djtoolkit binary not found in PATH")
 
 
+def _localsystem_config_dir() -> Path:
+    """Return the config dir LocalSystem services see (different from %APPDATA%).
+
+    The Windows service runs as LocalSystem, whose %APPDATA% expands to
+    ``C:\\Windows\\System32\\config\\systemprofile\\AppData\\Roaming``,
+    not the installing user's profile. Credentials/config written by
+    ``agent configure`` (running as the user) aren't visible to the
+    service unless we copy them across.
+    """
+    import os
+    sys_root = os.environ.get("SystemRoot", r"C:\Windows")
+    return Path(sys_root) / "System32" / "config" / "systemprofile" / "AppData" / "Roaming" / "djtoolkit"
+
+
+def _sync_user_config_to_localsystem() -> None:
+    """Copy the installing user's credentials.json and config.toml into the
+    LocalSystem profile so the service (running as LocalSystem) can read them.
+
+    No-op on files that don't exist. Caller must have admin rights for the
+    target path to be writable.
+    """
+    import shutil
+    from djtoolkit.agent.paths import config_dir
+
+    src_dir = config_dir()
+    dst_dir = _localsystem_config_dir()
+    if src_dir == dst_dir:
+        return  # already running as LocalSystem; nothing to do
+    try:
+        dst_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        log.warning("Could not create LocalSystem config dir %s: %s", dst_dir, exc)
+        return
+
+    for name in ("credentials.json", "config.toml"):
+        src = src_dir / name
+        if not src.exists():
+            continue
+        try:
+            shutil.copy2(src, dst_dir / name)
+            log.info("Synced %s → %s", src, dst_dir / name)
+        except OSError as exc:
+            log.warning("Could not copy %s to %s: %s", src, dst_dir, exc)
+
+
 def install() -> Path | None:
     """Install the agent as a Windows Service. Returns None (no plist on Windows)."""
     import win32serviceutil
     import win32service
+
+    # Sync user credentials/config to LocalSystem profile BEFORE registering
+    # the service — the service will start immediately after install and
+    # needs creds to be present.
+    _sync_user_config_to_localsystem()
 
     binary = _resolve_binary()
     win32serviceutil.InstallService(

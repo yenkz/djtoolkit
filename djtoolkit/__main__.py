@@ -663,6 +663,22 @@ sources = "coverart itunes deezer"
     console.print(f"[green]✓[/green] Credentials stored in {credential_store_name()}")
     console.print(f"[green]✓[/green] Config written to [bold]{config_path}[/bold]")
     console.print(f"  cloud_url = {cloud_url}")
+
+    # On Windows, if the service is already installed it runs as LocalSystem
+    # and won't see this user's profile. Mirror creds/config to its profile so
+    # re-configuring after install doesn't require a reinstall.
+    import sys as _sys
+    if _sys.platform == "win32":
+        try:
+            from djtoolkit.agent.windows_service import (
+                _sync_user_config_to_localsystem, is_installed,
+            )
+            if is_installed():
+                _sync_user_config_to_localsystem()
+                console.print("[green]✓[/green] Synced to LocalSystem profile (service)")
+        except Exception as exc:
+            console.print(f"[yellow]Could not sync to service profile: {exc}[/yellow]")
+
     console.print(f"\nNext: run [bold]djtoolkit agent install[/bold] to start the background daemon.")
 
 
