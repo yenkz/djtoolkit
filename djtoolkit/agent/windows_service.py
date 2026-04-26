@@ -169,38 +169,54 @@ class DJToolkitAgentService(_ServiceBase):
 
     def SvcDoRun(self):
         """Called by SCM to start the service."""
-        import asyncio
-        import logging
+        import traceback
+        import win32service
         import servicemanager
-        from djtoolkit.agent.daemon import run_daemon
-        from djtoolkit.agent.paths import config_dir, log_dir
-        from djtoolkit.config import load as load_config
 
+        # Report RUNNING immediately so SCM doesn't time out (event 1053).
+        # All heavy work (imports, config load, daemon loop) must happen AFTER
+        # this — otherwise startup latency exceeds the 30s SCM grace window.
+        self.ReportServiceStatus(win32service.SERVICE_RUNNING)
         servicemanager.LogInfoMsg(f"{SERVICE_NAME} starting")
 
-        logs = log_dir()
-        logs.mkdir(parents=True, exist_ok=True)
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            handlers=[logging.FileHandler(logs / "agent.log")],
-        )
-
-        cfg_path = str(config_dir() / "config.toml")
-        cfg = load_config(cfg_path)
-
-        self._shutdown_event = asyncio.Event()
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-
         try:
-            self._loop.run_until_complete(
-                run_daemon(cfg, shutdown_event=self._shutdown_event)
-            )
-        finally:
-            self._loop.close()
+            import asyncio
+            import logging
+            from djtoolkit.agent.daemon import run_daemon
+            from djtoolkit.agent.paths import config_dir, log_dir
+            from djtoolkit.config import load as load_config
 
-        servicemanager.LogInfoMsg(f"{SERVICE_NAME} stopped")
+            logs = log_dir()
+            logs.mkdir(parents=True, exist_ok=True)
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                handlers=[logging.FileHandler(logs / "agent.log")],
+            )
+
+            cfg_path = str(config_dir() / "config.toml")
+            cfg = load_config(cfg_path)
+
+            self._shutdown_event = asyncio.Event()
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+
+            try:
+                self._loop.run_until_complete(
+                    run_daemon(cfg, shutdown_event=self._shutdown_event)
+                )
+            finally:
+                self._loop.close()
+
+            servicemanager.LogInfoMsg(f"{SERVICE_NAME} stopped")
+        except BaseException as exc:
+            # Surface any startup/runtime failure to the Windows Event Log —
+            # otherwise the service vanishes silently.
+            servicemanager.LogErrorMsg(
+                f"{SERVICE_NAME} crashed: {type(exc).__name__}: {exc}\n"
+                + traceback.format_exc()
+            )
+            raise
 
 
 def service_main():
